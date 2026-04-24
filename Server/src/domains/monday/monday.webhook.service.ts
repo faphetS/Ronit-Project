@@ -44,6 +44,10 @@ interface BoardGroupsResponse {
   }>;
 }
 
+interface CreateGroupResponse {
+  create_group: { id: string };
+}
+
 interface CreateItemResponse {
   create_item: { id: string };
 }
@@ -210,11 +214,21 @@ async function findMonthGroup(
   );
 
   if (!group) {
-    throw new AppError(
-      422,
-      `No group "${expected}" on board ${boardId}`,
-      "MONDAY_GROUP_NOT_FOUND",
+    const { create_group } = await gql<CreateGroupResponse>(
+      `mutation ($boardId: ID!, $groupName: String!) {
+        create_group(board_id: $boardId, group_name: $groupName) {
+          id
+        }
+      }`,
+      { boardId, groupName: expected },
     );
+
+    logger.info(
+      { boardId, groupName: expected, groupId: create_group.id },
+      "Auto-created missing month group on service board",
+    );
+
+    return create_group.id;
   }
 
   return group.id;
