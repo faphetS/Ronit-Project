@@ -1,0 +1,531 @@
+{
+  "capturedAt": "2026-04-23T11:44:04.019Z",
+  "apiVersion": "2025-04",
+  "me": {
+    "id": "102434036",
+    "name": "Ronit",
+    "email": "barashro@gmail.com",
+    "is_admin": true
+  },
+  "account": {
+    "id": "34743450",
+    "name": "Ronit",
+    "slug": "ronit550418",
+    "tier": "standard"
+  },
+  "workspaces": [
+    {
+      "id": "6193911",
+      "name": "Main workspace",
+      "kind": "open",
+      "description": null
+    }
+  ],
+  "boards": [
+    {
+      "id": "5095155077",
+      "name": "הפרשות חלה 26",
+      "state": "active",
+      "description": "Manage any type of project. Assign owners, set timelines and keep track of where your project stands.",
+      "workspace_id": "6193911",
+      "workspace": {
+        "id": "6193911",
+        "name": "Main workspace"
+      },
+      "items_count": 0,
+      "columns": [
+        {
+          "id": "name",
+          "title": "Name",
+          "type": "name",
+          "settings_str": "{}"
+        },
+        {
+          "id": "file",
+          "title": "Files",
+          "type": "file",
+          "settings_str": "{}"
+        },
+        {
+          "id": "text_mm2nsqc9",
+          "title": "Price quote",
+          "type": "text",
+          "settings_str": "{}"
+        },
+        {
+          "id": "phone_mm2pf4nm",
+          "title": "Phone",
+          "type": "phone",
+          "settings_str": "{}"
+        },
+        {
+          "id": "dropdown_mm2p1nvf",
+          "title": "Service",
+          "type": "dropdown",
+          "settings_str": "{\"labels\":[{\"id\":1,\"name\":\"טיסות לאומן\"},{\"id\":2,\"name\":\"טיסות לפולין\"},{\"id\":3,\"name\":\"הפרשות חלה\"}]}"
+        },
+        {
+          "id": "long_text_mm2pqwp9",
+          "title": "Next step",
+          "type": "long_text",
+          "settings_str": "{}"
+        },
+        {
+          "id": "color_mm2pznkk",
+          "title": "Paid",
+          "type": "status",
+          "settings_str": "{\"done_colors\":[1],\"labels\":{\"0\":\"כן\",\"1\":\"לא\"},\"labels_colors\":{\"0\":{\"color\":\"#fdab3d\",\"border\":\"#e99729\",\"var_name\":\"orange\"},\"1\":{\"color\":\"#00c875\",\"border\":\"#00b461\",\"var_name\":\"green-shadow\"}}}"
+        },
+        {
+          "id": "date_mm2psp19",
+          "title": "Last phone call date",
+          "type": "date",
+          "settings_str": "{}"
+        },
+        {
+          "id": "numeric_mm2paaz",
+          "title": "Phone calls count",
+          "type": "numbers",
+          "settings_str": "{}"
+        },
+        {
+          "id": "date_mm2psbnf",
+          "title": "Date of event",
+          "type": "date",
+          "settings_str": "{}"
+        }
+      ],
+      "groups": [
+        {
+          "id": "group_mm2p7ycs",
+          "title": "Dec 2026",
+          "color": "#037f4c"
+        },
+        {
+          "id": "group_mm2p666d",
+          "title": "Nov 2026",
+          "color": "#579bfc"
+        },
+        {
+          "id": "group_mm2p1m3x",
+          "title": "Oct 2026",
+          "color": "#c4c4c4"
+        },
+        {
+          "id": "group_mm2phsmg",
+          "title": "Sep 2026",
+          "color": "#a25ddc"
+        },
+        {
+          "id": "group_mm2prb94",
+          "title": "Aug 2026",
+          "color": "#a25ddc"
+        },
+        {
+          "id": "group_mm2ph5jm",
+          "title": "Jul 2026",
+          "color": "#a25ddc"
+        },
+        {
+          "id": "group_mm2psepz",
+          "title": "Jun 2026",
+          "color": "#579bfc"
+        },
+        {
+          "id": "group_mm2pkgwk",
+          "title": "May 2026",
+          "color": "#e2445c"
+        },
+        {
+          "id": "group_mm2ptn44",
+          "title": "Apr 2026",
+          "color": "#fdab3d"
+        },
+        {
+          "id": "group_mm2prggn",
+          "title": "Mar 2026",
+          "color": "#a25ddc"
+        },
+        {
+          "id": "group_mm2pxc6s",
+          "title": "Feb 2026",
+          "color": "#579bfc"
+        },
+        {
+          "id": "group_mm2pg5ew",
+          "title": "Jan 2026",
+          "color": "#a25ddc"
+        }
+      ]
+    },
+    {
+      "id": "5095155041",
+      "name": "טיסות לפולין 26",
+      "state": "active",
+      "description": "Manage any type of project. Assign owners, set timelines and keep track of where your project stands.",
+      "workspace_id": "6193911",
+      "workspace": {
+        "id": "6193911",
+        "name": "Main workspace"
+      },
+      "items_count": 0,
+      "columns": [
+        {
+          "id": "name",
+          "title": "Name",
+          "type": "name",
+          "settings_str": "{}"
+        },
+        {
+          "id": "file",
+          "title": "Files",
+          "type": "file",
+          "settings_str": "{}"
+        },
+        {
+          "id": "text_mm2nsqc9",
+          "title": "Price quote",
+          "type": "text",
+          "settings_str": "{}"
+        },
+        {
+          "id": "phone_mm2pf4nm",
+          "title": "Phone",
+          "type": "phone",
+          "settings_str": "{}"
+        },
+        {
+          "id": "dropdown_mm2p1nvf",
+          "title": "Service",
+          "type": "dropdown",
+          "settings_str": "{\"labels\":[{\"id\":1,\"name\":\"טיסות לאומן\"},{\"id\":2,\"name\":\"טיסות לפולין\"},{\"id\":3,\"name\":\"הפרשות חלה\"}]}"
+        },
+        {
+          "id": "long_text_mm2pqwp9",
+          "title": "Next step",
+          "type": "long_text",
+          "settings_str": "{}"
+        },
+        {
+          "id": "color_mm2pznkk",
+          "title": "Paid",
+          "type": "status",
+          "settings_str": "{\"done_colors\":[1],\"labels\":{\"0\":\"כן\",\"1\":\"לא\"},\"labels_colors\":{\"0\":{\"color\":\"#fdab3d\",\"border\":\"#e99729\",\"var_name\":\"orange\"},\"1\":{\"color\":\"#00c875\",\"border\":\"#00b461\",\"var_name\":\"green-shadow\"}}}"
+        },
+        {
+          "id": "date_mm2psp19",
+          "title": "Last phone call date",
+          "type": "date",
+          "settings_str": "{}"
+        },
+        {
+          "id": "numeric_mm2paaz",
+          "title": "Phone calls count",
+          "type": "numbers",
+          "settings_str": "{}"
+        },
+        {
+          "id": "date_mm2psbnf",
+          "title": "Date of event",
+          "type": "date",
+          "settings_str": "{}"
+        }
+      ],
+      "groups": [
+        {
+          "id": "group_mm2p2x1p",
+          "title": "Dec 2026",
+          "color": "#579bfc"
+        },
+        {
+          "id": "group_mm2pr385",
+          "title": "Nov 2026",
+          "color": "#037f4c"
+        },
+        {
+          "id": "group_mm2p2qd8",
+          "title": "Oct 2026",
+          "color": "#a25ddc"
+        },
+        {
+          "id": "group_mm2pyfwx",
+          "title": "Sep 2026",
+          "color": "#fdab3d"
+        },
+        {
+          "id": "group_mm2pvtqn",
+          "title": "Aug 2026",
+          "color": "#037f4c"
+        },
+        {
+          "id": "group_mm2pnem6",
+          "title": "Jul 2026",
+          "color": "#037f4c"
+        },
+        {
+          "id": "group_mm2pxv6",
+          "title": "Jun 2026",
+          "color": "#c4c4c4"
+        },
+        {
+          "id": "group_mm2p9dn3",
+          "title": "May 2026",
+          "color": "#c4c4c4"
+        },
+        {
+          "id": "group_mm2p5rmd",
+          "title": "Apr 2026",
+          "color": "#00c875"
+        },
+        {
+          "id": "group_mm2pqmsr",
+          "title": "Mar 2026",
+          "color": "#037f4c"
+        },
+        {
+          "id": "group_mm2pczqx",
+          "title": "Feb 2026",
+          "color": "#037f4c"
+        },
+        {
+          "id": "group_mm2p2kdj",
+          "title": "Jan 2026",
+          "color": "#a25ddc"
+        }
+      ]
+    },
+    {
+      "id": "5095155009",
+      "name": "טיסות לאומן 26",
+      "state": "active",
+      "description": "Manage any type of project. Assign owners, set timelines and keep track of where your project stands.",
+      "workspace_id": "6193911",
+      "workspace": {
+        "id": "6193911",
+        "name": "Main workspace"
+      },
+      "items_count": 0,
+      "columns": [
+        {
+          "id": "name",
+          "title": "Name",
+          "type": "name",
+          "settings_str": "{}"
+        },
+        {
+          "id": "file",
+          "title": "Files",
+          "type": "file",
+          "settings_str": "{}"
+        },
+        {
+          "id": "text_mm2nsqc9",
+          "title": "Price quote",
+          "type": "text",
+          "settings_str": "{}"
+        },
+        {
+          "id": "phone_mm2pf4nm",
+          "title": "Phone",
+          "type": "phone",
+          "settings_str": "{}"
+        },
+        {
+          "id": "dropdown_mm2p1nvf",
+          "title": "Service",
+          "type": "dropdown",
+          "settings_str": "{\"labels\":[{\"id\":1,\"name\":\"טיסות לאומן\"},{\"id\":2,\"name\":\"טיסות לפולין\"},{\"id\":3,\"name\":\"הפרשות חלה\"}]}"
+        },
+        {
+          "id": "long_text_mm2pqwp9",
+          "title": "Next step",
+          "type": "long_text",
+          "settings_str": "{}"
+        },
+        {
+          "id": "color_mm2pznkk",
+          "title": "Paid",
+          "type": "status",
+          "settings_str": "{\"done_colors\":[1],\"labels\":{\"0\":\"כן\",\"1\":\"לא\"},\"labels_colors\":{\"0\":{\"color\":\"#fdab3d\",\"border\":\"#e99729\",\"var_name\":\"orange\"},\"1\":{\"color\":\"#00c875\",\"border\":\"#00b461\",\"var_name\":\"green-shadow\"}}}"
+        },
+        {
+          "id": "date_mm2psp19",
+          "title": "Last phone call date",
+          "type": "date",
+          "settings_str": "{}"
+        },
+        {
+          "id": "numeric_mm2paaz",
+          "title": "Phone calls count",
+          "type": "numbers",
+          "settings_str": "{}"
+        },
+        {
+          "id": "date_mm2psbnf",
+          "title": "Date of event",
+          "type": "date",
+          "settings_str": "{}"
+        }
+      ],
+      "groups": [
+        {
+          "id": "group_mm2pxdrc",
+          "title": "Dec 2026",
+          "color": "#00c875"
+        },
+        {
+          "id": "group_mm2pz6v5",
+          "title": "Nov 2026",
+          "color": "#fdab3d"
+        },
+        {
+          "id": "group_mm2pgge3",
+          "title": "Oct 2026",
+          "color": "#00c875"
+        },
+        {
+          "id": "group_mm2pg12w",
+          "title": "Sep 2026",
+          "color": "#037f4c"
+        },
+        {
+          "id": "group_mm2p9eks",
+          "title": "Aug 2026",
+          "color": "#037f4c"
+        },
+        {
+          "id": "group_mm2pqvdg",
+          "title": "Jul 2026",
+          "color": "#fdab3d"
+        },
+        {
+          "id": "group_mm2p3ep9",
+          "title": "Jun 2026",
+          "color": "#fdab3d"
+        },
+        {
+          "id": "group_mm2pjrm",
+          "title": "May 2026",
+          "color": "#a25ddc"
+        },
+        {
+          "id": "group_mm2pgs5b",
+          "title": "Apr 2026",
+          "color": "#c4c4c4"
+        },
+        {
+          "id": "group_mm2pm3pn",
+          "title": "Mar 2026",
+          "color": "#579bfc"
+        },
+        {
+          "id": "group_mm2pjk6n",
+          "title": "Feb 2026",
+          "color": "#fdab3d"
+        },
+        {
+          "id": "group_mm2p1t08",
+          "title": "Jan 2026",
+          "color": "#e2445c"
+        }
+      ]
+    },
+    {
+      "id": "5094895163",
+      "name": "Ronit CRM",
+      "state": "active",
+      "description": "Manage any type of project. Assign owners, set timelines and keep track of where your project stands.",
+      "workspace_id": "6193911",
+      "workspace": {
+        "id": "6193911",
+        "name": "Main workspace"
+      },
+      "items_count": 0,
+      "columns": [
+        {
+          "id": "name",
+          "title": "Name",
+          "type": "name",
+          "settings_str": "{}"
+        },
+        {
+          "id": "file",
+          "title": "Files",
+          "type": "file",
+          "settings_str": "{}"
+        },
+        {
+          "id": "text_mm2nsqc9",
+          "title": "Price quote",
+          "type": "text",
+          "settings_str": "{}"
+        },
+        {
+          "id": "phone_mm2pf4nm",
+          "title": "Phone",
+          "type": "phone",
+          "settings_str": "{}"
+        },
+        {
+          "id": "dropdown_mm2p1nvf",
+          "title": "Service",
+          "type": "dropdown",
+          "settings_str": "{\"labels\":[{\"id\":1,\"name\":\"טיסות לאומן\"},{\"id\":2,\"name\":\"טיסות לפולין\"},{\"id\":3,\"name\":\"הפרשות חלה\"}]}"
+        },
+        {
+          "id": "long_text_mm2pqwp9",
+          "title": "Next step",
+          "type": "long_text",
+          "settings_str": "{}"
+        },
+        {
+          "id": "color_mm2pznkk",
+          "title": "Paid",
+          "type": "status",
+          "settings_str": "{\"done_colors\":[1],\"labels\":{\"0\":\"כן\",\"1\":\"לא\"},\"labels_colors\":{\"0\":{\"color\":\"#fdab3d\",\"border\":\"#e99729\",\"var_name\":\"orange\"},\"1\":{\"color\":\"#00c875\",\"border\":\"#00b461\",\"var_name\":\"green-shadow\"}}}"
+        },
+        {
+          "id": "date_mm2psp19",
+          "title": "Last phone call date",
+          "type": "date",
+          "settings_str": "{}"
+        },
+        {
+          "id": "numeric_mm2paaz",
+          "title": "Phone calls count",
+          "type": "numbers",
+          "settings_str": "{}"
+        },
+        {
+          "id": "date_mm2psbnf",
+          "title": "Date of event",
+          "type": "date",
+          "settings_str": "{}"
+        }
+      ],
+      "groups": [
+        {
+          "id": "new_group29179",
+          "title": "new leads",
+          "color": "#579bfc"
+        },
+        {
+          "id": "new_group43041",
+          "title": "contacted",
+          "color": "#00c875"
+        },
+        {
+          "id": "group_mm2n54r9",
+          "title": "closed",
+          "color": "#579bfc"
+        }
+      ]
+    }
+  ],
+  "itemSamples": {
+    "5095155077": [],
+    "5095155041": [],
+    "5095155009": [],
+    "5094895163": []
+  }
+}
