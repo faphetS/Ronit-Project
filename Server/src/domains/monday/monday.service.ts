@@ -75,3 +75,36 @@ export async function createLeadRow(
 
   return { itemId: data.create_item.id };
 }
+
+interface ChangeColumnValueResponse {
+  change_multiple_column_values: { id: string };
+}
+
+export async function updateItemPhone(
+  itemId: string,
+  phone: string,
+): Promise<void> {
+  const digits = phone.replace(/\D/g, "");
+  const columnValues: Record<string, unknown> = {
+    [env.MONDAY_COL_PHONE_ID]: { phone: digits, countryShortName: "IL" },
+  };
+
+  await gql<ChangeColumnValueResponse>(
+    `mutation ($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
+      change_multiple_column_values(
+        board_id: $boardId
+        item_id: $itemId
+        column_values: $columnValues
+      ) {
+        id
+      }
+    }`,
+    {
+      boardId: env.MONDAY_BOARD_CRM_ID,
+      itemId,
+      columnValues: JSON.stringify(columnValues),
+    },
+  );
+
+  logger.info({ itemId, hasPhone: true }, "Monday CRM lead phone updated");
+}

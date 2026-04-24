@@ -96,7 +96,9 @@ export async function receiveWebhook(
       try {
         await handleIncomingMessage({
           messageText,
+          senderId: event.sender.id,
           senderUsername: event.sender.username ?? event.sender.id,
+          messageId: event.message?.mid,
         });
       } catch (err) {
         logger.error(

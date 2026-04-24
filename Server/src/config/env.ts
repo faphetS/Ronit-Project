@@ -49,10 +49,17 @@ const envSchema = z.object({
   META_APP_SECRET: z.string().min(1).optional(),
   META_VERIFY_TOKEN: z.string().min(1).optional(),
 
+  // Supabase — required for dedup and future tables (followup, holiday).
+  SUPABASE_URL: z.string().url().optional(),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
+
   // OpenRouter — required when the classifier is invoked; optional otherwise so the
   // skeleton still boots with zero env vars set.
   OPENROUTER_API_KEY: z.string().min(1).optional(),
   OPENROUTER_MODEL: z.string().default("anthropic/claude-haiku-4.5"),
+
+  // External service API keys — stored here for programmatic access.
+  RENDER_API_KEY: z.string().min(1).optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
