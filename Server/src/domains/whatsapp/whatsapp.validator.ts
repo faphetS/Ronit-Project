@@ -21,7 +21,8 @@ export const GreenApiWebhookSchema = z.object({
     .optional(),
   messageData: z
     .object({
-      typeMessage: z.string(),
+      typeMessage: z.string().optional(),
+      textMessage: z.string().optional(),
       textMessageData: z.object({ textMessage: z.string() }).optional(),
     })
     .optional(),

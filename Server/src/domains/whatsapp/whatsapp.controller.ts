@@ -25,10 +25,8 @@ export async function receiveWebhook(req: Request, res: Response): Promise<void>
     return;
   }
 
-  const senderChatId = isIncoming
-    ? body.senderData?.chatId
-    : body.chatId;
-  const text = body.messageData?.textMessageData?.textMessage;
+  const senderChatId = body.senderData?.chatId ?? body.chatId;
+  const text = body.messageData?.textMessageData?.textMessage ?? body.messageData?.textMessage;
 
   if (!senderChatId || !text) {
     return;
