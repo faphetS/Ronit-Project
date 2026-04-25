@@ -24,6 +24,11 @@ export const GreenApiWebhookSchema = z.object({
       typeMessage: z.string().optional(),
       textMessage: z.string().optional(),
       textMessageData: z.object({ textMessage: z.string() }).optional(),
+      extendedTextMessageData: z.object({ text: z.string() }).optional(),
+      quotedMessage: z.object({
+        textMessage: z.string().optional(),
+        extendedTextMessage: z.object({ text: z.string() }).optional(),
+      }).optional(),
     })
     .optional(),
 });

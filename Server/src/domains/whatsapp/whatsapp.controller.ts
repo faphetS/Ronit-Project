@@ -13,6 +13,19 @@ function normalizeDigits(value: string): string {
   return value.replace(/\D/g, "");
 }
 
+function extractText(body: GreenApiWebhook): string | undefined {
+  const md = body.messageData;
+  if (!md) return undefined;
+  return (
+    md.textMessageData?.textMessage ??
+    md.extendedTextMessageData?.text ??
+    md.textMessage ??
+    md.quotedMessage?.textMessage ??
+    md.quotedMessage?.extendedTextMessage?.text ??
+    undefined
+  );
+}
+
 export async function receiveWebhook(req: Request, res: Response): Promise<void> {
   const body = req.body as GreenApiWebhook;
 
@@ -28,11 +41,7 @@ export async function receiveWebhook(req: Request, res: Response): Promise<void>
   }
 
   const senderChatId = body.senderData?.chatId ?? body.chatId;
-  const md = body.messageData as Record<string, unknown> | undefined;
-  const text =
-    body.messageData?.textMessageData?.textMessage ??
-    body.messageData?.textMessage ??
-    (md?.extendedTextMessageData as Record<string, unknown> | undefined)?.text as string | undefined;
+  const text = extractText(body);
 
   if (!senderChatId || !text) {
     return;
