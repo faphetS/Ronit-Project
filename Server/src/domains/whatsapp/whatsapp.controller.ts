@@ -29,7 +29,7 @@ function extractText(body: GreenApiWebhook): string | undefined {
 export async function receiveWebhook(req: Request, res: Response): Promise<void> {
   const body = req.body as GreenApiWebhook;
 
-  logger.info({ typeWebhook: body.typeWebhook, chatId: body.senderData?.chatId ?? body.chatId, messageType: body.messageData?.typeMessage }, "WhatsApp webhook received");
+  logger.info({ webhookBody: JSON.stringify(body) }, "WhatsApp webhook raw body");
 
   res.sendStatus(200);
 
