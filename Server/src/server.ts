@@ -13,6 +13,7 @@ import { AppError, globalErrorHandler } from "./lib/errors.js";
 import { requestId } from "./middleware/requestId.js";
 import apiRoutes from "./routes/index.js";
 import rateLimit from "express-rate-limit";
+import { startWhatsAppCrons } from "./domains/whatsapp/cron.js";
 
 const app = express();
 
@@ -59,10 +60,14 @@ app.use(
   }),
 );
 
-// 5a. Raw body for Meta webhook HMAC verification — MUST run before express.json()
-// so the controller can compute sha256 over the exact bytes Meta signed.
+// 5a. Raw body for webhook HMAC verification — MUST run before express.json()
+// so controllers can compute sha256 over the exact bytes the provider signed.
 app.use(
   "/api/meta/webhook",
+  express.raw({ type: "application/json", limit: "1mb" }),
+);
+app.use(
+  "/api/calls/webhook",
   express.raw({ type: "application/json", limit: "1mb" }),
 );
 
@@ -107,6 +112,7 @@ app.use(globalErrorHandler);
 // --- Graceful shutdown ---
 const server = app.listen(env.PORT, () => {
   logger.info(`Server running on ${env.BACKEND_URL} [${env.NODE_ENV}]`);
+  startWhatsAppCrons();
 });
 
 function shutdown(signal: string) {

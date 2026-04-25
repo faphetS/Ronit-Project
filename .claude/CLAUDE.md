@@ -109,14 +109,19 @@ Status of each integration. When a new decision is made, update this section and
 - **Env to add later:** `OPENROUTER_FALLBACK_MODEL` (when fallback logic is added).
 
 ### Call recording + transcription
-- **Decision:** _TBD_ — leaning Fireflies (boss preference). Options: (a) Twilio Voice + Deepgram Hebrew, (b) Aircall/OpenPhone + Fireflies, (c) Zoom/Meet + Fireflies, (d) Fireflies mobile app (speakerphone + mic OR upload post-call recording), (e) Timeless Mobile Recorder (merge-call pattern — Hebrew-supported, Max plan $29–39/mo).
-- **Cellular-call constraint (important):** No app can directly tap cellular audio on iOS/Android — OS-level lock. Paths that work:
-  - **Fireflies mobile recorder via speakerphone** — mic captures both voices, transcription works but audio quality is lower.
-  - **Phone-native recorder** (Samsung/OEM on Android, TapeACall/Rev on iOS) → upload file to Fireflies or Timeless.
-  - **Timeless Mobile Recorder** — issues a dedicated phone number; user dials it via 3-way merge-call during a live cellular call, Timeless records + transcribes automatically. **This is the only option with native, seamless cellular capture we've found.** Currently in beta.
-  - Softphone (OpenPhone, Aircall, Zoom Phone, RingCentral) with Fireflies native integration — cleanest audio but changes Ronit's workflow.
-- **Notes:** Build behind a `CallProvider` interface ([src/integrations/calls.ts](Server/src/integrations/calls.ts)) so the rest of the system is decoupled from the choice. Webhook target: `POST /api/calls/webhook`.
-- **Env to add when chosen:** depends on provider (Twilio: `TWILIO_*`, `DEEPGRAM_API_KEY` / Fireflies: `FIREFLIES_API_KEY` / Timeless: `TIMELESS_API_KEY`, `TIMELESS_WEBHOOK_SECRET`).
+- **Decision:** Timeless.day (locked for now) — Israeli company, merge-call method, built-in Hebrew transcription, iOS + Android.
+- **How it works:** During a cellular call, Ronit taps "Add Call" → dials the Timeless bridge number → taps "Merge Calls" → Timeless records + transcribes. When transcript is ready, Timeless sends a webhook to our backend.
+- **What's done:**
+  - `CallProvider` interface at [src/integrations/calls.ts](Server/src/integrations/calls.ts) — abstracts the provider so it can be swapped later.
+  - Timeless API client at [src/domains/calls/calls.client.ts](Server/src/domains/calls/calls.client.ts) — fetches transcripts via `GET /meetings/{id}/transcript`.
+  - Webhook handler at `POST /api/calls/webhook` — HMAC-SHA256 verification (`X-Webhook-Signature`), parses `meeting.transcript_ready` event, raw body mounted before `express.json()`.
+  - LLM phone extraction in [src/domains/calls/calls.service.ts](Server/src/domains/calls/calls.service.ts) — OpenRouter extracts phone numbers from Hebrew/English transcript text (needed because Timeless API has no phone field in participant metadata).
+  - Monday.com CRM automation — `findLeadByPhone()` searches CRM board with multi-format normalization (Israeli +972/0-prefix, Philippine +63), `moveItemToGroup()` moves lead to "Contacted", `incrementCallsColumn()` adds 1 to call counter. **Tested and working.**
+  - Dev test endpoint at `POST /api/calls/test-inject` — bypasses Timeless, takes `{ phone, transcriptText? }` to test the Monday.com matching + move + increment flow directly.
+- **Not yet done:** Real Timeless account connection (needs Max plan $39/mo for API + webhooks), end-to-end webhook test with actual call recording, verification that bridge number works with Israeli +972 numbers (currently only US +1 bridge number confirmed).
+- **Known gap:** Timeless participant metadata has NO phone number field. Phone is extracted from transcript text via LLM — if neither party says a phone number during the call, matching fails. Future workaround: pre-call tagging in Monday.com.
+- **Env in use:** `TIMELESS_API_KEY`, `TIMELESS_WEBHOOK_SECRET`, `MONDAY_GROUP_CONTACTED_ID`, `MONDAY_COL_CALLS_ID`.
+- **Research:** See [research/call-recording-comparison.md](research/call-recording-comparison.md) for full market comparison (15+ apps analyzed).
 
 ### Holiday calendar
 - **Decision:** Hebcal (locked — free, no auth)
@@ -153,15 +158,24 @@ Status of each integration. When a new decision is made, update this section and
 2. Meta domain — Instagram DM webhook ingest with HMAC verification, GET handshake
 3. LLM classifier — OpenRouter integration for lead classification (uman/poland/challah)
 4. Monday.com client — GraphQL client + lead-row creation in CRM board
+5. Call recording domain — Timeless webhook handler, LLM phone extraction, Monday.com lead matching + group move + calls increment. Backend tested via test-inject. Waiting on Timeless paid account for end-to-end.
 
 **Next up:**
+- Timeless end-to-end connection (when paid account is ready — see steps below)
 - Monday.com webhook handler (item_moved_to_specific_group → service board routing)
 - Supabase database setup (processed_webhooks dedup, followup_log, holiday tables)
 - pg-boss + node-cron (job queue + scheduled tasks)
 - WhatsApp integration (holiday campaign prompt/reply)
-- Call recording + transcription (provider TBD)
 - Holiday campaign flow (Hebcal + WhatsApp)
 - Weekly follow-up flow
+
+### Steps to connect Timeless (when you have a paid Max plan)
+1. Get your **API key** from Timeless dashboard → Settings → API. Add to `.env` as `TIMELESS_API_KEY`.
+2. Configure a **webhook** in Timeless pointing to `https://<your-domain>/api/calls/webhook` with event `meeting.transcript_ready`. Copy the webhook secret → add to `.env` as `TIMELESS_WEBHOOK_SECRET`.
+3. Deploy to Render (or wherever) so the webhook URL is publicly reachable.
+4. Make a test call: start a cellular call → "Add Call" → dial bridge number → "Merge Calls" → have a conversation that mentions a phone number.
+5. Wait for Timeless to transcribe → webhook fires → check server logs for the full pipeline (transcript fetch → LLM extraction → Monday.com match).
+6. If the bridge number is US-only (+1 530), email `hey@magical.team` to ask about Israeli local numbers — they're an Israeli company so there's a good chance.
 
 See [PLAN.md](PLAN.md) for full domain plan details.
 

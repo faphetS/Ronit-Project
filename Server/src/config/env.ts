@@ -60,6 +60,21 @@ const envSchema = z.object({
 
   // External service API keys — stored here for programmatic access.
   RENDER_API_KEY: z.string().min(1).optional(),
+
+  // Timeless.day — call recording + transcription
+  TIMELESS_API_KEY: z.string().min(1).optional(),
+  TIMELESS_WEBHOOK_SECRET: z.string().min(1).optional(),
+
+  // Monday.com — CRM group/column IDs for call tracking
+  MONDAY_GROUP_CONTACTED_ID: z.string().optional(),
+  MONDAY_COL_CALLS_ID: z.string().optional(),
+  MONDAY_COL_LAST_CALL_DATE_ID: z.string().default("date_mm2psp19"),
+
+  // GreenAPI / WhatsApp
+  GREENAPI_API_URL: z.string().url().default("https://7103.api.greenapi.com"),
+  GREENAPI_INSTANCE_ID: z.string().min(1).optional(),
+  GREENAPI_API_TOKEN: z.string().min(1).optional(),
+  RONIT_OWNER_WA_NUMBER: z.string().min(10).optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
