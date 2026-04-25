@@ -18,11 +18,16 @@ export async function receiveWebhook(req: Request, res: Response): Promise<void>
 
   res.sendStatus(200);
 
-  if (body.typeWebhook !== "incomingMessageReceived") {
+  const isIncoming = body.typeWebhook === "incomingMessageReceived";
+  const isOutgoing = body.typeWebhook === "outgoingMessage" || body.typeWebhook === "outgoingMessageReceived";
+
+  if (!isIncoming && !isOutgoing) {
     return;
   }
 
-  const senderChatId = body.senderData?.chatId;
+  const senderChatId = isIncoming
+    ? body.senderData?.chatId
+    : body.chatId;
   const text = body.messageData?.textMessageData?.textMessage;
 
   if (!senderChatId || !text) {

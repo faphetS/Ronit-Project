@@ -11,6 +11,7 @@ export const GreenApiWebhookSchema = z.object({
     .optional(),
   timestamp: z.number().optional(),
   idMessage: z.string().optional(),
+  chatId: z.string().optional(),
   senderData: z
     .object({
       chatId: z.string(),
