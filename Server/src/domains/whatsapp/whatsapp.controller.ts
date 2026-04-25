@@ -16,6 +16,8 @@ function normalizeDigits(value: string): string {
 export async function receiveWebhook(req: Request, res: Response): Promise<void> {
   const body = req.body as GreenApiWebhook;
 
+  logger.info({ typeWebhook: body.typeWebhook, chatId: body.senderData?.chatId ?? body.chatId, messageType: body.messageData?.typeMessage }, "WhatsApp webhook received");
+
   res.sendStatus(200);
 
   const isIncoming = body.typeWebhook === "incomingMessageReceived";
@@ -26,7 +28,11 @@ export async function receiveWebhook(req: Request, res: Response): Promise<void>
   }
 
   const senderChatId = body.senderData?.chatId ?? body.chatId;
-  const text = body.messageData?.textMessageData?.textMessage ?? body.messageData?.textMessage;
+  const md = body.messageData as Record<string, unknown> | undefined;
+  const text =
+    body.messageData?.textMessageData?.textMessage ??
+    body.messageData?.textMessage ??
+    (md?.extendedTextMessageData as Record<string, unknown> | undefined)?.text as string | undefined;
 
   if (!senderChatId || !text) {
     return;
