@@ -1,10 +1,10 @@
 import { logger } from "../../config/logger.js";
 import { supabase } from "../../config/supabase.js";
-import { getContactedLeadsWithLastCallDate } from "../monday/monday.service.js";
+import { getAllLeadsForFollowup } from "../monday/monday.service.js";
 import { sendWhatsApp } from "./whatsapp.service.js";
 
 export async function checkAndSendFollowups(daysThreshold = 7): Promise<void> {
-  const leads = await getContactedLeadsWithLastCallDate();
+  const leads = await getAllLeadsForFollowup();
 
   if (leads.length === 0) {
     logger.info("No contacted leads found — skipping follow-up");

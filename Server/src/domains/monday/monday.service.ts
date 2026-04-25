@@ -26,9 +26,10 @@ export async function createLeadRow(
 
   if (input.phone) {
     const digits = input.phone.replace(/\D/g, "");
+    const country = digits.startsWith("63") ? "PH" : "IL";
     columnValues[env.MONDAY_COL_PHONE_ID] = {
       phone: digits,
-      countryShortName: "IL",
+      countryShortName: country,
     };
   }
 
@@ -86,7 +87,7 @@ export async function updateItemPhone(
 ): Promise<void> {
   const digits = phone.replace(/\D/g, "");
   const columnValues: Record<string, unknown> = {
-    [env.MONDAY_COL_PHONE_ID]: { phone: digits, countryShortName: "IL" },
+    [env.MONDAY_COL_PHONE_ID]: { phone: digits, countryShortName: digits.startsWith("63") ? "PH" : "IL" },
   };
 
   await gql<ChangeColumnValueResponse>(
@@ -280,6 +281,7 @@ export async function incrementCallsColumn(itemId: string): Promise<void> {
 
 interface AllLeadsItemsPageResponse {
   boards: Array<{
+    id: string;
     items_page: {
       cursor: string | null;
       items: Array<{
@@ -377,38 +379,24 @@ export async function getAllLeadsWithPhones(): Promise<
   return leads;
 }
 
-export async function getContactedLeadsWithLastCallDate(): Promise<
-  Array<{ itemId: string; name: string; phone: string; lastCallDate: string }>
-> {
-  if (!env.MONDAY_GROUP_CONTACTED_ID) {
-    logger.warn("MONDAY_GROUP_CONTACTED_ID not set — skipping follow-up check");
-    return [];
-  }
+export interface FollowupLead {
+  itemId: string;
+  boardId: string;
+  name: string;
+  phone: string;
+  lastCallDate: string;
+}
+
+export async function getAllLeadsForFollowup(): Promise<FollowupLead[]> {
+  const allBoardIds = [
+    env.MONDAY_BOARD_CRM_ID,
+    env.MONDAY_BOARD_UMAN_ID,
+    env.MONDAY_BOARD_POLAND_ID,
+    env.MONDAY_BOARD_CHALLAH_ID,
+  ];
 
   const colIds = [env.MONDAY_COL_PHONE_ID, env.MONDAY_COL_LAST_CALL_DATE_ID];
-
-  const firstPage = await gql<AllLeadsItemsPageResponse>(
-    `query ($boardId: [ID!]!, $groupId: String!) {
-      boards(ids: $boardId) {
-        items_page(limit: 500, query_params: { rules: [{ column_id: "group", compare_value: [$groupId] }] }) {
-          cursor
-          items {
-            id
-            name
-            column_values(ids: ${JSON.stringify(colIds)}) {
-              id
-              value
-            }
-          }
-        }
-      }
-    }`,
-    { boardId: [env.MONDAY_BOARD_CRM_ID], groupId: env.MONDAY_GROUP_CONTACTED_ID },
-  );
-
-  const leads: Array<{ itemId: string; name: string; phone: string; lastCallDate: string }> = [];
-  let items = firstPage.boards[0]?.items_page.items ?? [];
-  let cursor = firstPage.boards[0]?.items_page.cursor ?? null;
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Jerusalem" });
 
   function extractDateStr(item: LeadItem): string | null {
     const col = item.column_values.find((c) => c.id === env.MONDAY_COL_LAST_CALL_DATE_ID);
@@ -421,18 +409,13 @@ export async function getContactedLeadsWithLastCallDate(): Promise<
     }
   }
 
-  for (const item of items) {
-    const phone = extractPhone(item, env.MONDAY_COL_PHONE_ID);
-    const lastCallDate = extractDateStr(item);
-    if (phone && lastCallDate) {
-      leads.push({ itemId: item.id, name: item.name, phone, lastCallDate });
-    }
-  }
+  const raw: Array<{ itemId: string; boardId: string; name: string; phone: string; lastCallDate: string }> = [];
 
-  while (cursor) {
-    const nextPage = await gql<AllLeadsNextItemsPageResponse>(
-      `query ($cursor: String!) {
-        next_items_page(limit: 500, cursor: $cursor) {
+  const firstPage = await gql<AllLeadsItemsPageResponse>(
+    `query ($boardIds: [ID!]!) {
+      boards(ids: $boardIds) {
+        id
+        items_page(limit: 500) {
           cursor
           items {
             id
@@ -443,27 +426,106 @@ export async function getContactedLeadsWithLastCallDate(): Promise<
             }
           }
         }
-      }`,
-      { cursor },
-    );
+      }
+    }`,
+    { boardIds: allBoardIds },
+  );
 
-    items = nextPage.next_items_page.items;
-    cursor = nextPage.next_items_page.cursor ?? null;
+  const boardsData = firstPage.boards;
+  const cursors: Array<{ cursor: string; boardId: string }> = [];
 
-    for (const item of items) {
+  for (const board of boardsData) {
+    const boardId = board.id;
+    const page = board.items_page;
+
+    for (const item of page.items) {
       const phone = extractPhone(item, env.MONDAY_COL_PHONE_ID);
-      const lastCallDate = extractDateStr(item);
-      if (phone && lastCallDate) {
-        leads.push({ itemId: item.id, name: item.name, phone, lastCallDate });
+      if (!phone) continue;
+
+      let lastCallDate = extractDateStr(item);
+      if (!lastCallDate) {
+        await updateLastCallDate(boardId, item.id);
+        lastCallDate = today;
+        logger.info({ itemId: item.id, boardId }, "Set missing last_call_date to today");
+      }
+
+      raw.push({ itemId: item.id, boardId, name: item.name, phone, lastCallDate });
+    }
+
+    if (page.cursor) {
+      cursors.push({ cursor: page.cursor, boardId });
+    }
+  }
+
+  for (const { cursor: startCursor, boardId } of cursors) {
+    let cursor: string | null = startCursor;
+
+    while (cursor) {
+      const currentCursor = cursor;
+      const nextPage: AllLeadsNextItemsPageResponse = await gql<AllLeadsNextItemsPageResponse>(
+        `query ($cursor: String!) {
+          next_items_page(limit: 500, cursor: $cursor) {
+            cursor
+            items {
+              id
+              name
+              column_values(ids: ${JSON.stringify(colIds)}) {
+                id
+                value
+              }
+            }
+          }
+        }`,
+        { cursor: currentCursor },
+      );
+
+      cursor = nextPage.next_items_page.cursor ?? null;
+
+      for (const item of nextPage.next_items_page.items) {
+        const phone = extractPhone(item, env.MONDAY_COL_PHONE_ID);
+        if (!phone) continue;
+
+        let lastCallDate = extractDateStr(item);
+        if (!lastCallDate) {
+          await updateLastCallDate(boardId, item.id);
+          lastCallDate = today;
+          logger.info({ itemId: item.id, boardId }, "Set missing last_call_date to today");
+        }
+
+        raw.push({ itemId: item.id, boardId, name: item.name, phone, lastCallDate });
       }
     }
   }
 
-  logger.info({ count: leads.length }, "Fetched contacted leads with last call date");
+  // Deduplicate by normalized phone — keep the entry with the earliest lastCallDate
+  const byPhone = new Map<string, FollowupLead>();
+
+  for (const lead of raw) {
+    const key = lead.phone.replace(/\D/g, "");
+    const existing = byPhone.get(key);
+
+    if (!existing) {
+      byPhone.set(key, lead);
+    } else if (lead.lastCallDate < existing.lastCallDate) {
+      logger.info(
+        { phone: key, kept: lead.itemId, dropped: existing.itemId },
+        "Phone dedup — keeping earlier lastCallDate",
+      );
+      byPhone.set(key, lead);
+    } else if (lead.lastCallDate > existing.lastCallDate) {
+      logger.info(
+        { phone: key, kept: existing.itemId, dropped: lead.itemId },
+        "Phone dedup — dropping later lastCallDate",
+      );
+    }
+  }
+
+  const leads = [...byPhone.values()];
+  logger.info({ count: leads.length, raw: raw.length }, "Fetched all leads for follow-up");
   return leads;
 }
 
-export async function updateLastCallDate(itemId: string): Promise<void> {
+export async function updateLastCallDate(boardId: string, itemId: string): Promise<void> {
   const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Jerusalem" });
   const columnValues: Record<string, unknown> = {
     [env.MONDAY_COL_LAST_CALL_DATE_ID]: { date: today },
@@ -473,8 +535,8 @@ export async function updateLastCallDate(itemId: string): Promise<void> {
     `mutation ($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
       change_multiple_column_values(board_id: $boardId, item_id: $itemId, column_values: $columnValues) { id }
     }`,
-    { boardId: env.MONDAY_BOARD_CRM_ID, itemId, columnValues: JSON.stringify(columnValues) },
+    { boardId, itemId, columnValues: JSON.stringify(columnValues) },
   );
 
-  logger.info({ itemId, date: today }, "Monday CRM last call date updated");
+  logger.info({ itemId, boardId, date: today }, "Monday last call date updated");
 }

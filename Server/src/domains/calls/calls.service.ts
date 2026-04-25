@@ -187,7 +187,7 @@ async function matchAndUpdate(phone: string): Promise<CallResult> {
 
   await moveItemToGroup(lead.itemId, env.MONDAY_GROUP_CONTACTED_ID);
   await incrementCallsColumn(lead.itemId);
-  await updateLastCallDate(lead.itemId);
+  await updateLastCallDate(env.MONDAY_BOARD_CRM_ID, lead.itemId);
 
   logger.info(
     { itemId: lead.itemId, name: lead.name, phone },

@@ -179,6 +179,12 @@ Status of each integration. When a new decision is made, update this section and
 
 See [PLAN.md](PLAN.md) for full domain plan details.
 
+## Temporary testing overrides (revert before production)
+
+- **Render `RONIT_OWNER_WA_NUMBER`** is set to `639620616308` ("aj smrt") for testing the WhatsApp holiday flow. Revert to Ronit's real number `639219909210` before going live.
+- **GreenAPI self-message limitation**: GreenAPI does not fire webhooks for messages sent to yourself (same phone as the instance). In production, the GreenAPI instance number must differ from the owner's personal number, OR the owner replies from a different device/number.
+- **Supabase `holiday_campaigns`** has a test row (id=1, holiday_date=2026-04-26, status=pending_reply). Delete or reset test data before production.
+
 ## Audience risk note
 
 User chose "all leads in CRM" for the holiday-greeting audience. Recommend revisiting after the first send — broad blast risks spam-flagging the IG/WhatsApp number. Safer alternative: gate to leads with at least one inbound message in the last 90 days.

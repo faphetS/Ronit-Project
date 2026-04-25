@@ -8,8 +8,13 @@ interface GreenApiSendResponse {
 
 export function formatChatId(phone: string): string {
   let digits = phone.replace(/\D/g, "");
+  // Israeli local: 0X + 9 digits → 972 + 9 digits
   if (digits.startsWith("0") && digits.length === 10) {
     digits = `972${digits.slice(1)}`;
+  }
+  // Philippine local: 09 + 9 digits → 63 + 10 digits
+  if (digits.startsWith("0") && digits.length === 11) {
+    digits = `63${digits.slice(1)}`;
   }
   return `${digits}@c.us`;
 }
