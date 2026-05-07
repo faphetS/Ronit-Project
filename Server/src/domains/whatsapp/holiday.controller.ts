@@ -112,8 +112,8 @@ export async function getHolidayForm(req: Request, res: Response): Promise<void>
     }
 
     const formBody = `
-    <h1>${data.holidayHebrew}</h1>
-    <p class="subtitle">${formatDateHebrew(data.holidayDate)} — ${data.holidayName}</p>
+    <h1>${data.holidayName}</h1>
+    <p class="subtitle">${formatDateHebrew(data.holidayDate)}</p>
     <form method="POST" action="/api/whatsapp/holiday-form">
       <input type="hidden" name="token" value="${token}">
       <label for="greeting">הודעת החג ללקוחות</label>
