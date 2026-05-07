@@ -23,9 +23,10 @@ router.post("/webhook", validate({ body: GreenApiWebhookSchema }), receiveWebhoo
 router.get("/holiday-form", getHolidayForm);
 router.post("/holiday-form", validate({ body: HolidayFormSubmitSchema }), postHolidayForm);
 
-// TODO: revert to dev-only after testing
-router.post("/test-holiday-check", validate({ body: HolidayTestInjectSchema }), testHolidayCheck);
-router.post("/test-broadcast", validate({ body: BroadcastTestInjectSchema }), testBroadcast);
-router.post("/test-followup", validate({ body: FollowupTestInjectSchema }), testFollowup);
+if (env.NODE_ENV !== "production") {
+  router.post("/test-holiday-check", validate({ body: HolidayTestInjectSchema }), testHolidayCheck);
+  router.post("/test-broadcast", validate({ body: BroadcastTestInjectSchema }), testBroadcast);
+  router.post("/test-followup", validate({ body: FollowupTestInjectSchema }), testFollowup);
+}
 
 export default router;
