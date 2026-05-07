@@ -40,5 +40,5 @@ export function startWhatsAppCrons(): void {
     { timezone: "Asia/Jerusalem" },
   );
 
-  logger.info("WhatsApp cron jobs scheduled (holiday 18:00, broadcast 09:00, followup 10:00 Asia/Jerusalem)");
+  logger.info("WhatsApp cron jobs scheduled (holiday check 18:00 [3 days ahead], broadcast 09:00, followup 10:00 Asia/Jerusalem)");
 }

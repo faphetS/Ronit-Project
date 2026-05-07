@@ -7,16 +7,21 @@ import {
   testBroadcast,
   testFollowup,
 } from "./whatsapp.controller.js";
+import { getHolidayForm, postHolidayForm } from "./holiday.controller.js";
 import {
   GreenApiWebhookSchema,
   HolidayTestInjectSchema,
   BroadcastTestInjectSchema,
   FollowupTestInjectSchema,
+  HolidayFormSubmitSchema,
 } from "./whatsapp.validator.js";
 
 const router = Router();
 
 router.post("/webhook", validate({ body: GreenApiWebhookSchema }), receiveWebhook);
+
+router.get("/holiday-form", getHolidayForm);
+router.post("/holiday-form", validate({ body: HolidayFormSubmitSchema }), postHolidayForm);
 
 if (env.NODE_ENV !== "production") {
   router.post("/test-holiday-check", validate({ body: HolidayTestInjectSchema }), testHolidayCheck);

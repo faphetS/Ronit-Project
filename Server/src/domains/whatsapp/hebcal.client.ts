@@ -41,14 +41,18 @@ async function getHolidaysForYear(year: number): Promise<HebcalHoliday[]> {
   return holidays;
 }
 
-export async function getTomorrowHoliday(): Promise<HebcalHoliday | null> {
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowStr = tomorrow.toLocaleDateString("en-CA", { timeZone: "Asia/Jerusalem" });
-  const year = Number(tomorrowStr.split("-")[0]);
+export async function getHolidayInDays(days: number): Promise<HebcalHoliday | null> {
+  const target = new Date();
+  target.setDate(target.getDate() + days);
+  const targetStr = target.toLocaleDateString("en-CA", { timeZone: "Asia/Jerusalem" });
+  const year = Number(targetStr.split("-")[0]);
 
   const holidays = await getHolidaysForYear(year);
-  const matches = holidays.filter((h) => h.date === tomorrowStr);
+  const matches = holidays.filter((h) => h.date === targetStr);
 
   return matches.find((h) => h.subcat === "major") ?? matches[0] ?? null;
+}
+
+export async function getTomorrowHoliday(): Promise<HebcalHoliday | null> {
+  return getHolidayInDays(1);
 }

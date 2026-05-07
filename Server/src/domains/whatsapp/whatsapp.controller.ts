@@ -2,7 +2,7 @@ import type { Request, Response } from "express";
 import { env } from "../../config/env.js";
 import { logger } from "../../config/logger.js";
 import type { GreenApiWebhook } from "./whatsapp.validator.js";
-import { handleOwnerReply, checkAndPromptHoliday, broadcastHolidayCampaign } from "./holiday.service.js";
+import { checkAndPromptHoliday, broadcastHolidayCampaign } from "./holiday.service.js";
 import { checkAndSendFollowups } from "./followup.service.js";
 import { handleIncomingFile } from "./whatsapp.service.js";
 import type { FollowupTestInjectSchema } from "./whatsapp.validator.js";
@@ -66,7 +66,7 @@ export async function receiveWebhook(req: Request, res: Response): Promise<void>
     return;
   }
 
-  // --- Text message handling (owner reply for holiday flow) ---
+  // --- Text message handling ---
   const text = extractText(body);
   if (!text) return;
 
@@ -76,12 +76,7 @@ export async function receiveWebhook(req: Request, res: Response): Promise<void>
   const ownerDigits = normalizeDigits(env.RONIT_OWNER_WA_NUMBER);
 
   if (senderDigits.endsWith(ownerDigits) || ownerDigits.endsWith(senderDigits)) {
-    logger.info({ senderChatId }, "Owner WhatsApp reply received");
-    try {
-      await handleOwnerReply(text);
-    } catch (err) {
-      logger.error({ err, senderChatId }, "Failed to handle owner reply");
-    }
+    logger.debug({ senderChatId, text }, "Owner text received — no active handler");
   }
 }
 
