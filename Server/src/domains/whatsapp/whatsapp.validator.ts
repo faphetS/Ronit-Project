@@ -56,6 +56,5 @@ export const BroadcastTestInjectSchema = z.object({
 
 export const HolidayFormSubmitSchema = z.object({
   greeting: z.string().min(1).max(2000),
-  sendDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   token: z.string().length(64),
 });

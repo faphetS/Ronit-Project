@@ -1,27 +1,10 @@
 import type { Request, Response } from "express";
 import { AppError } from "../../lib/errors.js";
-import { logger } from "../../config/logger.js";
 import { getFormData, submitHolidayForm } from "./holiday.service.js";
 
 function formatDateHebrew(dateStr: string): string {
   const [y, m, d] = dateStr.split("-");
   return `${d}/${m}/${y}`;
-}
-
-function generateDateOptions(holidayDate: string): Array<{ value: string; label: string }> {
-  const options: Array<{ value: string; label: string }> = [];
-  const today = new Date();
-
-  for (let i = 1; i <= 3; i++) {
-    const d = new Date(today);
-    d.setDate(d.getDate() + i);
-    const value = d.toLocaleDateString("en-CA", { timeZone: "Asia/Jerusalem" });
-    if (value > holidayDate) break;
-    const label = formatDateHebrew(value);
-    options.push({ value, label });
-  }
-
-  return options;
 }
 
 function renderPage(title: string, body: string): string {
@@ -62,20 +45,9 @@ function renderPage(title: string, body: string): string {
       font-family: inherit;
       resize: vertical;
       min-height: 120px;
-      margin-bottom: 16px;
-    }
-    textarea:focus, select:focus { outline: none; border-color: #25d366; }
-    select {
-      width: 100%;
-      border: 1px solid #ddd;
-      border-radius: 8px;
-      padding: 12px;
-      font-size: 1rem;
-      font-family: inherit;
-      background: #fff;
       margin-bottom: 24px;
-      -webkit-appearance: none;
     }
+    textarea:focus { outline: none; border-color: #25d366; }
     button {
       width: 100%;
       background: #25d366;
@@ -88,6 +60,15 @@ function renderPage(title: string, body: string): string {
       cursor: pointer;
     }
     button:hover { background: #1da851; }
+    .info {
+      background: #f8f9fa;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 24px;
+      color: #555;
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
     .msg { text-align: center; padding: 24px 0; }
     .msg .icon { font-size: 3rem; margin-bottom: 12px; }
     .msg p { color: #666; font-size: 1.05rem; line-height: 1.6; }
@@ -126,18 +107,14 @@ export async function getHolidayForm(req: Request, res: Response): Promise<void>
       return;
     }
 
-    const dateOptions = generateDateOptions(data.holidayDate);
-    const optionsHtml = dateOptions.map((o) => `<option value="${o.value}">${o.label}</option>`).join("");
-
     const formBody = `
     <h1>${data.holidayHebrew}</h1>
-    <p class="subtitle">${formatDateHebrew(data.holidayDate)} — בעוד 3 ימים</p>
+    <p class="subtitle">${formatDateHebrew(data.holidayDate)} — ${data.holidayName}</p>
     <form method="POST" action="/api/whatsapp/holiday-form">
       <input type="hidden" name="token" value="${token}">
       <label for="greeting">הודעת החג ללקוחות</label>
       <textarea id="greeting" name="greeting" placeholder="כתבי כאן את הודעת החג..." required></textarea>
-      <label for="sendDate">מתי לשלוח?</label>
-      <select id="sendDate" name="sendDate" required>${optionsHtml}</select>
+      <div class="info">ההודעה תישלח אוטומטית ביום החג (${formatDateHebrew(data.holidayDate)}) לכל הלקוחות.</div>
       <button type="submit">שליחה</button>
     </form>`;
 
@@ -152,14 +129,14 @@ export async function getHolidayForm(req: Request, res: Response): Promise<void>
 }
 
 export async function postHolidayForm(req: Request, res: Response): Promise<void> {
-  const { token, greeting, sendDate } = req.body as { token: string; greeting: string; sendDate: string };
+  const { token, greeting } = req.body as { token: string; greeting: string };
 
   try {
-    const result = await submitHolidayForm(token, greeting, sendDate);
+    const result = await submitHolidayForm(token, greeting);
 
     res.type("html").send(renderPage(
       "נשמר!",
-      `<div class="msg"><div class="icon">&#9989;</div><p>ההודעה נשמרה!<br>תישלח ב-${formatDateHebrew(result.sendDate)} לכל הלקוחות.</p></div>`,
+      `<div class="msg"><div class="icon">&#9989;</div><p>ההודעה נשמרה!<br>תישלח ביום ${formatDateHebrew(result.holidayDate)} לכל הלקוחות.</p></div>`,
     ));
   } catch (err) {
     if (err instanceof AppError) {
@@ -167,9 +144,7 @@ export async function postHolidayForm(req: Request, res: Response): Promise<void
         ? "הקישור לא תקין."
         : err.code === "CAMPAIGN_NOT_PENDING"
           ? "ההודעה כבר נשלחה."
-          : err.code === "INVALID_SEND_DATE"
-            ? "תאריך השליחה לא תקין."
-            : "אירעה שגיאה.";
+          : "אירעה שגיאה.";
 
       res.status(err.statusCode).type("html").send(renderPage(
         "שגיאה",

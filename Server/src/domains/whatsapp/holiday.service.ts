@@ -127,8 +127,7 @@ export async function getFormData(token: string): Promise<HolidayFormData> {
 export async function submitHolidayForm(
   token: string,
   greeting: string,
-  sendDate: string,
-): Promise<{ holidayHebrew: string; sendDate: string }> {
+): Promise<{ holidayHebrew: string; holidayDate: string }> {
   const db = supabase();
 
   const { data: campaign, error } = await db
@@ -147,32 +146,19 @@ export async function submitHolidayForm(
     throw new AppError(400, "Campaign already submitted or expired", "CAMPAIGN_NOT_PENDING");
   }
 
-  const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Jerusalem" });
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowStr = tomorrow.toLocaleDateString("en-CA", { timeZone: "Asia/Jerusalem" });
-
-  if (sendDate < tomorrowStr || sendDate > campaign.holiday_date) {
-    throw new AppError(
-      400,
-      `Send date must be between ${tomorrowStr} and ${campaign.holiday_date}`,
-      "INVALID_SEND_DATE",
-    );
-  }
-
   await db
     .from("holiday_campaigns")
     .update({
       reply_text: greeting,
-      send_date: sendDate,
+      send_date: campaign.holiday_date,
       status: "reply_received",
       reply_received_at: new Date().toISOString(),
     })
     .eq("id", campaign.id);
 
-  logger.info({ campaignId: campaign.id, sendDate }, "Holiday form submitted");
+  logger.info({ campaignId: campaign.id, sendDate: campaign.holiday_date }, "Holiday form submitted");
 
-  return { holidayHebrew: campaign.holiday_hebrew, sendDate };
+  return { holidayHebrew: campaign.holiday_hebrew, holidayDate: campaign.holiday_date };
 }
 
 export async function broadcastHolidayCampaign(): Promise<void> {
