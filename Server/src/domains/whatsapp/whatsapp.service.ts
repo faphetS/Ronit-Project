@@ -1,4 +1,5 @@
 import { env } from "../../config/env.js";
+import { AppError } from "../../lib/errors.js";
 import { logger } from "../../config/logger.js";
 import { findLeadByPhoneAllBoards, uploadFileToColumn } from "../monday/monday.service.js";
 import { downloadFile, formatChatId, greenApiClient } from "./whatsapp.client.js";
@@ -40,7 +41,22 @@ export async function handleIncomingFile(
     return;
   }
 
-  const { buffer } = await downloadFile(senderChatId, idMessage);
+  let buffer: Buffer;
+
+  if (fileMessageData.downloadUrl) {
+    const fileRes = await fetch(fileMessageData.downloadUrl);
+    if (!fileRes.ok) {
+      throw new AppError(
+        502,
+        `Direct file download HTTP ${fileRes.status} from ${fileMessageData.downloadUrl}`,
+        "FILE_DIRECT_DOWNLOAD_ERROR",
+      );
+    }
+    buffer = Buffer.from(await fileRes.arrayBuffer());
+  } else {
+    const result = await downloadFile(senderChatId, idMessage);
+    buffer = result.buffer;
+  }
 
   const fileName = fileMessageData.fileName
     ?? `whatsapp-file-${Date.now()}.${extensionFromMime(fileMessageData.mimeType)}`;
