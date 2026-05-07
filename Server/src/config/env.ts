@@ -74,7 +74,7 @@ const envSchema = z.object({
   MONDAY_COL_FILES_ID: z.string().default("file"),
 
   // GreenAPI / WhatsApp
-  GREENAPI_API_URL: z.string().url().default("https://7103.api.greenapi.com"),
+  GREENAPI_API_URL: z.string().url().default("https://7107.api.greenapi.com"),
   GREENAPI_INSTANCE_ID: z.string().min(1).optional(),
   GREENAPI_API_TOKEN: z.string().min(1).optional(),
   RONIT_OWNER_WA_NUMBER: z.string().min(10).optional(),
