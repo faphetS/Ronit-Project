@@ -49,4 +49,53 @@ async function sendMessage(chatId: string, message: string): Promise<SendMessage
   return { idMessage: json.idMessage };
 }
 
+export interface DownloadedFile {
+  buffer: Buffer;
+  downloadUrl: string;
+}
+
+export async function downloadFile(chatId: string, idMessage: string): Promise<DownloadedFile> {
+  if (!env.GREENAPI_INSTANCE_ID || !env.GREENAPI_API_TOKEN) {
+    throw new AppError(
+      503,
+      "GreenAPI not configured — GREENAPI_INSTANCE_ID and GREENAPI_API_TOKEN required",
+      "GREENAPI_NOT_CONFIGURED",
+    );
+  }
+
+  const url = `${env.GREENAPI_API_URL}/waInstance${env.GREENAPI_INSTANCE_ID}/downloadFile/${env.GREENAPI_API_TOKEN}`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chatId, idMessage }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new AppError(
+      502,
+      `GreenAPI downloadFile HTTP ${res.status}: ${body.slice(0, 300)}`,
+      "GREENAPI_DOWNLOAD_ERROR",
+    );
+  }
+
+  const json = (await res.json()) as { downloadUrl: string };
+
+  const fileRes = await fetch(json.downloadUrl);
+  if (!fileRes.ok) {
+    throw new AppError(
+      502,
+      `GreenAPI file fetch HTTP ${fileRes.status}`,
+      "GREENAPI_FILE_FETCH_ERROR",
+    );
+  }
+
+  const arrayBuffer = await fileRes.arrayBuffer();
+  return {
+    buffer: Buffer.from(arrayBuffer),
+    downloadUrl: json.downloadUrl,
+  };
+}
+
 export const greenApiClient: WhatsAppProvider = { sendMessage };

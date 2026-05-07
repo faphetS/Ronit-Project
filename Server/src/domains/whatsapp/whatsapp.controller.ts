@@ -4,6 +4,7 @@ import { logger } from "../../config/logger.js";
 import type { GreenApiWebhook } from "./whatsapp.validator.js";
 import { handleOwnerReply, checkAndPromptHoliday, broadcastHolidayCampaign } from "./holiday.service.js";
 import { checkAndSendFollowups } from "./followup.service.js";
+import { handleIncomingFile } from "./whatsapp.service.js";
 import type { FollowupTestInjectSchema } from "./whatsapp.validator.js";
 import type { z } from "zod";
 
@@ -26,6 +27,13 @@ function extractText(body: GreenApiWebhook): string | undefined {
   );
 }
 
+const FILE_MESSAGE_TYPES = new Set([
+  "imageMessage",
+  "videoMessage",
+  "audioMessage",
+  "documentMessage",
+]);
+
 export async function receiveWebhook(req: Request, res: Response): Promise<void> {
   const body = req.body as GreenApiWebhook;
 
@@ -41,15 +49,28 @@ export async function receiveWebhook(req: Request, res: Response): Promise<void>
   }
 
   const senderChatId = body.senderData?.chatId ?? body.chatId;
+  if (!senderChatId) return;
+
+  // --- File detection (incoming only) ---
+  const typeMessage = body.messageData?.typeMessage;
+  if (isIncoming && typeMessage && FILE_MESSAGE_TYPES.has(typeMessage) && body.messageData?.fileMessageData) {
+    try {
+      await handleIncomingFile(
+        senderChatId,
+        body.messageData.fileMessageData,
+        body.idMessage ?? "",
+      );
+    } catch (err) {
+      logger.error({ err, senderChatId, typeMessage }, "Failed to handle incoming file");
+    }
+    return;
+  }
+
+  // --- Text message handling (owner reply for holiday flow) ---
   const text = extractText(body);
+  if (!text) return;
 
-  if (!senderChatId || !text) {
-    return;
-  }
-
-  if (!env.RONIT_OWNER_WA_NUMBER) {
-    return;
-  }
+  if (!env.RONIT_OWNER_WA_NUMBER) return;
 
   const senderDigits = normalizeDigits(senderChatId);
   const ownerDigits = normalizeDigits(env.RONIT_OWNER_WA_NUMBER);

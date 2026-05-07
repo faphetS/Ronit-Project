@@ -1,5 +1,6 @@
 import { env } from "../../config/env.js";
 import { logger } from "../../config/logger.js";
+import { AppError } from "../../lib/errors.js";
 import { gql } from "./monday.client.js";
 
 const SERVICE_TO_LABEL_ID: Record<"uman" | "poland" | "challah", number> = {
@@ -272,6 +273,138 @@ export async function incrementCallsColumn(itemId: string): Promise<void> {
   logger.info(
     { itemId, oldValue: current, newValue: next },
     "Monday CRM calls column incremented",
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Cross-board phone search (for WhatsApp file detection)
+// ---------------------------------------------------------------------------
+
+export async function findLeadByPhoneAllBoards(
+  phone: string,
+): Promise<{ itemId: string; name: string; boardId: string } | null> {
+  const variants = phoneVariants(phone);
+  const allBoardIds = [
+    env.MONDAY_BOARD_CRM_ID,
+    env.MONDAY_BOARD_UMAN_ID,
+    env.MONDAY_BOARD_POLAND_ID,
+    env.MONDAY_BOARD_CHALLAH_ID,
+  ];
+
+  const query = /* GraphQL */ `
+    query ($boardId: ID!, $columns: [ItemsPageByColumnValuesQuery!]!) {
+      items_page_by_column_values(
+        board_id: $boardId
+        limit: 10
+        columns: $columns
+      ) {
+        items {
+          id
+          name
+        }
+      }
+    }
+  `;
+
+  for (const variant of variants) {
+    for (const boardId of allBoardIds) {
+      const data = await gql<ItemsPageResponse>(query, {
+        boardId,
+        columns: [
+          {
+            column_id: env.MONDAY_COL_PHONE_ID,
+            column_values: [variant],
+          },
+        ],
+      });
+
+      const items = data.items_page_by_column_values.items;
+
+      if (items.length > 0) {
+        logger.info(
+          { phone: variant, boardId, itemId: items[0].id },
+          "Lead found by phone (all-boards search)",
+        );
+        return { itemId: items[0].id, name: items[0].name, boardId };
+      }
+    }
+  }
+
+  logger.info({ phone, variants }, "No lead matched phone across any board");
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// File upload to Monday.com files column
+// ---------------------------------------------------------------------------
+
+export async function uploadFileToColumn(
+  itemId: string,
+  columnId: string,
+  fileBuffer: Buffer,
+  fileName: string,
+): Promise<void> {
+  if (!env.MONDAY_API_TOKEN) {
+    throw new AppError(
+      503,
+      "Monday not configured — MONDAY_API_TOKEN missing",
+      "MONDAY_NOT_CONFIGURED",
+    );
+  }
+
+  const query = `mutation ($file: File!) { add_file_to_column (item_id: ${itemId}, column_id: "${columnId}", file: $file) { id } }`;
+
+  const boundary = `----MondayFileUpload${Date.now()}`;
+  const parts: Buffer[] = [];
+
+  function appendField(name: string, value: string): void {
+    parts.push(Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`,
+    ));
+  }
+
+  appendField("query", query);
+  appendField("map", JSON.stringify({ image: "variables.file" }));
+
+  parts.push(Buffer.from(
+    `--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="${fileName}"\r\nContent-Type: application/octet-stream\r\n\r\n`,
+  ));
+  parts.push(fileBuffer);
+  parts.push(Buffer.from(`\r\n--${boundary}--\r\n`));
+
+  const body = Buffer.concat(parts);
+
+  const res = await fetch("https://api.monday.com/v2/file", {
+    method: "POST",
+    headers: {
+      Authorization: env.MONDAY_API_TOKEN,
+      "Content-Type": `multipart/form-data; boundary=${boundary}`,
+    },
+    body,
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new AppError(
+      502,
+      `Monday file upload HTTP ${res.status}: ${text.slice(0, 300)}`,
+      "MONDAY_FILE_UPLOAD_ERROR",
+    );
+  }
+
+  const json = (await res.json()) as { data?: { add_file_to_column?: { id: string } }; errors?: unknown };
+
+  if (json.errors) {
+    throw new AppError(
+      502,
+      `Monday file upload GraphQL error: ${JSON.stringify(json.errors).slice(0, 400)}`,
+      "MONDAY_FILE_UPLOAD_GRAPHQL_ERROR",
+    );
+  }
+
+  logger.info(
+    { itemId, columnId, fileName, assetId: json.data?.add_file_to_column?.id },
+    "File uploaded to Monday.com",
   );
 }
 

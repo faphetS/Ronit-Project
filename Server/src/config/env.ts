@@ -70,6 +70,9 @@ const envSchema = z.object({
   MONDAY_COL_CALLS_ID: z.string().optional(),
   MONDAY_COL_LAST_CALL_DATE_ID: z.string().default("date_mm2psp19"),
 
+  // Monday.com — files column
+  MONDAY_COL_FILES_ID: z.string().default("file"),
+
   // GreenAPI / WhatsApp
   GREENAPI_API_URL: z.string().url().default("https://7103.api.greenapi.com"),
   GREENAPI_INSTANCE_ID: z.string().min(1).optional(),

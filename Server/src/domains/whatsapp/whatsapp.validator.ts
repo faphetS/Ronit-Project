@@ -29,6 +29,12 @@ export const GreenApiWebhookSchema = z.object({
         textMessage: z.string().optional(),
         extendedTextMessage: z.object({ text: z.string() }).optional(),
       }).optional(),
+      fileMessageData: z.object({
+        downloadUrl: z.string(),
+        fileName: z.string().optional(),
+        mimeType: z.string().optional(),
+        caption: z.string().optional(),
+      }).optional(),
     })
     .optional(),
 });
