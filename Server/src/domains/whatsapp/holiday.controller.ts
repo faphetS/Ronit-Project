@@ -7,13 +7,17 @@ function formatDateHebrew(dateStr: string): string {
   return `${d}/${m}/${y}`;
 }
 
-function renderPage(title: string, body: string): string {
+function renderPage(title: string, body: string, description?: string): string {
+  const desc = description ?? title;
   return `<!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${title}</title>
+  <meta property="og:title" content="${title}">
+  <meta property="og:description" content="${desc}">
+  <meta property="og:type" content="website">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -118,7 +122,11 @@ export async function getHolidayForm(req: Request, res: Response): Promise<void>
       <button type="submit">שליחה</button>
     </form>`;
 
-    res.type("html").send(renderPage(`טופס חג — ${data.holidayHebrew}`, formBody));
+    res.type("html").send(renderPage(
+      `טופס חג — ${data.holidayHebrew}`,
+      formBody,
+      `${data.holidayHebrew} — מילוי הודעת חג ללקוחות`,
+    ));
   } catch (err) {
     if (err instanceof AppError && err.statusCode === 404) {
       res.status(404).type("html").send(renderPage("לא נמצא", `<div class="msg"><div class="icon">&#10060;</div><p>הקישור לא תקין או שפג תוקפו.</p></div>`));
