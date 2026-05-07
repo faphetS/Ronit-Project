@@ -453,62 +453,82 @@ function extractPhone(item: LeadItem, phoneColId: string): string | null {
 export async function getAllLeadsWithPhones(): Promise<
   Array<{ itemId: string; name: string; phone: string }>
 > {
-  const firstPage = await gql<AllLeadsItemsPageResponse>(
-    `query ($boardId: [ID!]!) {
-      boards(ids: $boardId) {
-        items_page(limit: 500) {
-          cursor
-          items {
-            id
-            name
-            column_values(ids: ["${env.MONDAY_COL_PHONE_ID}"]) {
-              id
-              value
-            }
-          }
-        }
-      }
-    }`,
-    { boardId: [env.MONDAY_BOARD_CRM_ID] },
-  );
+  const allBoardIds = [
+    env.MONDAY_BOARD_CRM_ID,
+    env.MONDAY_BOARD_UMAN_ID,
+    env.MONDAY_BOARD_POLAND_ID,
+    env.MONDAY_BOARD_CHALLAH_ID,
+  ];
 
   const leads: Array<{ itemId: string; name: string; phone: string }> = [];
-  let items = firstPage.boards[0]?.items_page.items ?? [];
-  let cursor = firstPage.boards[0]?.items_page.cursor ?? null;
+  const seenPhones = new Set<string>();
 
-  for (const item of items) {
-    const phone = extractPhone(item, env.MONDAY_COL_PHONE_ID);
-    if (phone) leads.push({ itemId: item.id, name: item.name, phone });
-  }
-
-  while (cursor) {
-    const nextPage = await gql<AllLeadsNextItemsPageResponse>(
-      `query ($cursor: String!) {
-        next_items_page(limit: 500, cursor: $cursor) {
-          cursor
-          items {
-            id
-            name
-            column_values(ids: ["${env.MONDAY_COL_PHONE_ID}"]) {
+  for (const boardId of allBoardIds) {
+    const firstPage = await gql<AllLeadsItemsPageResponse>(
+      `query ($boardId: [ID!]!) {
+        boards(ids: $boardId) {
+          id
+          items_page(limit: 500) {
+            cursor
+            items {
               id
-              value
+              name
+              column_values(ids: ["${env.MONDAY_COL_PHONE_ID}"]) {
+                id
+                value
+              }
             }
           }
         }
       }`,
-      { cursor },
+      { boardId: [boardId] },
     );
 
-    items = nextPage.next_items_page.items;
-    cursor = nextPage.next_items_page.cursor ?? null;
+    let items = firstPage.boards[0]?.items_page.items ?? [];
+    let cursor = firstPage.boards[0]?.items_page.cursor ?? null;
 
     for (const item of items) {
       const phone = extractPhone(item, env.MONDAY_COL_PHONE_ID);
-      if (phone) leads.push({ itemId: item.id, name: item.name, phone });
+      if (!phone) continue;
+      const digits = phone.replace(/\D/g, "");
+      if (seenPhones.has(digits)) continue;
+      seenPhones.add(digits);
+      leads.push({ itemId: item.id, name: item.name, phone });
+    }
+
+    while (cursor) {
+      const nextPage = await gql<AllLeadsNextItemsPageResponse>(
+        `query ($cursor: String!) {
+          next_items_page(limit: 500, cursor: $cursor) {
+            cursor
+            items {
+              id
+              name
+              column_values(ids: ["${env.MONDAY_COL_PHONE_ID}"]) {
+                id
+                value
+              }
+            }
+          }
+        }`,
+        { cursor },
+      );
+
+      items = nextPage.next_items_page.items;
+      cursor = nextPage.next_items_page.cursor ?? null;
+
+      for (const item of items) {
+        const phone = extractPhone(item, env.MONDAY_COL_PHONE_ID);
+        if (!phone) continue;
+        const digits = phone.replace(/\D/g, "");
+        if (seenPhones.has(digits)) continue;
+        seenPhones.add(digits);
+        leads.push({ itemId: item.id, name: item.name, phone });
+      }
     }
   }
 
-  logger.info({ count: leads.length }, "Fetched all CRM leads with phone numbers");
+  logger.info({ count: leads.length, boards: allBoardIds.length }, "Fetched all leads with phone numbers (deduped)");
   return leads;
 }
 
