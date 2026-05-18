@@ -45,9 +45,12 @@ const envSchema = z.object({
   MONDAY_BOARD_POLAND_ID: z.string().default("5095155041"),
   MONDAY_BOARD_CHALLAH_ID: z.string().default("5095155077"),
 
-  // Meta / Instagram — optional until business verification is complete.
+  // Meta / Instagram
+  META_APP_ID: z.string().min(1).optional(),
   META_APP_SECRET: z.string().min(1).optional(),
   META_VERIFY_TOKEN: z.string().min(1).optional(),
+  IG_ACCESS_TOKEN: z.string().min(1).optional(),
+  IG_PROFESSIONAL_ACCOUNT_ID: z.string().min(1).optional(),
 
   // Supabase — required for dedup and future tables (followup, holiday).
   SUPABASE_URL: z.string().url().optional(),

@@ -93,19 +93,15 @@ export async function receiveWebhook(
       const messageText = event.message?.text;
       if (!messageText) continue;
 
-      try {
-        await handleIncomingMessage({
-          messageText,
+      logger.info(
+        {
           senderId: event.sender.id,
-          senderUsername: event.sender.username ?? event.sender.id,
+          senderUsername: event.sender.username,
           messageId: event.message?.mid,
-        });
-      } catch (err) {
-        logger.error(
-          { err, senderId: event.sender.id },
-          "Failed to process Meta message — continuing with remaining events",
-        );
-      }
+          messageText,
+        },
+        "Instagram DM received",
+      );
     }
   }
 
