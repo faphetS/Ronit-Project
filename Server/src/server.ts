@@ -99,6 +99,32 @@ app.get("/health", (_req: Request, res: Response) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
+app.get("/privacy", (_req: Request, res: Response) => {
+  res.type("html").send(`<!DOCTYPE html><html><head><title>Privacy Policy</title></head><body>
+    <h1>Privacy Policy</h1>
+    <p>This application processes Instagram direct messages for CRM automation purposes.
+    We do not sell or share personal data with third parties. Data is stored securely and used
+    solely to manage business communications. To request data deletion, contact barashro@gmail.com.</p>
+    <p>Last updated: May 2026</p></body></html>`);
+});
+
+app.get("/terms", (_req: Request, res: Response) => {
+  res.type("html").send(`<!DOCTYPE html><html><head><title>Terms of Service</title></head><body>
+    <h1>Terms of Service</h1>
+    <p>This application is used internally for business communication management.
+    By interacting with our Instagram account, you agree that your messages may be processed
+    for customer service purposes. We reserve the right to modify these terms at any time.</p>
+    <p>Last updated: May 2026</p></body></html>`);
+});
+
+app.get("/data-deletion", (_req: Request, res: Response) => {
+  res.type("html").send(`<!DOCTYPE html><html><head><title>Data Deletion</title></head><body>
+    <h1>Data Deletion Request</h1>
+    <p>To request deletion of your data, please email barashro@gmail.com with the subject
+    "Data Deletion Request" and include your Instagram username. We will process your request
+    within 30 days.</p></body></html>`);
+});
+
 app.use("/api", apiRoutes);
 
 // --- 404 handler for unmatched routes ---
