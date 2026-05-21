@@ -100,29 +100,131 @@ app.get("/health", (_req: Request, res: Response) => {
 });
 
 app.get("/privacy", (_req: Request, res: Response) => {
-  res.type("html").send(`<!DOCTYPE html><html><head><title>Privacy Policy</title></head><body>
-    <h1>Privacy Policy</h1>
-    <p>This application processes Instagram direct messages for CRM automation purposes.
-    We do not sell or share personal data with third parties. Data is stored securely and used
-    solely to manage business communications. To request data deletion, contact barashro@gmail.com.</p>
-    <p>Last updated: May 2026</p></body></html>`);
+  res.type("html").send(`<!DOCTYPE html><html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Privacy Policy — Ronit Barash</title>
+<style>body{font-family:system-ui,sans-serif;max-width:720px;margin:40px auto;padding:0 20px;line-height:1.7;color:#222}h1{border-bottom:2px solid #e0e0e0;padding-bottom:12px}h2{margin-top:32px;color:#333}ul{padding-right:20px}</style></head><body>
+<h1>מדיניות פרטיות — רונית ברש</h1>
+<p><strong>עדכון אחרון:</strong> מאי 2026</p>
+<p>מדיניות פרטיות זו מסבירה כיצד רונית ברש ("אנחנו", "שלנו") אוספת, משתמשת ומגנה על המידע האישי שלך כאשר את/ה מתקשר/ת איתנו דרך אינסטגרם, וואטסאפ, או שיחות טלפון.</p>
+
+<h2>1. מידע שאנחנו אוספים</h2>
+<ul>
+<li><strong>הודעות אינסטגרם:</strong> כאשר את/ה שולח/ת הודעה ישירה לחשבון האינסטגרם שלנו (@ronit_barash), אנחנו מקבלים את תוכן ההודעה, שם המשתמש שלך, ומזהה המשתמש שלך.</li>
+<li><strong>פרטי קשר:</strong> שם ומספר טלפון — אם הם מוזכרים בהודעות או בשיחות.</li>
+<li><strong>תמלולי שיחות:</strong> אם יש לנו שיחת טלפון, השיחה עשויה להיות מוקלטת ומתומללת לצורך מעקב.</li>
+<li><strong>קבצים:</strong> מסמכים או תמונות שנשלחו אלינו דרך וואטסאפ.</li>
+<li><strong>העדפת שירות:</strong> באיזה שירות את/ה מתעניין/ת (טיסות לאומן, טיסות לפולין, הפרשות חלה).</li>
+</ul>
+
+<h2>2. כיצד אנחנו משתמשים במידע שלך</h2>
+<ul>
+<li><strong>סיווג פניות:</strong> ההודעות שלך מעובדות על ידי שירות בינה מלאכותית (AI) כדי לקבוע אם את/ה מתעניין/ת בשירותים שלנו ובאיזה שירות.</li>
+<li><strong>ניהול קשרי לקוחות:</strong> פרטי הקשר שלך נשמרים במערכת CRM לצורך מעקב ותקשורת.</li>
+<li><strong>מעקב שיחות:</strong> תמלולים מעובדים כדי לחלץ מספרי טלפון ולעדכן את רשומת הלקוח שלך.</li>
+<li><strong>הודעות חגים ומעקב:</strong> אנחנו עשויים לשלוח לך ברכות חג והודעות מעקב דרך וואטסאפ.</li>
+</ul>
+
+<h2>3. שירותי צד שלישי</h2>
+<p>אנחנו משתמשים בשירותים הבאים לעיבוד המידע שלך:</p>
+<ul>
+<li><strong>Monday.com:</strong> אחסון רשומות CRM (שם, טלפון, העדפת שירות, היסטוריית שיחות).</li>
+<li><strong>OpenRouter (AI):</strong> עיבוד טקסט הודעות לסיווג פניות וחילוץ מספרי טלפון. ההודעות שלך נשלחות לשירות AI לניתוח.</li>
+<li><strong>Supabase:</strong> אחסון מאובטח של מזהי הודעות (למניעת כפילויות) ולוגים של קמפיינים.</li>
+<li><strong>GreenAPI:</strong> שליחת הודעות וואטסאפ.</li>
+<li><strong>Timeless.day:</strong> הקלטה ותמלול שיחות.</li>
+<li><strong>Meta:</strong> קבלת הודעות אינסטגרם דרך ה-API שלהם.</li>
+</ul>
+<p>אנחנו לא מוכרים את המידע האישי שלך לצד שלישי כלשהו.</p>
+
+<h2>4. שמירת מידע</h2>
+<p>רשומות CRM נשמרות כל עוד הן רלוונטיות לשירותים שלנו. תוכל/י לבקש מחיקה בכל עת (ראה סעיף 6).</p>
+
+<h2>5. אבטחת מידע</h2>
+<p>כל התקשורת מוצפנת באמצעות HTTPS. חתימות Webhook מאומתות באמצעות HMAC-SHA256. מפתחות API מאוחסנים באופן מאובטח ולא נחשפים בקוד המקור.</p>
+
+<h2>6. הזכויות שלך</h2>
+<p>בהתאם לחוק הגנת הפרטיות, התשמ"א-1981, יש לך את הזכות:</p>
+<ul>
+<li>לבקש גישה למידע האישי שלך</li>
+<li>לבקש תיקון מידע שגוי</li>
+<li>לבקש מחיקת המידע שלך</li>
+<li>לבקש הסרה מהודעות חגים ומעקב</li>
+</ul>
+<p>לכל בקשה, פנה/י אלינו: <strong>barashro@gmail.com</strong></p>
+
+<h2>7. יצירת קשר</h2>
+<p>רונית ברש<br>אימייל: barashro@gmail.com<br>אינסטגרם: @ronit_barash</p>
+</body></html>`);
 });
 
 app.get("/terms", (_req: Request, res: Response) => {
-  res.type("html").send(`<!DOCTYPE html><html><head><title>Terms of Service</title></head><body>
-    <h1>Terms of Service</h1>
-    <p>This application is used internally for business communication management.
-    By interacting with our Instagram account, you agree that your messages may be processed
-    for customer service purposes. We reserve the right to modify these terms at any time.</p>
-    <p>Last updated: May 2026</p></body></html>`);
+  res.type("html").send(`<!DOCTYPE html><html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Terms of Service — Ronit Barash</title>
+<style>body{font-family:system-ui,sans-serif;max-width:720px;margin:40px auto;padding:0 20px;line-height:1.7;color:#222}h1{border-bottom:2px solid #e0e0e0;padding-bottom:12px}h2{margin-top:32px;color:#333}ul{padding-right:20px}</style></head><body>
+<h1>תנאי שימוש — רונית ברש</h1>
+<p><strong>עדכון אחרון:</strong> מאי 2026</p>
+
+<h2>1. אודות השירות</h2>
+<p>שירות זה מנהל תקשורת עסקית עבור רונית ברש. כאשר את/ה שולח/ת הודעה לחשבון האינסטגרם שלנו (@ronit_barash) או מתקשר/ת איתנו, ההודעות שלך מעובדות כדי לספק שירות לקוחות טוב יותר.</p>
+
+<h2>2. עיבוד הודעות</h2>
+<ul>
+<li>הודעות ישירות באינסטגרם מעובדות באופן אוטומטי על ידי בינה מלאכותית כדי לקבוע את העניין שלך בשירותים שלנו.</li>
+<li>שיחות טלפון עשויות להיות מוקלטות ומתומללות לצורך מעקב אחר שירות הלקוחות.</li>
+<li>אנחנו עשויים לשלוח לך הודעות מעקב וברכות חג דרך וואטסאפ.</li>
+</ul>
+
+<h2>3. השירותים שלנו</h2>
+<p>אנחנו מציעים מידע ותיאום עבור:</p>
+<ul>
+<li>טיסות לאומן</li>
+<li>טיסות לפולין</li>
+<li>אירועי הפרשות חלה</li>
+</ul>
+
+<h2>4. תקשורת</h2>
+<p>על ידי פנייה אלינו, את/ה מסכים/ה לקבל תשובות ומעקבים הקשורים לפנייה שלך. תוכל/י לבקש הסרה מתקשורת עתידית בכל עת על ידי פנייה ל-barashro@gmail.com.</p>
+
+<h2>5. הגבלת אחריות</h2>
+<p>אנחנו שואפים לספק מידע מדויק אך לא מתחייבים לדיוק מלא של כל התוכן. זמינות השירותים עשויה להשתנות.</p>
+
+<h2>6. שינויים בתנאים</h2>
+<p>אנחנו שומרים לעצמנו את הזכות לעדכן תנאים אלה. שינויים ייכנסו לתוקף מיד עם פרסומם.</p>
+
+<h2>7. יצירת קשר</h2>
+<p>רונית ברש<br>אימייל: barashro@gmail.com<br>אינסטגרם: @ronit_barash</p>
+</body></html>`);
 });
 
 app.get("/data-deletion", (_req: Request, res: Response) => {
-  res.type("html").send(`<!DOCTYPE html><html><head><title>Data Deletion</title></head><body>
-    <h1>Data Deletion Request</h1>
-    <p>To request deletion of your data, please email barashro@gmail.com with the subject
-    "Data Deletion Request" and include your Instagram username. We will process your request
-    within 30 days.</p></body></html>`);
+  res.type("html").send(`<!DOCTYPE html><html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Data Deletion — Ronit Barash</title>
+<style>body{font-family:system-ui,sans-serif;max-width:720px;margin:40px auto;padding:0 20px;line-height:1.7;color:#222}h1{border-bottom:2px solid #e0e0e0;padding-bottom:12px}h2{margin-top:32px;color:#333}ul{padding-right:20px}</style></head><body>
+<h1>בקשת מחיקת מידע — רונית ברש</h1>
+<p><strong>עדכון אחרון:</strong> מאי 2026</p>
+
+<h2>כיצד לבקש מחיקת המידע שלך</h2>
+<p>אם ברצונך למחוק את כל המידע האישי שלך ממערכות שלנו, שלח/י אימייל ל:</p>
+<p><strong>barashro@gmail.com</strong></p>
+<p>עם הנושא: <strong>"בקשת מחיקת מידע"</strong></p>
+
+<h2>אנא כלול/י בבקשה:</h2>
+<ul>
+<li>שם המשתמש שלך באינסטגרם</li>
+<li>מספר הטלפון שלך (אם סופק בעבר)</li>
+<li>כל פרט מזהה נוסף שסופק בעבר</li>
+</ul>
+
+<h2>מה יימחק</h2>
+<ul>
+<li>רשומת CRM שלך ב-Monday.com (שם, טלפון, העדפת שירות, היסטוריית שיחות)</li>
+<li>מזהי הודעות ומיפויי שולח בבסיס הנתונים שלנו</li>
+<li>לוגים של הודעות חגים ומעקב</li>
+</ul>
+
+<h2>זמן עיבוד</h2>
+<p>נעבד את בקשתך תוך <strong>30 יום</strong> ונאשר בדוא"ל כאשר כל המידע נמחק.</p>
+
+<h2>הערה</h2>
+<p>מחיקה מהמערכות שלנו לא משפיעה על מידע שנשמר על ידי Meta (אינסטגרם), וואטסאפ, או פלטפורמות צד שלישי אחרות. עיין/י במדיניות הפרטיות של אותם שירותים בנפרד.</p>
+</body></html>`);
 });
 
 app.use("/api", apiRoutes);
