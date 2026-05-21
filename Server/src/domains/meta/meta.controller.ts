@@ -48,6 +48,11 @@ function verifyHmac(req: Request, rawBody: Buffer): boolean {
     .update(rawBody)
     .digest("hex");
 
+  logger.info(
+    { receivedSig: sig, expectedSig: expected, bodyLen: rawBody.length, secretLen: env.META_APP_SECRET.length },
+    "HMAC debug — remove after verification works",
+  );
+
   try {
     return crypto.timingSafeEqual(
       Buffer.from(sig, "hex"),
