@@ -76,6 +76,18 @@ export async function receiveWebhook(
 ): Promise<void> {
   const raw = req.body as Buffer;
 
+  logger.info(
+    {
+      bodyType: typeof req.body,
+      isBuffer: Buffer.isBuffer(req.body),
+      bodyLen: raw.length,
+      bodyFirst100: raw.toString("utf8").substring(0, 100),
+      contentEncoding: req.header("content-encoding"),
+      transferEncoding: req.header("transfer-encoding"),
+    },
+    "Webhook raw body debug — remove after fix",
+  );
+
   if (!verifyHmac(req, raw)) {
     throw new UnauthorizedError("Invalid Meta webhook signature");
   }
