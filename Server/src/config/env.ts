@@ -77,6 +77,16 @@ const envSchema = z.object({
   // Monday.com — files column
   MONDAY_COL_FILES_ID: z.string().default("file"),
 
+  // Monday.com — website-form columns (added 2026-05-26 via scripts/add-monday-form-columns.ts).
+  // See scripts/output/form-column-ids.json for the full mapping.
+  MONDAY_COL_AGE_ID: z.string().default("numeric_mm3pe3q0"),
+  MONDAY_COL_BIRTH_DATE_ID: z.string().default("date_mm3p6rms"),
+  MONDAY_COL_CITY_ID: z.string().default("text_mm3p66xt"),
+  MONDAY_COL_OCCUPATION_ID: z.string().default("text_mm3p3e2z"),
+  MONDAY_COL_PHONE_TYPE_ID: z.string().default("dropdown_mm3px3w7"),
+  MONDAY_COL_PASSPORT_ID: z.string().default("dropdown_mm3px2sn"),
+  MONDAY_COL_EMAIL_ID: z.string().default("email_mm3p4w7"),
+
   // GreenAPI / WhatsApp
   GREENAPI_API_URL: z.string().url().default("https://7107.api.greenapi.com"),
   GREENAPI_INSTANCE_ID: z.string().min(1).optional(),

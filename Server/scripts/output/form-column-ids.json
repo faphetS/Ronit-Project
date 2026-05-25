@@ -1,0 +1,9 @@
+{
+  "גיל": "numeric_mm3pe3q0",
+  "תאריך לידה": "date_mm3p6rms",
+  "עיר": "text_mm3p66xt",
+  "עיסוק": "text_mm3p3e2z",
+  "סוג טלפון": "dropdown_mm3px3w7",
+  "דרכון": "dropdown_mm3px2sn",
+  "מייל": "email_mm3p4w7"
+}
