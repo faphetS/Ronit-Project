@@ -48,11 +48,6 @@ function verifyHmac(req: Request, rawBody: Buffer): boolean {
     .update(rawBody)
     .digest("hex");
 
-  logger.info(
-    { receivedSig: sig, expectedSig: expected, bodyLen: rawBody.length, secretLen: env.META_APP_SECRET.length },
-    "HMAC debug — remove after verification works",
-  );
-
   try {
     return crypto.timingSafeEqual(
       Buffer.from(sig, "hex"),
@@ -76,22 +71,8 @@ export async function receiveWebhook(
 ): Promise<void> {
   const raw = req.body as Buffer;
 
-  logger.info(
-    {
-      bodyType: typeof req.body,
-      isBuffer: Buffer.isBuffer(req.body),
-      bodyLen: raw.length,
-      bodyFirst100: raw.toString("utf8").substring(0, 100),
-      contentEncoding: req.header("content-encoding"),
-      transferEncoding: req.header("transfer-encoding"),
-    },
-    "Webhook raw body debug — remove after fix",
-  );
-
-  // TODO: restore HMAC check after debugging signature mismatch
-  const hmacOk = verifyHmac(req, raw);
-  if (!hmacOk) {
-    logger.warn("HMAC mismatch — accepting anyway for debugging");
+  if (!verifyHmac(req, raw)) {
+    throw new UnauthorizedError("Invalid Meta webhook signature");
   }
 
   let payload: unknown;
@@ -112,15 +93,31 @@ export async function receiveWebhook(
       const messageText = event.message?.text;
       if (!messageText) continue;
 
-      logger.info(
-        {
+      try {
+        const result = await handleIncomingMessage({
+          messageText,
           senderId: event.sender.id,
           senderUsername: event.sender.username,
           messageId: event.message?.mid,
-          messageText,
-        },
-        "Instagram DM received",
-      );
+        });
+        logger.info(
+          {
+            senderId: event.sender.id,
+            messageId: event.message?.mid,
+            interested: result.classification.interested,
+            service: result.classification.service,
+            itemId: result.itemId,
+          },
+          "Instagram DM processed",
+        );
+      } catch (err) {
+        // Per-message failure must not 5xx the webhook — Meta would retry and
+        // we'd risk duplicate Monday rows for messages that did succeed.
+        logger.error(
+          { err, senderId: event.sender.id, messageId: event.message?.mid },
+          "Failed to process Instagram DM — continuing",
+        );
+      }
     }
   }
 

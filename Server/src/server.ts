@@ -14,10 +14,11 @@ import { requestId } from "./middleware/requestId.js";
 import apiRoutes from "./routes/index.js";
 import rateLimit from "express-rate-limit";
 import { startWhatsAppCrons } from "./domains/whatsapp/cron.js";
+import { startMetaCrons } from "./domains/meta/meta.cron.js";
 
 const app = express();
 
-// Trust the first reverse proxy (Render / Vercel) so req.ip + rate-limit key work.
+// Trust the first reverse proxy (Nginx on Hostinger) so req.ip + rate-limit key work.
 app.set("trust proxy", 1);
 
 // --- Middleware stack (order matters) ---
@@ -241,6 +242,7 @@ app.use(globalErrorHandler);
 const server = app.listen(env.PORT, () => {
   logger.info(`Server running on ${env.BACKEND_URL} [${env.NODE_ENV}]`);
   startWhatsAppCrons();
+  startMetaCrons();
 });
 
 function shutdown(signal: string) {

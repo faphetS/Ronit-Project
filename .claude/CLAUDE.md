@@ -172,7 +172,7 @@ Status of each integration. When a new decision is made, update this section and
 ### Steps to connect Timeless (when you have a paid Max plan)
 1. Get your **API key** from Timeless dashboard → Settings → API. Add to `.env` as `TIMELESS_API_KEY`.
 2. Configure a **webhook** in Timeless pointing to `https://<your-domain>/api/calls/webhook` with event `meeting.transcript_ready`. Copy the webhook secret → add to `.env` as `TIMELESS_WEBHOOK_SECRET`.
-3. Deploy to Render (or wherever) so the webhook URL is publicly reachable.
+3. Deploy to Hostinger so the webhook URL is publicly reachable.
 4. Make a test call: start a cellular call → "Add Call" → dial bridge number → "Merge Calls" → have a conversation that mentions a phone number.
 5. Wait for Timeless to transcribe → webhook fires → check server logs for the full pipeline (transcript fetch → LLM extraction → Monday.com match).
 6. If the bridge number is US-only (+1 530), email `hey@magical.team` to ask about Israeli local numbers — they're an Israeli company so there's a good chance.
@@ -181,7 +181,7 @@ See [PLAN.md](PLAN.md) for full domain plan details.
 
 ## Temporary testing overrides (revert before production)
 
-- **Render `RONIT_OWNER_WA_NUMBER`** is set to `639620616308` ("aj smrt") for testing the WhatsApp holiday flow. Revert to Ronit's real number `639219909210` before going live.
+- **`RONIT_OWNER_WA_NUMBER` on Hostinger** is set to `639620616308` ("aj smrt") for testing the WhatsApp holiday flow. Revert to Ronit's real number `639219909210` before going live.
 - **GreenAPI self-message limitation**: GreenAPI does not fire webhooks for messages sent to yourself (same phone as the instance). In production, the GreenAPI instance number must differ from the owner's personal number, OR the owner replies from a different device/number.
 - **Supabase `holiday_campaigns`** has a test row (id=1, holiday_date=2026-04-26, status=pending_reply). Delete or reset test data before production.
 

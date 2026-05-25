@@ -52,6 +52,10 @@ const envSchema = z.object({
   IG_ACCESS_TOKEN: z.string().min(1).optional(),
   IG_PROFESSIONAL_ACCOUNT_ID: z.string().min(1).optional(),
 
+  // IG token auto-refresh — JSON file on a Docker volume holds the live token.
+  // Container path; the host bind-mount is /opt/ronit-data → /data in compose.
+  META_TOKEN_FILE_PATH: z.string().default("/data/meta-token.json"),
+
   // Supabase — required for dedup and future tables (followup, holiday).
   SUPABASE_URL: z.string().url().optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
@@ -60,9 +64,6 @@ const envSchema = z.object({
   // skeleton still boots with zero env vars set.
   OPENROUTER_API_KEY: z.string().min(1).optional(),
   OPENROUTER_MODEL: z.string().default("anthropic/claude-haiku-4.5"),
-
-  // External service API keys — stored here for programmatic access.
-  RENDER_API_KEY: z.string().min(1).optional(),
 
   // Timeless.day — call recording + transcription
   TIMELESS_API_KEY: z.string().min(1).optional(),
