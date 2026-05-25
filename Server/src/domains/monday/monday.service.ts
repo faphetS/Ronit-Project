@@ -9,11 +9,93 @@ const SERVICE_TO_LABEL_ID: Record<"uman" | "poland" | "challah", number> = {
   challah: 3,
 };
 
-export interface CreateLeadInput {
+const PHONE_TYPE_TO_LABEL_ID: Record<"kosher" | "regular", number> = {
+  kosher: 1,
+  regular: 2,
+};
+
+const PASSPORT_TO_LABEL_ID: Record<"yes" | "no", number> = {
+  yes: 1,
+  no: 2,
+};
+
+/** Optional website-form fields shared by create + update. */
+export interface FormFields {
+  age?: number;
+  birth_date?: string;
+  city?: string;
+  occupation?: string;
+  email?: string;
+  phone_type?: "kosher" | "regular";
+  passport?: "yes" | "no";
+}
+
+export interface CreateLeadInput extends FormFields {
   name: string;
   phone: string | null;
   service: "uman" | "poland" | "challah" | null;
-  source: "instagram" | "whatsapp";
+  source: "instagram" | "whatsapp" | "website";
+}
+
+export interface UpdateLeadInput extends FormFields {
+  name?: string;
+  phone?: string;
+  service?: "uman" | "poland" | "challah";
+}
+
+function buildPhoneColumn(phone: string): Record<string, unknown> {
+  const digits = phone.replace(/\D/g, "");
+  const country = digits.startsWith("63") ? "PH" : "IL";
+  return { phone: digits, countryShortName: country };
+}
+
+/** Build the Monday column_values JSON for any combination of fields. */
+function buildColumnValues(
+  fields: FormFields & {
+    phone?: string | null;
+    service?: "uman" | "poland" | "challah" | null;
+  },
+): Record<string, unknown> {
+  const columnValues: Record<string, unknown> = {};
+
+  if (fields.phone) {
+    columnValues[env.MONDAY_COL_PHONE_ID] = buildPhoneColumn(fields.phone);
+  }
+  if (fields.service) {
+    columnValues[env.MONDAY_COL_SERVICE_ID] = {
+      ids: [SERVICE_TO_LABEL_ID[fields.service]],
+    };
+  }
+  if (fields.age !== undefined) {
+    columnValues[env.MONDAY_COL_AGE_ID] = String(fields.age);
+  }
+  if (fields.birth_date) {
+    columnValues[env.MONDAY_COL_BIRTH_DATE_ID] = { date: fields.birth_date };
+  }
+  if (fields.city) {
+    columnValues[env.MONDAY_COL_CITY_ID] = fields.city;
+  }
+  if (fields.occupation) {
+    columnValues[env.MONDAY_COL_OCCUPATION_ID] = fields.occupation;
+  }
+  if (fields.email) {
+    columnValues[env.MONDAY_COL_EMAIL_ID] = {
+      email: fields.email,
+      text: fields.email,
+    };
+  }
+  if (fields.phone_type) {
+    columnValues[env.MONDAY_COL_PHONE_TYPE_ID] = {
+      ids: [PHONE_TYPE_TO_LABEL_ID[fields.phone_type]],
+    };
+  }
+  if (fields.passport) {
+    columnValues[env.MONDAY_COL_PASSPORT_ID] = {
+      ids: [PASSPORT_TO_LABEL_ID[fields.passport]],
+    };
+  }
+
+  return columnValues;
 }
 
 interface CreateItemResponse {
@@ -23,22 +105,7 @@ interface CreateItemResponse {
 export async function createLeadRow(
   input: CreateLeadInput,
 ): Promise<{ itemId: string }> {
-  const columnValues: Record<string, unknown> = {};
-
-  if (input.phone) {
-    const digits = input.phone.replace(/\D/g, "");
-    const country = digits.startsWith("63") ? "PH" : "IL";
-    columnValues[env.MONDAY_COL_PHONE_ID] = {
-      phone: digits,
-      countryShortName: country,
-    };
-  }
-
-  if (input.service) {
-    columnValues[env.MONDAY_COL_SERVICE_ID] = {
-      ids: [SERVICE_TO_LABEL_ID[input.service]],
-    };
-  }
+  const columnValues = buildColumnValues(input);
 
   const mutation = /* GraphQL */ `
     mutation (
@@ -80,6 +147,50 @@ export async function createLeadRow(
 
 interface ChangeColumnValueResponse {
   change_multiple_column_values: { id: string };
+}
+
+interface ChangeSimpleColumnValueResponse {
+  change_simple_column_value: { id: string };
+}
+
+/**
+ * Updates any subset of lead fields on an existing Monday item. Used by the
+ * website-form endpoint when an incoming submission matches an existing lead
+ * (by IG sender id or phone). Renames the item if `name` is supplied.
+ */
+export async function updateLeadRow(
+  boardId: string,
+  itemId: string,
+  fields: UpdateLeadInput,
+): Promise<void> {
+  // Rename the item if the form provided a real name. Item name is a
+  // pseudo-column on Monday — it uses a different mutation than the others.
+  if (fields.name && fields.name.trim().length > 0) {
+    await gql<ChangeSimpleColumnValueResponse>(
+      `mutation ($boardId: ID!, $itemId: ID!, $value: String!) {
+        change_simple_column_value(board_id: $boardId, item_id: $itemId, column_id: "name", value: $value) { id }
+      }`,
+      { boardId, itemId, value: fields.name.trim() },
+    );
+  }
+
+  const columnValues = buildColumnValues(fields);
+  if (Object.keys(columnValues).length === 0) {
+    logger.info({ itemId }, "updateLeadRow called with no column-side fields");
+    return;
+  }
+
+  await gql<ChangeColumnValueResponse>(
+    `mutation ($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
+      change_multiple_column_values(board_id: $boardId, item_id: $itemId, column_values: $columnValues) { id }
+    }`,
+    { boardId, itemId, columnValues: JSON.stringify(columnValues) },
+  );
+
+  logger.info(
+    { itemId, boardId, fields: Object.keys(columnValues) },
+    "Monday lead row updated from form",
+  );
 }
 
 export async function updateItemPhone(
