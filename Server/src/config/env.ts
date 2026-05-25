@@ -56,9 +56,9 @@ const envSchema = z.object({
   // Container path; the host bind-mount is /opt/ronit-data → /data in compose.
   META_TOKEN_FILE_PATH: z.string().default("/data/meta-token.json"),
 
-  // Supabase — required for dedup and future tables (followup, holiday).
-  SUPABASE_URL: z.string().url().optional(),
-  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
+  // SQLite — dedup, followup_log, holiday_campaigns. Lives on the same Docker
+  // volume as the IG token file (host: /opt/ronit-data → container: /data).
+  DB_FILE_PATH: z.string().default("/data/crm.sqlite"),
 
   // OpenRouter — required when the classifier is invoked; optional otherwise so the
   // skeleton still boots with zero env vars set.

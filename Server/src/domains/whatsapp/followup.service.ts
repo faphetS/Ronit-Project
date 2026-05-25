@@ -1,5 +1,5 @@
+import { getDb } from "../../config/db.js";
 import { logger } from "../../config/logger.js";
-import { supabase } from "../../config/supabase.js";
 import { getAllLeadsForFollowup } from "../monday/monday.service.js";
 import { sendWhatsApp } from "./whatsapp.service.js";
 
@@ -23,17 +23,20 @@ export async function checkAndSendFollowups(daysThreshold = 7): Promise<void> {
     "Follow-up eligibility computed",
   );
 
-  const db = supabase();
+  const db = getDb();
+  const existsStmt = db.prepare(
+    "SELECT id FROM followup_log WHERE monday_item_id = ? AND last_call_date = ?",
+  );
+  const insertStmt = db.prepare(
+    `INSERT INTO followup_log (monday_item_id, phone, lead_name, last_call_date)
+     VALUES (?, ?, ?, ?)`,
+  );
+
   let sent = 0;
   let skipped = 0;
 
   for (const lead of qualifying) {
-    const { data: existing } = await db
-      .from("followup_log")
-      .select("id")
-      .eq("monday_item_id", lead.itemId)
-      .eq("last_call_date", lead.lastCallDate)
-      .maybeSingle();
+    const existing = existsStmt.get(lead.itemId, lead.lastCallDate);
 
     if (existing) {
       skipped++;
@@ -44,15 +47,7 @@ export async function checkAndSendFollowups(daysThreshold = 7): Promise<void> {
 
     try {
       await sendWhatsApp(lead.phone, message);
-
-      await db.from("followup_log").insert({
-        monday_item_id: lead.itemId,
-        phone: lead.phone,
-        lead_name: lead.name,
-        last_call_date: lead.lastCallDate,
-        sent_at: new Date().toISOString(),
-      });
-
+      insertStmt.run(lead.itemId, lead.phone, lead.name, lead.lastCallDate);
       sent++;
     } catch (err) {
       logger.error({ err, itemId: lead.itemId }, "Follow-up send failed");

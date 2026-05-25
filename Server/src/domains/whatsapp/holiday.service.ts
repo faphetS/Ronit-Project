@@ -1,17 +1,17 @@
 import { randomBytes } from "node:crypto";
+import { getDb } from "../../config/db.js";
 import { env } from "../../config/env.js";
 import { AppError } from "../../lib/errors.js";
 import { logger } from "../../config/logger.js";
-import { supabase } from "../../config/supabase.js";
 import { getAllLeadsWithPhones } from "../monday/monday.service.js";
 import { getHolidayInDays } from "./hebcal.client.js";
 import { sendWhatsApp } from "./whatsapp.service.js";
 
-interface HolidayCampaign {
+interface HolidayCampaignRow {
   id: number;
   holiday_date: string;
   holiday_name: string;
-  holiday_hebrew: string;
+  holiday_hebrew: string | null;
   status: string;
   form_token: string | null;
   send_date: string | null;
@@ -33,17 +33,11 @@ export async function checkAndPromptHoliday(): Promise<void> {
     return;
   }
 
-  const db = supabase();
+  const db = getDb();
 
-  const { data: existing, error: fetchError } = await db
-    .from("holiday_campaigns")
-    .select("id, status")
-    .eq("holiday_date", holiday.date)
-    .maybeSingle();
-
-  if (fetchError) {
-    throw fetchError;
-  }
+  const existing = db
+    .prepare("SELECT id, status FROM holiday_campaigns WHERE holiday_date = ?")
+    .get(holiday.date) as { id: number; status: string } | undefined;
 
   if (existing && existing.status !== "pending_reply") {
     logger.info(
@@ -55,36 +49,26 @@ export async function checkAndPromptHoliday(): Promise<void> {
 
   const formToken = randomBytes(32).toString("hex");
 
-  const { data: upserted, error: upsertError } = await db
-    .from("holiday_campaigns")
-    .upsert(
-      {
-        holiday_date: holiday.date,
-        holiday_name: holiday.title,
-        holiday_hebrew: holiday.hebrew,
-        status: "pending_reply",
-        form_token: formToken,
-      },
-      { onConflict: "holiday_date" },
+  const upserted = db
+    .prepare(
+      `INSERT INTO holiday_campaigns (holiday_date, holiday_name, holiday_hebrew, status, form_token)
+       VALUES (?, ?, ?, 'pending_reply', ?)
+       ON CONFLICT(holiday_date) DO UPDATE SET
+         holiday_name = excluded.holiday_name,
+         holiday_hebrew = excluded.holiday_hebrew,
+         status = 'pending_reply',
+         form_token = excluded.form_token
+       RETURNING id`,
     )
-    .select("id")
-    .single();
-
-  if (upsertError) {
-    throw upsertError;
-  }
+    .get(holiday.date, holiday.title, holiday.hebrew, formToken) as { id: number };
 
   const formUrl = `${env.BACKEND_URL}/api/whatsapp/holiday-form?token=${formToken}`;
   const prompt = `שלום, בעוד 3 ימים חל ${holiday.hebrew}.\nמה תרצי לשלוח לכל הלקוחות שלך?\n\nלחצי על הקישור למילוי הטופס:\n${formUrl}`;
   const idMessage = await sendWhatsApp(env.RONIT_OWNER_WA_NUMBER, prompt);
 
-  await db
-    .from("holiday_campaigns")
-    .update({
-      prompt_sent_at: new Date().toISOString(),
-      prompt_message_id: idMessage,
-    })
-    .eq("id", upserted.id);
+  db.prepare(
+    "UPDATE holiday_campaigns SET prompt_sent_at = datetime('now'), prompt_message_id = ? WHERE id = ?",
+  ).run(idMessage, upserted.id);
 
   logger.info(
     { campaignId: upserted.id, holiday: holiday.hebrew, idMessage },
@@ -100,16 +84,20 @@ export interface HolidayFormData {
   status: string;
 }
 
-export async function getFormData(token: string): Promise<HolidayFormData> {
-  const db = supabase();
-
-  const { data, error } = await db
-    .from("holiday_campaigns")
-    .select("id, holiday_name, holiday_hebrew, holiday_date, status")
-    .eq("form_token", token)
-    .maybeSingle();
-
-  if (error) throw error;
+export function getFormData(token: string): HolidayFormData {
+  const data = getDb()
+    .prepare(
+      "SELECT id, holiday_name, holiday_hebrew, holiday_date, status FROM holiday_campaigns WHERE form_token = ?",
+    )
+    .get(token) as
+    | {
+        id: number;
+        holiday_name: string;
+        holiday_hebrew: string;
+        holiday_date: string;
+        status: string;
+      }
+    | undefined;
 
   if (!data) {
     throw new AppError(404, "Campaign not found", "CAMPAIGN_NOT_FOUND");
@@ -124,19 +112,19 @@ export async function getFormData(token: string): Promise<HolidayFormData> {
   };
 }
 
-export async function submitHolidayForm(
+export function submitHolidayForm(
   token: string,
   greeting: string,
-): Promise<{ holidayHebrew: string; holidayDate: string }> {
-  const db = supabase();
+): { holidayHebrew: string; holidayDate: string } {
+  const db = getDb();
 
-  const { data: campaign, error } = await db
-    .from("holiday_campaigns")
-    .select("id, holiday_date, holiday_hebrew, status")
-    .eq("form_token", token)
-    .maybeSingle();
-
-  if (error) throw error;
+  const campaign = db
+    .prepare(
+      "SELECT id, holiday_date, holiday_hebrew, status FROM holiday_campaigns WHERE form_token = ?",
+    )
+    .get(token) as
+    | { id: number; holiday_date: string; holiday_hebrew: string; status: string }
+    | undefined;
 
   if (!campaign) {
     throw new AppError(404, "Campaign not found", "CAMPAIGN_NOT_FOUND");
@@ -146,15 +134,11 @@ export async function submitHolidayForm(
     throw new AppError(400, "Campaign already submitted or expired", "CAMPAIGN_NOT_PENDING");
   }
 
-  await db
-    .from("holiday_campaigns")
-    .update({
-      reply_text: greeting,
-      send_date: campaign.holiday_date,
-      status: "reply_received",
-      reply_received_at: new Date().toISOString(),
-    })
-    .eq("id", campaign.id);
+  db.prepare(
+    `UPDATE holiday_campaigns
+     SET reply_text = ?, send_date = ?, status = 'reply_received', reply_received_at = datetime('now')
+     WHERE id = ?`,
+  ).run(greeting, campaign.holiday_date, campaign.id);
 
   logger.info({ campaignId: campaign.id, sendDate: campaign.holiday_date }, "Holiday form submitted");
 
@@ -163,29 +147,18 @@ export async function submitHolidayForm(
 
 export async function broadcastHolidayCampaign(): Promise<void> {
   const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Jerusalem" });
-  const db = supabase();
+  const db = getDb();
 
   // Expire stale campaigns where the holiday has passed
-  const { error: expireError } = await db
-    .from("holiday_campaigns")
-    .update({ status: "expired" })
-    .eq("status", "pending_reply")
-    .lt("holiday_date", todayStr);
+  db.prepare(
+    "UPDATE holiday_campaigns SET status = 'expired' WHERE status = 'pending_reply' AND holiday_date < ?",
+  ).run(todayStr);
 
-  if (expireError) {
-    logger.error({ err: expireError }, "Failed to expire stale campaigns");
-  }
-
-  const { data: campaign, error } = await db
-    .from("holiday_campaigns")
-    .select("id, reply_text")
-    .eq("send_date", todayStr)
-    .eq("status", "reply_received")
-    .maybeSingle() as { data: Pick<HolidayCampaign, "id" | "reply_text"> | null; error: unknown };
-
-  if (error) {
-    throw error;
-  }
+  const campaign = db
+    .prepare(
+      "SELECT id, reply_text FROM holiday_campaigns WHERE send_date = ? AND status = 'reply_received'",
+    )
+    .get(todayStr) as Pick<HolidayCampaignRow, "id" | "reply_text"> | undefined;
 
   if (!campaign) {
     logger.info({ todayStr }, "No reply_received campaign for today — skipping broadcast");
@@ -197,43 +170,40 @@ export async function broadcastHolidayCampaign(): Promise<void> {
     return;
   }
 
-  await db
-    .from("holiday_campaigns")
-    .update({ status: "broadcasting", broadcast_started_at: new Date().toISOString() })
-    .eq("id", campaign.id);
+  db.prepare(
+    "UPDATE holiday_campaigns SET status = 'broadcasting', broadcast_started_at = datetime('now') WHERE id = ?",
+  ).run(campaign.id);
 
   const leads = await getAllLeadsWithPhones();
+
+  const insertSendStmt = db.prepare(
+    `INSERT INTO holiday_campaign_sends (campaign_id, monday_item_id, phone, lead_name, status)
+     VALUES (?, ?, ?, ?, 'pending')
+     RETURNING id`,
+  );
+  const markSentStmt = db.prepare(
+    "UPDATE holiday_campaign_sends SET status = 'sent', sent_at = datetime('now') WHERE id = ?",
+  );
+  const markFailedStmt = db.prepare(
+    "UPDATE holiday_campaign_sends SET status = 'failed' WHERE id = ?",
+  );
 
   let sent = 0;
   let failed = 0;
 
   for (const lead of leads) {
-    const { data: sendRow } = await db
-      .from("holiday_campaign_sends")
-      .insert({ campaign_id: campaign.id, monday_item_id: lead.itemId, phone: lead.phone, lead_name: lead.name, status: "pending" })
-      .select("id")
-      .single();
+    const sendRow = insertSendStmt.get(campaign.id, lead.itemId, lead.phone, lead.name) as
+      | { id: number }
+      | undefined;
 
     try {
       await sendWhatsApp(lead.phone, campaign.reply_text);
       sent++;
-
-      if (sendRow) {
-        await db
-          .from("holiday_campaign_sends")
-          .update({ status: "sent", sent_at: new Date().toISOString() })
-          .eq("id", sendRow.id);
-      }
+      if (sendRow) markSentStmt.run(sendRow.id);
     } catch (err) {
       failed++;
       logger.error({ err, itemId: lead.itemId }, "Holiday broadcast send failed");
-
-      if (sendRow) {
-        await db
-          .from("holiday_campaign_sends")
-          .update({ status: "failed" })
-          .eq("id", sendRow.id);
-      }
+      if (sendRow) markFailedStmt.run(sendRow.id);
     }
 
     if (leads.indexOf(lead) < leads.length - 1) {
@@ -241,16 +211,12 @@ export async function broadcastHolidayCampaign(): Promise<void> {
     }
   }
 
-  await db
-    .from("holiday_campaigns")
-    .update({
-      status: "sent",
-      broadcast_finished_at: new Date().toISOString(),
-      total_recipients: leads.length,
-      total_sent: sent,
-      total_failed: failed,
-    })
-    .eq("id", campaign.id);
+  db.prepare(
+    `UPDATE holiday_campaigns
+     SET status = 'sent', broadcast_finished_at = datetime('now'),
+         total_recipients = ?, total_sent = ?, total_failed = ?
+     WHERE id = ?`,
+  ).run(leads.length, sent, failed, campaign.id);
 
   logger.info({ campaignId: campaign.id, sent, failed }, "Holiday broadcast complete");
 }

@@ -1,34 +1,18 @@
-import { supabase } from "../config/supabase.js";
-import { logger } from "../config/logger.js";
+import { getDb } from "../config/db.js";
 
-export async function isMessageProcessed(
-  source: string,
-  externalId: string,
-): Promise<boolean> {
-  const { data } = await supabase()
-    .from("processed_webhooks")
-    .select("id")
-    .eq("source", source)
-    .eq("external_id", externalId)
-    .maybeSingle();
-
-  return data !== null;
+export function isMessageProcessed(source: string, externalId: string): boolean {
+  const row = getDb()
+    .prepare("SELECT id FROM processed_webhooks WHERE source = ? AND external_id = ?")
+    .get(source, externalId);
+  return row !== undefined;
 }
 
-export async function markMessageProcessed(
-  source: string,
-  externalId: string,
-): Promise<void> {
-  const { error } = await supabase()
-    .from("processed_webhooks")
-    .upsert(
-      { source, external_id: externalId },
-      { onConflict: "source,external_id" },
-    );
-
-  if (error) {
-    logger.warn({ error, source, externalId }, "Failed to mark message as processed");
-  }
+export function markMessageProcessed(source: string, externalId: string): void {
+  getDb()
+    .prepare(
+      "INSERT OR IGNORE INTO processed_webhooks (source, external_id) VALUES (?, ?)",
+    )
+    .run(source, externalId);
 }
 
 export interface KnownSender {
@@ -36,63 +20,55 @@ export interface KnownSender {
   phone: string | null;
 }
 
-export async function findKnownSender(
+export function findKnownSender(
   platform: string,
   senderId: string,
-): Promise<KnownSender | null> {
-  const { data } = await supabase()
-    .from("known_senders")
-    .select("monday_item_id, phone")
-    .eq("platform", platform)
-    .eq("sender_id", senderId)
-    .maybeSingle();
-
-  return data;
+): KnownSender | null {
+  const row = getDb()
+    .prepare(
+      "SELECT monday_item_id, phone FROM known_senders WHERE platform = ? AND sender_id = ?",
+    )
+    .get(platform, senderId) as KnownSender | undefined;
+  return row ?? null;
 }
 
-export async function upsertKnownSender(input: {
+export function upsertKnownSender(input: {
   platform: string;
   senderId: string;
   senderUsername?: string;
   mondayItemId: string;
   phone?: string | null;
-}): Promise<void> {
-  const { error } = await supabase()
-    .from("known_senders")
-    .upsert(
-      {
-        platform: input.platform,
-        sender_id: input.senderId,
-        sender_username: input.senderUsername ?? null,
-        monday_item_id: input.mondayItemId,
-        phone: input.phone ?? null,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "platform,sender_id" },
+}): void {
+  getDb()
+    .prepare(
+      `INSERT INTO known_senders (platform, sender_id, sender_username, monday_item_id, phone, updated_at)
+       VALUES (?, ?, ?, ?, ?, datetime('now'))
+       ON CONFLICT(platform, sender_id) DO UPDATE SET
+         sender_username = excluded.sender_username,
+         monday_item_id = excluded.monday_item_id,
+         phone = excluded.phone,
+         updated_at = datetime('now')`,
+    )
+    .run(
+      input.platform,
+      input.senderId,
+      input.senderUsername ?? null,
+      input.mondayItemId,
+      input.phone ?? null,
     );
-
-  if (error) {
-    logger.warn({ error, ...input }, "Failed to upsert known sender");
-  }
 }
 
-export async function updateSenderPhone(
+export function updateSenderPhone(
   platform: string,
   senderId: string,
   phone: string,
-): Promise<string | null> {
-  const { data, error } = await supabase()
-    .from("known_senders")
-    .update({ phone, updated_at: new Date().toISOString() })
-    .eq("platform", platform)
-    .eq("sender_id", senderId)
-    .select("monday_item_id")
-    .maybeSingle();
-
-  if (error) {
-    logger.warn({ error, platform, senderId }, "Failed to update sender phone");
-    return null;
-  }
-
-  return data?.monday_item_id ?? null;
+): string | null {
+  const row = getDb()
+    .prepare(
+      `UPDATE known_senders SET phone = ?, updated_at = datetime('now')
+       WHERE platform = ? AND sender_id = ?
+       RETURNING monday_item_id`,
+    )
+    .get(phone, platform, senderId) as { monday_item_id: string } | undefined;
+  return row?.monday_item_id ?? null;
 }
