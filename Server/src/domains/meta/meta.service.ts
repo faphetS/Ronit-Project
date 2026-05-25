@@ -8,6 +8,7 @@ import {
   updateSenderPhone,
 } from "../../lib/dedup.js";
 import { createLeadRow, updateItemPhone } from "../monday/monday.service.js";
+import { fetchIgProfile } from "./meta.profile.service.js";
 
 export async function handleIncomingMessage(input: {
   messageText: string;
@@ -68,13 +69,20 @@ export async function handleIncomingMessage(input: {
     }
   }
 
-  const name =
-    classification.extractedName?.trim() ||
-    input.senderUsername ||
-    "Unknown IG lead";
+  // New sender — resolve a display name from the IG profile, fall back to
+  // "Unknown IG lead" if the API is unreachable or the user is private.
+  let igUsername: string | null = null;
+  let displayName = "Unknown IG lead";
+  if (input.senderId) {
+    const profile = await fetchIgProfile(input.senderId);
+    if (profile?.username) {
+      igUsername = profile.username;
+      displayName = profile.username;
+    }
+  }
 
   const { itemId } = await createLeadRow({
-    name,
+    name: displayName,
     phone: classification.extractedPhone,
     service: classification.service,
     source: "instagram",
@@ -84,7 +92,7 @@ export async function handleIncomingMessage(input: {
     upsertKnownSender({
       platform: "instagram",
       senderId: input.senderId,
-      senderUsername: input.senderUsername,
+      senderUsername: igUsername ?? input.senderUsername,
       mondayItemId: itemId,
       phone: classification.extractedPhone,
     });
