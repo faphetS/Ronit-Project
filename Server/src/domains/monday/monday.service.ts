@@ -82,30 +82,6 @@ interface ChangeColumnValueResponse {
   change_multiple_column_values: { id: string };
 }
 
-interface ChangeSimpleColumnValueResponse {
-  change_simple_column_value: { id: string };
-}
-
-/** Updates the item's display name (the built-in "name" column on Monday). */
-export async function renameItem(
-  itemId: string,
-  newName: string,
-  boardId: string = env.MONDAY_BOARD_CRM_ID,
-): Promise<void> {
-  await gql<ChangeSimpleColumnValueResponse>(
-    `mutation ($boardId: ID!, $itemId: ID!, $value: String!) {
-      change_simple_column_value(
-        board_id: $boardId
-        item_id: $itemId
-        column_id: "name"
-        value: $value
-      ) { id }
-    }`,
-    { boardId, itemId, value: newName },
-  );
-  logger.info({ itemId, newName }, "Monday item renamed");
-}
-
 export async function updateItemPhone(
   itemId: string,
   phone: string,
