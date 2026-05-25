@@ -1,9 +1,38 @@
 {
-  "גיל": "numeric_mm3pe3q0",
-  "תאריך לידה": "date_mm3p6rms",
-  "עיר": "text_mm3p66xt",
-  "עיסוק": "text_mm3p3e2z",
-  "סוג טלפון": "dropdown_mm3px3w7",
-  "דרכון": "dropdown_mm3px2sn",
-  "מייל": "email_mm3p4w7"
+  "CRM": {
+    "גיל": "numeric_mm3pe3q0",
+    "תאריך לידה": "date_mm3p6rms",
+    "עיר": "text_mm3p66xt",
+    "עיסוק": "text_mm3p3e2z",
+    "סוג טלפון": "dropdown_mm3px3w7",
+    "דרכון": "dropdown_mm3px2sn",
+    "מייל": "email_mm3p4w7"
+  },
+  "Uman": {
+    "גיל": "numeric_mm3p9r0a",
+    "תאריך לידה": "date_mm3p8123",
+    "עיר": "text_mm3ptsj2",
+    "עיסוק": "text_mm3prk80",
+    "סוג טלפון": "dropdown_mm3p3xmw",
+    "דרכון": "dropdown_mm3p3gqb",
+    "מייל": "email_mm3p8x8r"
+  },
+  "Poland": {
+    "גיל": "numeric_mm3pj58e",
+    "תאריך לידה": "date_mm3pptxg",
+    "עיר": "text_mm3pjdyz",
+    "עיסוק": "text_mm3pz4rq",
+    "סוג טלפון": "dropdown_mm3p49rk",
+    "דרכון": "dropdown_mm3pfvyj",
+    "מייל": "email_mm3paytt"
+  },
+  "Challah": {
+    "גיל": "numeric_mm3pqate",
+    "תאריך לידה": "date_mm3pxe1s",
+    "עיר": "text_mm3pf74e",
+    "עיסוק": "text_mm3pc9am",
+    "סוג טלפון": "dropdown_mm3pa4qc",
+    "דרכון": "dropdown_mm3pyt8n",
+    "מייל": "email_mm3p7m9r"
+  }
 }

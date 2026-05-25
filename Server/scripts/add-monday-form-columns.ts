@@ -19,7 +19,12 @@ if (!TOKEN) {
   process.exit(1);
 }
 
-const BOARD_ID = process.env.MONDAY_BOARD_CRM_ID ?? "5094895163";
+const BOARDS = [
+  { name: "CRM",     id: process.env.MONDAY_BOARD_CRM_ID    ?? "5094895163" },
+  { name: "Uman",    id: process.env.MONDAY_BOARD_UMAN_ID   ?? "5095155009" },
+  { name: "Poland",  id: process.env.MONDAY_BOARD_POLAND_ID ?? "5095155041" },
+  { name: "Challah", id: process.env.MONDAY_BOARD_CHALLAH_ID?? "5095155077" },
+];
 
 async function gql<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
   const res = await fetch("https://api.monday.com/v2", {
@@ -81,40 +86,34 @@ const COLUMNS_TO_ADD: ColumnSpec[] = [
   { title: "מייל", type: "email" },
 ];
 
-async function main() {
-  // 1. List existing columns (skip ones with matching titles, place new ones after Price Quote)
-  console.log("Listing existing columns on board", BOARD_ID);
+async function processBoard(boardLabel: string, boardId: string): Promise<Record<string, string>> {
+  console.log(`\n=== Board: ${boardLabel} (${boardId}) ===`);
   const existing = await gql<{ boards: Array<{ columns: ExistingColumn[] }> }>(
     `query ($b: [ID!]!) { boards(ids: $b) { columns { id title type } } }`,
-    { b: [BOARD_ID] },
+    { b: [boardId] },
   );
   const cols = existing.boards[0]?.columns ?? [];
-  console.log("Existing columns:");
-  for (const c of cols) console.log(`  ${c.id}  ${c.type.padEnd(10)} ${c.title}`);
 
   const existingTitles = new Set(cols.map((c) => c.title));
   const priceQuote = cols.find((c) => /price.*quote|price_quote|prce|הצעה|הצעת/i.test(c.title));
   let afterColumnId: string | undefined = priceQuote?.id;
-  console.log(`\nAnchor column "${priceQuote?.title ?? "(none — will append at end)"}" → ${afterColumnId ?? "n/a"}\n`);
+  console.log(`Anchor column "${priceQuote?.title ?? "(none — appending at end)"}" → ${afterColumnId ?? "n/a"}`);
 
   const created: Record<string, string> = {};
 
-  // 2. Create each new column (skip if title exists)
   for (const spec of COLUMNS_TO_ADD) {
     if (existingTitles.has(spec.title)) {
       const existingCol = cols.find((c) => c.title === spec.title)!;
-      console.log(`SKIP: "${spec.title}" already exists (${existingCol.id})`);
+      console.log(`  SKIP: "${spec.title}" already exists (${existingCol.id})`);
       created[spec.title] = existingCol.id;
       afterColumnId = existingCol.id;
       continue;
     }
 
-    console.log(`CREATE: "${spec.title}" (${spec.type})${afterColumnId ? ` after ${afterColumnId}` : ""}`);
-
     interface CreateColumnResponse { create_column: { id: string; title: string; type: string } }
 
     const variables: Record<string, unknown> = {
-      boardId: BOARD_ID,
+      boardId,
       title: spec.title,
       columnType: spec.type,
     };
@@ -135,11 +134,7 @@ async function main() {
           column_type: $columnType
           defaults: $defaults
           after_column_id: $afterColumnId
-        ) {
-          id
-          title
-          type
-        }
+        ) { id title type }
       }`,
       variables,
     );
@@ -147,15 +142,22 @@ async function main() {
     const id = result.create_column.id;
     created[spec.title] = id;
     afterColumnId = id;
-    console.log(`  → ${id}`);
+    console.log(`  CREATE: "${spec.title}" (${spec.type}) → ${id}`);
   }
 
-  // 3. Write output JSON
+  return created;
+}
+
+async function main() {
+  const all: Record<string, Record<string, string>> = {};
+  for (const board of BOARDS) {
+    all[board.name] = await processBoard(board.name, board.id);
+  }
+
   mkdirSync("scripts/output", { recursive: true });
   const outPath = "scripts/output/form-column-ids.json";
-  writeFileSync(outPath, JSON.stringify(created, null, 2));
-  console.log(`\nWrote ${outPath}:`);
-  console.log(JSON.stringify(created, null, 2));
+  writeFileSync(outPath, JSON.stringify(all, null, 2));
+  console.log(`\nWrote ${outPath}`);
 }
 
 main().catch((err) => {
