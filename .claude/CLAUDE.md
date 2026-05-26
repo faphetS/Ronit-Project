@@ -100,6 +100,7 @@ Status of each integration. When a new decision is made, update this section and
 - **Env in use:** `MONDAY_API_TOKEN`, `MONDAY_BOARD_CRM_ID`, `MONDAY_GROUP_NEW_LEADS_ID`, `MONDAY_COL_PHONE_ID`, `MONDAY_COL_SERVICE_ID`, `MONDAY_COL_NOTES_ID`.
 - **Env to add later:** `MONDAY_BOARD_UMAN_ID`, `MONDAY_BOARD_PURIM_ID`, `MONDAY_BOARD_CHALLAH_ID` (needed for service board routing).
 - **Notes:** Hebrew dropdown values for the `Service` column must match exactly: `טיסות לאומן`, `טיסות לפורים`, `הפרשות חלה`.
+- **Cross-board limitation — `הודעה אחרונה באינסטגרם` (Last IG message):** The column exists on all 4 boards (CRM/Uman/Poland/Challah) for visual consistency, but `updateLastIgMessage` always writes to CRM because `known_senders.monday_item_id` is CRM-only. When a CRM row is duplicated to a service board on close, the service-board copy's `lastIgMessage` is frozen at duplication time; subsequent IG messages keep updating the CRM row, not the service board. Cross-board sync is a future plan.
 
 ### LLM (classification + summarization)
 - **Decision:** Implemented — OpenRouter (default model: `anthropic/claude-haiku-4.5`)
