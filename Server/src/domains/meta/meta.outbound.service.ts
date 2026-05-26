@@ -12,7 +12,7 @@ export async function sendFirstContactDM(
     ? env.IG_MSG_PHONE_PRESENT
     : env.IG_MSG_PHONE_MISSING;
   const formLink = `${FORM_BASE_URL}/?ig_id=${encodeURIComponent(recipientIgsid)}`;
-  const text = template.replace(/\\n/g, "\n").replace("{form_link}", formLink);
+  const text = template.replace(/\\n/g, "\n").replaceAll("{form_link}", formLink);
 
   let token: string;
   try {
