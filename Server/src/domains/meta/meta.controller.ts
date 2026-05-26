@@ -93,6 +93,18 @@ export async function receiveWebhook(
       const messageText = event.message?.text;
       if (!messageText) continue;
 
+      // Skip echoes: messages SENT BY the business account (Ronit's manual
+      // replies in the IG app, or our own automated outbound sends) come back
+      // to us as webhook events with is_echo=true. Processing them would burn
+      // LLM calls on our own messages and could create spurious Monday rows.
+      if (event.message?.is_echo) {
+        logger.debug(
+          { mid: event.message.mid, senderId: event.sender.id },
+          "Skipping echo (message sent by business account)",
+        );
+        continue;
+      }
+
       try {
         const result = await handleIncomingMessage({
           messageText,

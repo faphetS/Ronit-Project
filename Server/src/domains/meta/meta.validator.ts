@@ -21,6 +21,7 @@ export const MetaWebhookPayloadSchema = z.object({
               .object({
                 mid: z.string().optional(),
                 text: z.string().optional(),
+                is_echo: z.boolean().optional(),
               })
               .optional(),
           }),

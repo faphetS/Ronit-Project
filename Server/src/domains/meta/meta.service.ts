@@ -12,6 +12,7 @@ import {
   updateItemPhone,
   updateLastIgMessage,
 } from "../monday/monday.service.js";
+import { sendFirstContactDM } from "./meta.outbound.service.js";
 import { fetchIgProfile } from "./meta.profile.service.js";
 
 export async function handleIncomingMessage(input: {
@@ -110,6 +111,13 @@ export async function handleIncomingMessage(input: {
   }
 
   await updateLastIgMessage(itemId, input.messageText);
+
+  // First-contact auto-reply on Instagram. Only fires on this new-sender path
+  // (we got here via createLeadRow). Existing senders return earlier and never
+  // reach this point, so we never re-DM known leads.
+  if (input.senderId) {
+    await sendFirstContactDM(input.senderId, !!classification.extractedPhone);
+  }
 
   return { itemId, classification };
 }

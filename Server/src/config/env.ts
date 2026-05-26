@@ -52,6 +52,22 @@ const envSchema = z.object({
   IG_ACCESS_TOKEN: z.string().min(1).optional(),
   IG_PROFESSIONAL_ACCOUNT_ID: z.string().min(1).optional(),
 
+  // Outbound IG first-contact templates. Literal "\n" escapes get decoded into
+  // real newlines at send time; "{form_link}" is replaced with the personalized
+  // form URL containing ?ig_id=<senderId>.
+  IG_MSG_PHONE_MISSING: z
+    .string()
+    .min(1)
+    .default(
+      "היי יקירה 🤍\nאשמח שתכתבי לי את מספר הנייד שלך ונחזור אלייך עם כל הפרטים 🙏📞\n\nובינתיים…\nאני מצרפת לך כאן הצצה מרגשת אל תוך המסע לרבינו ✨\n{form_link}",
+    ),
+  IG_MSG_PHONE_PRESENT: z
+    .string()
+    .min(1)
+    .default(
+      "היי יקירה 🤍\nאצור איתך קשר בהקדם 🙏📞\nובינתיים...\nאת מוזמנת לקבל הצצה מרגשת אל תוך המסע שלנו לרבינו ✨\n{form_link}",
+    ),
+
   // IG token auto-refresh — JSON file on a Docker volume holds the live token.
   // Container path; the host bind-mount is /opt/ronit-data → /data in compose.
   META_TOKEN_FILE_PATH: z.string().default("/data/meta-token.json"),
