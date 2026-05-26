@@ -87,6 +87,15 @@ const envSchema = z.object({
   MONDAY_COL_PASSPORT_ID: z.string().default("dropdown_mm3px2sn"),
   MONDAY_COL_EMAIL_ID: z.string().default("email_mm3p4w7"),
 
+  // Monday.com — date column set to today on row creation by createLeadRow.
+  MONDAY_COL_INQUIRY_DATE_ID: z.string().default("date_mm2psbnf"),
+
+  // Monday.com — long_text column populated by every incoming IG message via
+  // updateLastIgMessage. CRM-board ID; the column also exists on Uman/Poland/
+  // Challah boards (see scripts/output/last-ig-message-column-ids.json) but
+  // updates only target CRM because known_senders.monday_item_id is CRM-only.
+  MONDAY_COL_LAST_IG_MESSAGE_ID: z.string().default("long_text_mm3qd4jt"),
+
   // GreenAPI / WhatsApp
   GREENAPI_API_URL: z.string().url().default("https://7107.api.greenapi.com"),
   GREENAPI_INSTANCE_ID: z.string().min(1).optional(),

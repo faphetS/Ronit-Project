@@ -7,7 +7,11 @@ import {
   upsertKnownSender,
   updateSenderPhone,
 } from "../../lib/dedup.js";
-import { createLeadRow, updateItemPhone } from "../monday/monday.service.js";
+import {
+  createLeadRow,
+  updateItemPhone,
+  updateLastIgMessage,
+} from "../monday/monday.service.js";
 import { fetchIgProfile } from "./meta.profile.service.js";
 
 export async function handleIncomingMessage(input: {
@@ -37,36 +41,43 @@ export async function handleIncomingMessage(input: {
     markMessageProcessed("meta", input.messageId);
   }
 
+  // Look up the existing CRM row for this IG sender BEFORE branching on
+  // classification — we want to update the lastIgMessage column on every
+  // message, interested or not, as long as a row exists for the sender.
+  const existing = input.senderId
+    ? findKnownSender("instagram", input.senderId)
+    : null;
+
+  if (existing) {
+    await updateLastIgMessage(existing.monday_item_id, input.messageText);
+  }
+
   if (!classification.interested) {
     logger.info(
       {
         senderUsername: input.senderUsername,
         confidence: classification.confidence,
       },
-      "Lead classified as not interested — skipping Monday write",
+      "Lead classified as not interested — skipping Monday create/update",
     );
-    return { itemId: null, classification };
+    return { itemId: existing?.monday_item_id ?? null, classification };
   }
 
-  if (input.senderId) {
-    const existing = findKnownSender("instagram", input.senderId);
-
-    if (existing) {
-      if (classification.extractedPhone && !existing.phone) {
-        await updateItemPhone(existing.monday_item_id, classification.extractedPhone);
-        updateSenderPhone("instagram", input.senderId, classification.extractedPhone);
-        logger.info(
-          { senderId: input.senderId, mondayItemId: existing.monday_item_id },
-          "Updated phone on existing lead instead of creating duplicate",
-        );
-      } else {
-        logger.info(
-          { senderId: input.senderId, mondayItemId: existing.monday_item_id },
-          "Sender already has a CRM row — skipping duplicate creation",
-        );
-      }
-      return { itemId: existing.monday_item_id, classification };
+  if (existing) {
+    if (classification.extractedPhone && !existing.phone) {
+      await updateItemPhone(existing.monday_item_id, classification.extractedPhone);
+      updateSenderPhone("instagram", input.senderId!, classification.extractedPhone);
+      logger.info(
+        { senderId: input.senderId, mondayItemId: existing.monday_item_id },
+        "Updated phone on existing lead instead of creating duplicate",
+      );
+    } else {
+      logger.info(
+        { senderId: input.senderId, mondayItemId: existing.monday_item_id },
+        "Sender already has a CRM row — skipping duplicate creation",
+      );
     }
+    return { itemId: existing.monday_item_id, classification };
   }
 
   // New sender — resolve a display name from the IG profile, fall back to
@@ -97,6 +108,8 @@ export async function handleIncomingMessage(input: {
       phone: classification.extractedPhone,
     });
   }
+
+  await updateLastIgMessage(itemId, input.messageText);
 
   return { itemId, classification };
 }

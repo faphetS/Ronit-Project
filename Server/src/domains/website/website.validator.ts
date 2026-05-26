@@ -15,7 +15,7 @@ export const WebsiteLeadSchema = z.object({
   email: z.string().email().optional(),
   phone_type: z.enum(["kosher", "regular"]),
   passport: z.enum(["yes", "no"]),
-  service: z.enum(["uman", "poland", "challah"]).default("uman"),
+  service: z.enum(["uman", "poland", "challah"]).nullable().optional(),
   ig_id: z.string().min(1).max(64).nullable().optional(),
   utm_source: z.string().max(64).default("direct"),
 });

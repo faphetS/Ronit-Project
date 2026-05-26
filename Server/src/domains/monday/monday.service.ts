@@ -107,6 +107,11 @@ export async function createLeadRow(
 ): Promise<{ itemId: string }> {
   const columnValues = buildColumnValues(input);
 
+  // Inquiry date — when this lead first appeared in our system. Set once on
+  // creation and never touched by updateLeadRow.
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Jerusalem" });
+  columnValues[env.MONDAY_COL_INQUIRY_DATE_ID] = { date: today };
+
   const mutation = /* GraphQL */ `
     mutation (
       $boardId: ID!
@@ -190,6 +195,31 @@ export async function updateLeadRow(
   logger.info(
     { itemId, boardId, fields: Object.keys(columnValues) },
     "Monday lead row updated from form",
+  );
+}
+
+export async function updateLastIgMessage(
+  itemId: string,
+  messageText: string,
+): Promise<void> {
+  const columnValues: Record<string, unknown> = {
+    [env.MONDAY_COL_LAST_IG_MESSAGE_ID]: { text: messageText },
+  };
+
+  await gql<ChangeColumnValueResponse>(
+    `mutation ($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
+      change_multiple_column_values(board_id: $boardId, item_id: $itemId, column_values: $columnValues) { id }
+    }`,
+    {
+      boardId: env.MONDAY_BOARD_CRM_ID,
+      itemId,
+      columnValues: JSON.stringify(columnValues),
+    },
+  );
+
+  logger.info(
+    { itemId, len: messageText.length },
+    "Monday last IG message updated",
   );
 }
 

@@ -1,6 +1,6 @@
 import { env } from "../../config/env.js";
 import { logger } from "../../config/logger.js";
-import { findKnownSender } from "../../lib/dedup.js";
+import { findKnownSender, upsertKnownSender } from "../../lib/dedup.js";
 import {
   createLeadRow,
   findLeadByPhoneAllBoards,
@@ -37,7 +37,7 @@ export async function handleFormSubmission(
       await updateLeadRow(env.MONDAY_BOARD_CRM_ID, known.monday_item_id, {
         name: input.name,
         phone: input.phone,
-        service: input.service,
+        service: input.service ?? undefined,
         age: input.age,
         birth_date: input.birth_date,
         city: input.city,
@@ -67,7 +67,7 @@ export async function handleFormSubmission(
   if (byPhone) {
     await updateLeadRow(byPhone.boardId, byPhone.itemId, {
       name: input.name,
-      service: input.service,
+      service: input.service ?? undefined,
       age: input.age,
       birth_date: input.birth_date,
       city: input.city,
@@ -80,6 +80,19 @@ export async function handleFormSubmission(
       { itemId: byPhone.itemId, boardId: byPhone.boardId, phone: input.phone, utm_source: input.utm_source },
       "Website form: updated lead matched by phone",
     );
+
+    // Link ig_id → known_senders only when the matched row is on the CRM
+    // board. The IG flow assumes known_senders.monday_item_id points to a
+    // CRM item; pointing it at a service-board item would break later updates.
+    if (input.ig_id && byPhone.boardId === env.MONDAY_BOARD_CRM_ID) {
+      upsertKnownSender({
+        platform: "instagram",
+        senderId: input.ig_id,
+        mondayItemId: byPhone.itemId,
+        phone: input.phone,
+      });
+    }
+
     return {
       itemId: byPhone.itemId,
       action: "updated_by_phone",
@@ -91,7 +104,7 @@ export async function handleFormSubmission(
   const { itemId } = await createLeadRow({
     name: input.name,
     phone: input.phone,
-    service: input.service,
+    service: input.service ?? null,
     source: "website",
     age: input.age,
     birth_date: input.birth_date,
@@ -106,6 +119,17 @@ export async function handleFormSubmission(
     { itemId, utm_source: input.utm_source },
     "Website form: created new lead",
   );
+
+  // Link ig_id → new CRM row so a future IG DM from this lead finds the row
+  // via known_senders instead of creating a duplicate.
+  if (input.ig_id) {
+    upsertKnownSender({
+      platform: "instagram",
+      senderId: input.ig_id,
+      mondayItemId: itemId,
+      phone: input.phone,
+    });
+  }
 
   return { itemId, action: "created_new", boardId: env.MONDAY_BOARD_CRM_ID };
 }
