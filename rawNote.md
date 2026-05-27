@@ -38,9 +38,3 @@ named after the 4 services
 
 1st table is the ronit crm
 2,3, and 4th is the services name
-
-
-
-
-
-

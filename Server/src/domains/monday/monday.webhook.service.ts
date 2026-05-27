@@ -9,16 +9,15 @@ const LABEL_ID_TO_BOARD: Record<number, string> = {
   3: env.MONDAY_BOARD_CHALLAH_ID,
 };
 
-const COPYABLE_COLUMN_IDS = [
-  "text_mm2nsqc9",
-  "phone_mm2pf4nm",
-  "dropdown_mm2p1nvf",
-  "long_text_mm2pqwp9",
-  "color_mm2pznkk",
-  "date_mm2psp19",
-  "numeric_mm2paaz",
-  "date_mm2psbnf",
-] as const;
+const TITLE_ALIASES: Record<string, string[]> = {
+  "עיר": ["עיר מגורים"],
+  "עיר מגורים": ["עיר"],
+  "דרכון בתוקף": ["דרכון"],
+  "דרכון": ["דרכון בתוקף"],
+};
+
+// name is set via item_name param; dropdown_mm2p1nvf (service) is CRM-only routing column
+const SKIP_COLUMNS = new Set(["name", "dropdown_mm2p1nvf"]);
 
 const MONTH_NAMES = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -28,6 +27,23 @@ const MONTH_NAMES = [
 interface ColumnValue {
   id: string;
   value: string | null;
+}
+
+interface ColumnInfo {
+  id: string;
+  title: string;
+}
+
+interface BoardColumnsResponse {
+  boards: Array<{ columns: ColumnInfo[] }>;
+}
+
+async function getColumnTitles(boardId: string): Promise<ColumnInfo[]> {
+  const data = await gql<BoardColumnsResponse>(
+    `query ($ids: [ID!]!) { boards(ids: $ids) { columns { id title } } }`,
+    { ids: [boardId] },
+  );
+  return data.boards[0]?.columns ?? [];
 }
 
 interface ItemQueryResponse {
@@ -101,14 +117,52 @@ export async function duplicateClosedItem(
   const targetBoardId = LABEL_ID_TO_BOARD[labelId];
   const targetGroupId = await findMonthGroup(targetBoardId, eventDate);
 
+  const [crmCols, targetCols] = await Promise.all([
+    getColumnTitles(env.MONDAY_BOARD_CRM_ID),
+    getColumnTitles(targetBoardId),
+  ]);
+
+  const targetColIds = new Set(targetCols.map((c) => c.id));
+  const targetByTitle = new Map(targetCols.map((c) => [c.title, c.id]));
+
   const columnValues: Record<string, unknown> = {};
-  for (const colId of COPYABLE_COLUMN_IDS) {
-    const raw = colMap.get(colId);
-    if (!raw) continue;
-    try {
-      columnValues[colId] = JSON.parse(raw) as unknown;
-    } catch {
-      columnValues[colId] = raw;
+  for (const cv of item.column_values) {
+    if (!cv.value || SKIP_COLUMNS.has(cv.id)) continue;
+
+    let targetColId: string | null = null;
+
+    if (targetColIds.has(cv.id)) {
+      targetColId = cv.id;
+    }
+
+    if (!targetColId) {
+      const crmCol = crmCols.find((c) => c.id === cv.id);
+      if (crmCol) {
+        const exactMatch = targetByTitle.get(crmCol.title);
+        if (exactMatch) {
+          targetColId = exactMatch;
+        }
+        if (!targetColId) {
+          const aliases = TITLE_ALIASES[crmCol.title];
+          if (aliases) {
+            for (const alias of aliases) {
+              const aliasMatch = targetByTitle.get(alias);
+              if (aliasMatch) {
+                targetColId = aliasMatch;
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (targetColId) {
+      try {
+        columnValues[targetColId] = JSON.parse(cv.value) as unknown;
+      } catch {
+        columnValues[targetColId] = cv.value;
+      }
     }
   }
 

@@ -1,0 +1,17 @@
+{
+  "Name": "name",
+  "עיר": "text_mm3pf74e",
+  "Phone": "phone_mm2pf4nm",
+  "תאריך": "date_mm3r77vt",
+  "יום בשבוע": "text_mm3r6hqy",
+  "ת.ז": "text_mm3r9dhg",
+  "סוכן": "text_mm3r84hb",
+  "סכום+אשראי": "text_mm3rckd0",
+  "כתובת": "text_mm3rwmag",
+  "סוג האירוע": "text_mm3r8e1m",
+  "טפסים": "text_mm3r7qvw",
+  "מקדמה": "numeric_mm3r14gy",
+  "הערות": "long_text_mm3r3n0w",
+  "שם המזמינה": "name",
+  "טלפון": "phone_mm2pf4nm"
+}

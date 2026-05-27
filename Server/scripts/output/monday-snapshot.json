@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-04-23T11:44:04.019Z",
+  "capturedAt": "2026-04-25T07:27:13.247Z",
   "apiVersion": "2025-04",
   "me": {
     "id": "102434036",
@@ -74,7 +74,7 @@
           "id": "color_mm2pznkk",
           "title": "Paid",
           "type": "status",
-          "settings_str": "{\"done_colors\":[1],\"labels\":{\"0\":\"כן\",\"1\":\"לא\"},\"labels_colors\":{\"0\":{\"color\":\"#fdab3d\",\"border\":\"#e99729\",\"var_name\":\"orange\"},\"1\":{\"color\":\"#00c875\",\"border\":\"#00b461\",\"var_name\":\"green-shadow\"}}}"
+          "settings_str": "{\"done_colors\":[1],\"color_mapping\":{\"0\":1,\"1\":2,\"2\":0},\"labels\":{\"0\":\"כן\",\"1\":\"לא\"},\"labels_colors\":{\"0\":{\"color\":\"#00c875\",\"border\":\"#00b461\",\"var_name\":\"green-shadow\"},\"1\":{\"color\":\"#df2f4a\",\"border\":\"#ce3048\",\"var_name\":\"red-shadow\"}}}"
         },
         {
           "id": "date_mm2psp19",
@@ -96,6 +96,11 @@
         }
       ],
       "groups": [
+        {
+          "id": "group_mm2qr4yb",
+          "title": "Jan 2027",
+          "color": "#579bfc"
+        },
         {
           "id": "group_mm2p7ycs",
           "title": "Dec 2026",
@@ -440,7 +445,7 @@
         "id": "6193911",
         "name": "Main workspace"
       },
-      "items_count": 0,
+      "items_count": 1,
       "columns": [
         {
           "id": "name",
@@ -482,7 +487,7 @@
           "id": "color_mm2pznkk",
           "title": "Paid",
           "type": "status",
-          "settings_str": "{\"done_colors\":[1],\"labels\":{\"0\":\"כן\",\"1\":\"לא\"},\"labels_colors\":{\"0\":{\"color\":\"#fdab3d\",\"border\":\"#e99729\",\"var_name\":\"orange\"},\"1\":{\"color\":\"#00c875\",\"border\":\"#00b461\",\"var_name\":\"green-shadow\"}}}"
+          "settings_str": "{\"done_colors\":[1],\"color_mapping\":{\"0\":1,\"1\":2,\"2\":0},\"labels\":{\"0\":\"כן\",\"1\":\"לא\"},\"labels_colors\":{\"0\":{\"color\":\"#00c875\",\"border\":\"#00b461\",\"var_name\":\"green-shadow\"},\"1\":{\"color\":\"#df2f4a\",\"border\":\"#ce3048\",\"var_name\":\"red-shadow\"}}}"
         },
         {
           "id": "date_mm2psp19",
@@ -526,6 +531,98 @@
     "5095155077": [],
     "5095155041": [],
     "5095155009": [],
-    "5094895163": []
+    "5094895163": [
+      {
+        "id": "2868682211",
+        "name": "justin garcia",
+        "group": {
+          "id": "new_group29179",
+          "title": "new leads"
+        },
+        "column_values": [
+          {
+            "id": "file",
+            "text": "",
+            "type": "file",
+            "value": null,
+            "column": {
+              "title": "Files"
+            }
+          },
+          {
+            "id": "text_mm2nsqc9",
+            "text": "",
+            "type": "text",
+            "value": null,
+            "column": {
+              "title": "Price quote"
+            }
+          },
+          {
+            "id": "phone_mm2pf4nm",
+            "text": "09219909210",
+            "type": "phone",
+            "value": "{\"phone\":\"09219909210\",\"changed_at\":\"2026-04-25T07:26:05.646Z\",\"countryShortName\":\"IL\"}",
+            "column": {
+              "title": "Phone"
+            }
+          },
+          {
+            "id": "dropdown_mm2p1nvf",
+            "text": "הפרשות חלה",
+            "type": "dropdown",
+            "value": "{\"ids\":[3]}",
+            "column": {
+              "title": "Service"
+            }
+          },
+          {
+            "id": "long_text_mm2pqwp9",
+            "text": "",
+            "type": "long_text",
+            "value": null,
+            "column": {
+              "title": "Next step"
+            }
+          },
+          {
+            "id": "color_mm2pznkk",
+            "text": null,
+            "type": "status",
+            "value": null,
+            "column": {
+              "title": "Paid"
+            }
+          },
+          {
+            "id": "date_mm2psp19",
+            "text": "",
+            "type": "date",
+            "value": null,
+            "column": {
+              "title": "Last phone call date"
+            }
+          },
+          {
+            "id": "numeric_mm2paaz",
+            "text": "",
+            "type": "numbers",
+            "value": null,
+            "column": {
+              "title": "Phone calls count"
+            }
+          },
+          {
+            "id": "date_mm2psbnf",
+            "text": "",
+            "type": "date",
+            "value": null,
+            "column": {
+              "title": "Date of event"
+            }
+          }
+        ]
+      }
+    ]
   }
 }
