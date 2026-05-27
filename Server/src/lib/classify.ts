@@ -40,7 +40,7 @@ Rules:
 - Small talk, compliments about content, unrelated questions, spam, insults → interested=false.
 - If the message mentions flying/travel/trip (טיסה, לטוס, טיול, flight, trip) but doesn't specify a destination → interested=true, service=null (likely one of the flight services).
 - Hebrew service keywords: "אומן" → uman; "פולין" → poland; "חלה" / "הפרשת חלה" → challah.
-- extractedEventDate: if a specific trip/event date is mentioned (e.g. "בספטמבר", "ב-15 לאוגוסט", "בראש השנה"), convert to ISO date (YYYY-MM-DD). Use the 1st of the month if only a month is mentioned. Use the current or next occurrence for Hebrew holidays. null if no date mentioned.
+- extractedEventDate: ONLY extract if a specific trip/event date is EXPLICITLY and CLEARLY stated in the message (e.g. "אני רוצה טיסה ב-15 לאוגוסט", "האירוע בספטמבר"). Do NOT guess, infer, or assume a date. If no date is clearly written, return null. When extracting, use ISO format (YYYY-MM-DD). Use the 1st of the month if only a month is mentioned.
 - confidence: 0..1 — your confidence in the classification.`;
 
 interface OpenRouterResponse {

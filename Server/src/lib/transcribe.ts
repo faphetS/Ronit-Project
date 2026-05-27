@@ -46,7 +46,7 @@ Return STRICT JSON:
 Rules:
 - summary MUST be in Hebrew
 - transcript should preserve the original language
-- event_date: if a specific trip/event date is mentioned (e.g. "בספטמבר", "ב-15 לאוגוסט", "בראש השנה"), convert to ISO date (YYYY-MM-DD). Use the 1st of the month if only a month is mentioned. Use the current or next occurrence for Hebrew holidays. null if no date mentioned.
+- event_date: ONLY extract if a specific trip/event date is EXPLICITLY and CLEARLY stated in the conversation (e.g. "הטיסה ב-15 לאוגוסט", "האירוע בספטמבר"). Do NOT guess, infer, or assume a date. If no date is clearly spoken, return null. When extracting, use ISO format (YYYY-MM-DD). Use the 1st of the month if only a month is mentioned.
 - Output ONLY the JSON object. No commentary.`;
 
 export async function transcribeAudio(audio: Buffer): Promise<TranscriptionResult> {
