@@ -81,9 +81,12 @@ const envSchema = z.object({
   OPENROUTER_API_KEY: z.string().min(1).optional(),
   OPENROUTER_MODEL: z.string().default("anthropic/claude-haiku-4.5"),
 
-  // Salestrail — call recording webhook + Pull API
+  // Salestrail — webhook auth (Push API) uses one set of credentials,
+  // Pull API (recording download) uses a separate generated key pair.
   SALESTRAIL_WEBHOOK_USERNAME: z.string().min(1).optional(),
   SALESTRAIL_WEBHOOK_PASSWORD: z.string().min(1).optional(),
+  SALESTRAIL_API_USERNAME: z.string().min(1).optional(),
+  SALESTRAIL_API_PASSWORD: z.string().min(1).optional(),
   OPENROUTER_AUDIO_MODEL: z.string().default("google/gemini-2.5-flash"),
 
   // Monday.com — CRM group/column IDs for call tracking

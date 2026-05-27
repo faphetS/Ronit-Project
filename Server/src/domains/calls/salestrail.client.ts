@@ -6,12 +6,12 @@ const SALESTRAIL_RECORDING_URL = "https://standalone-api.salestrail.io/export/ca
 
 export class SalestrailClient {
   async downloadRecording(callId: string): Promise<Buffer> {
-    if (!env.SALESTRAIL_WEBHOOK_USERNAME || !env.SALESTRAIL_WEBHOOK_PASSWORD) {
-      throw new AppError(503, "Salestrail not configured", "SALESTRAIL_NOT_CONFIGURED");
+    if (!env.SALESTRAIL_API_USERNAME || !env.SALESTRAIL_API_PASSWORD) {
+      throw new AppError(503, "Salestrail Pull API not configured", "SALESTRAIL_NOT_CONFIGURED");
     }
 
     const credentials = Buffer.from(
-      `${env.SALESTRAIL_WEBHOOK_USERNAME}:${env.SALESTRAIL_WEBHOOK_PASSWORD}`
+      `${env.SALESTRAIL_API_USERNAME}:${env.SALESTRAIL_API_PASSWORD}`
     ).toString("base64");
 
     const url = `${SALESTRAIL_RECORDING_URL}/${callId}/recording`;
