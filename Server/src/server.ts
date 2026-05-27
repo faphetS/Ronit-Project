@@ -129,9 +129,9 @@ app.get("/privacy", (_req: Request, res: Response) => {
 <ul>
 <li><strong>Monday.com:</strong> אחסון רשומות CRM (שם, טלפון, העדפת שירות, היסטוריית שיחות).</li>
 <li><strong>OpenRouter (AI):</strong> עיבוד טקסט הודעות לסיווג פניות וחילוץ מספרי טלפון. ההודעות שלך נשלחות לשירות AI לניתוח.</li>
-<li><strong>Supabase:</strong> אחסון מאובטח של מזהי הודעות (למניעת כפילויות) ולוגים של קמפיינים.</li>
+<li><strong>מסד נתונים מקומי:</strong> אחסון מאובטח של מזהי הודעות (למניעת כפילויות) ולוגים של קמפיינים.</li>
 <li><strong>GreenAPI:</strong> שליחת הודעות וואטסאפ.</li>
-<li><strong>Timeless.day:</strong> הקלטה ותמלול שיחות.</li>
+<li><strong>Salestrail:</strong> הקלטה ותמלול שיחות.</li>
 <li><strong>Meta:</strong> קבלת הודעות אינסטגרם דרך ה-API שלהם.</li>
 </ul>
 <p>אנחנו לא מוכרים את המידע האישי שלך לצד שלישי כלשהו.</p>

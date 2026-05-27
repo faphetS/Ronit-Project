@@ -1,12 +1,23 @@
 import { z } from "zod";
 
-export const TimelessWebhookPayloadSchema = z.object({
-  event: z.literal("meeting.transcript_ready"),
-  meeting_id: z.string().min(1),
+export const SalestrailWebhookPayloadSchema = z.object({
+  userId: z.string(),
+  userName: z.string(),
+  userEmail: z.string(),
+  userPhone: z.string(),
+  callId: z.string().min(1),
+  source: z.string(),
+  sourceDetail: z.string(),
+  startTime: z.string(),
+  duration: z.number(),
+  answered: z.boolean(),
+  inbound: z.boolean(),
+  number: z.string(),
+  formattedNumber: z.string(),
+  createdAt: z.string(),
+  phoneBookName: z.string().optional(),
 });
-export type TimelessWebhookPayload = z.infer<
-  typeof TimelessWebhookPayloadSchema
->;
+export type SalestrailWebhookPayload = z.infer<typeof SalestrailWebhookPayloadSchema>;
 
 export const CallTestInjectBodySchema = z.object({
   phone: z.string().min(7).max(20),

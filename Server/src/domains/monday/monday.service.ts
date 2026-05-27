@@ -198,12 +198,45 @@ export async function updateLeadRow(
   );
 }
 
+const MAX_IG_MESSAGES = 3;
+const IG_MSG_PREFIX = /^הודעה \d+: /;
+
+function parseIgMessages(raw: string): string[] {
+  if (!raw.trim()) return [];
+  return raw
+    .split("\n")
+    .filter((line) => IG_MSG_PREFIX.test(line))
+    .map((line) => line.replace(IG_MSG_PREFIX, ""));
+}
+
+function formatIgMessages(messages: string[]): string {
+  return messages
+    .slice(0, MAX_IG_MESSAGES)
+    .map((msg, i) => `הודעה ${i + 1}: ${msg}`)
+    .join("\n");
+}
+
 export async function updateLastIgMessage(
   itemId: string,
   messageText: string,
 ): Promise<void> {
+  const current = await gql<{
+    items: Array<{ column_values: Array<{ id: string; text: string }> }>;
+  }>(
+    `query ($ids: [ID!]!) {
+      items(ids: $ids) {
+        column_values(ids: ["${env.MONDAY_COL_LAST_IG_MESSAGE_ID}"]) { id text }
+      }
+    }`,
+    { ids: [itemId] },
+  );
+
+  const existing = current.items[0]?.column_values[0]?.text ?? "";
+  const previousMessages = parseIgMessages(existing);
+  const updated = formatIgMessages([messageText, ...previousMessages]);
+
   const columnValues: Record<string, unknown> = {
-    [env.MONDAY_COL_LAST_IG_MESSAGE_ID]: { text: messageText },
+    [env.MONDAY_COL_LAST_IG_MESSAGE_ID]: { text: updated },
   };
 
   await gql<ChangeColumnValueResponse>(
@@ -218,8 +251,8 @@ export async function updateLastIgMessage(
   );
 
   logger.info(
-    { itemId, len: messageText.length },
-    "Monday last IG message updated",
+    { itemId, msgCount: Math.min(previousMessages.length + 1, MAX_IG_MESSAGES) },
+    "Monday last IG messages updated",
   );
 }
 
@@ -425,12 +458,7 @@ export async function findLeadByPhoneAllBoards(
   phone: string,
 ): Promise<{ itemId: string; name: string; boardId: string } | null> {
   const variants = phoneVariants(phone);
-  const allBoardIds = [
-    env.MONDAY_BOARD_CRM_ID,
-    env.MONDAY_BOARD_UMAN_ID,
-    env.MONDAY_BOARD_POLAND_ID,
-    env.MONDAY_BOARD_CHALLAH_ID,
-  ];
+  const allBoardIds = [env.MONDAY_BOARD_CRM_ID];
 
   const query = /* GraphQL */ `
     query ($boardId: ID!, $columns: [ItemsPageByColumnValuesQuery!]!) {
@@ -464,14 +492,14 @@ export async function findLeadByPhoneAllBoards(
       if (items.length > 0) {
         logger.info(
           { phone: variant, boardId, itemId: items[0].id },
-          "Lead found by phone (all-boards search)",
+          "Lead found by phone (CRM search)",
         );
         return { itemId: items[0].id, name: items[0].name, boardId };
       }
     }
   }
 
-  logger.info({ phone, variants }, "No lead matched phone across any board");
+  logger.info({ phone, variants }, "No lead matched phone in CRM");
   return null;
 }
 
@@ -594,12 +622,7 @@ function extractPhone(item: LeadItem, phoneColId: string): string | null {
 export async function getAllLeadsWithPhones(): Promise<
   Array<{ itemId: string; name: string; phone: string }>
 > {
-  const allBoardIds = [
-    env.MONDAY_BOARD_CRM_ID,
-    env.MONDAY_BOARD_UMAN_ID,
-    env.MONDAY_BOARD_POLAND_ID,
-    env.MONDAY_BOARD_CHALLAH_ID,
-  ];
+  const allBoardIds = [env.MONDAY_BOARD_CRM_ID];
 
   const leads: Array<{ itemId: string; name: string; phone: string }> = [];
   const seenPhones = new Set<string>();
@@ -669,7 +692,7 @@ export async function getAllLeadsWithPhones(): Promise<
     }
   }
 
-  logger.info({ count: leads.length, boards: allBoardIds.length }, "Fetched all leads with phone numbers (deduped)");
+  logger.info({ count: leads.length }, "Fetched all CRM leads with phone numbers (deduped)");
   return leads;
 }
 
@@ -682,12 +705,7 @@ export interface FollowupLead {
 }
 
 export async function getAllLeadsForFollowup(): Promise<FollowupLead[]> {
-  const allBoardIds = [
-    env.MONDAY_BOARD_CRM_ID,
-    env.MONDAY_BOARD_UMAN_ID,
-    env.MONDAY_BOARD_POLAND_ID,
-    env.MONDAY_BOARD_CHALLAH_ID,
-  ];
+  const allBoardIds = [env.MONDAY_BOARD_CRM_ID];
 
   const colIds = [env.MONDAY_COL_PHONE_ID, env.MONDAY_COL_LAST_CALL_DATE_ID];
   const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Jerusalem" });
@@ -833,4 +851,21 @@ export async function updateLastCallDate(boardId: string, itemId: string): Promi
   );
 
   logger.info({ itemId, boardId, date: today }, "Monday last call date updated");
+}
+
+export async function addNoteToItem(itemId: string, text: string): Promise<void> {
+  const mutation = /* GraphQL */ `
+    mutation ($itemId: ID!, $body: String!) {
+      create_update(item_id: $itemId, body: $body) {
+        id
+      }
+    }
+  `;
+
+  await gql<{ create_update: { id: string } }>(mutation, { itemId, body: text });
+
+  logger.info(
+    { itemId, textLen: text.length },
+    "Monday note added to item",
+  );
 }

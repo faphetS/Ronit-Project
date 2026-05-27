@@ -3,36 +3,44 @@ import type { Request, Response } from "express";
 import { env } from "../../config/env.js";
 import { logger } from "../../config/logger.js";
 import { AppError, UnauthorizedError } from "../../lib/errors.js";
-import { handleTranscriptReady, handleTestInject } from "./calls.service.js";
-import { TimelessWebhookPayloadSchema } from "./calls.validator.js";
+import { handleSalestrailCall, handleTestInject } from "./calls.service.js";
+import { SalestrailWebhookPayloadSchema } from "./calls.validator.js";
 import type { CallTestInjectBody } from "./calls.validator.js";
 
-function verifyHmac(req: Request, rawBody: Buffer): boolean {
-  if (!env.TIMELESS_WEBHOOK_SECRET) {
-    logger.warn(
-      "TIMELESS_WEBHOOK_SECRET not set — skipping HMAC verification (placeholder mode)",
-    );
-    return true;
+function verifyBasicAuth(req: Request): void {
+  if (!env.SALESTRAIL_WEBHOOK_USERNAME || !env.SALESTRAIL_WEBHOOK_PASSWORD) {
+    logger.warn("SALESTRAIL credentials not set — skipping auth (placeholder mode)");
+    return;
   }
 
-  const header = req.header("x-webhook-signature");
-  if (!header) return false;
+  const header = req.header("authorization");
+  if (!header || !header.startsWith("Basic ")) {
+    throw new UnauthorizedError("Missing Basic auth header");
+  }
 
-  const [algo, sig] = header.split("=");
-  if (algo !== "sha256" || !sig) return false;
+  const decoded = Buffer.from(header.slice(6), "base64").toString("utf8");
+  const colonIdx = decoded.indexOf(":");
+  if (colonIdx === -1) {
+    throw new UnauthorizedError("Malformed Basic auth header");
+  }
 
-  const expected = crypto
-    .createHmac("sha256", env.TIMELESS_WEBHOOK_SECRET)
-    .update(rawBody)
-    .digest("hex");
+  const username = decoded.slice(0, colonIdx);
+  const password = decoded.slice(colonIdx + 1);
 
-  try {
-    return crypto.timingSafeEqual(
-      Buffer.from(sig, "hex"),
-      Buffer.from(expected, "hex"),
-    );
-  } catch {
-    return false;
+  const expectedUser = Buffer.from(env.SALESTRAIL_WEBHOOK_USERNAME, "utf8");
+  const expectedPass = Buffer.from(env.SALESTRAIL_WEBHOOK_PASSWORD, "utf8");
+  const gotUser = Buffer.from(username, "utf8");
+  const gotPass = Buffer.from(password, "utf8");
+
+  const userMatch =
+    expectedUser.length === gotUser.length &&
+    crypto.timingSafeEqual(expectedUser, gotUser);
+  const passMatch =
+    expectedPass.length === gotPass.length &&
+    crypto.timingSafeEqual(expectedPass, gotPass);
+
+  if (!userMatch || !passMatch) {
+    throw new UnauthorizedError("Invalid Salestrail webhook credentials");
   }
 }
 
@@ -42,29 +50,23 @@ export async function receiveWebhook(
 ): Promise<void> {
   const raw = req.body as Buffer;
 
-  if (!verifyHmac(req, raw)) {
-    throw new UnauthorizedError("Invalid Timeless webhook signature");
-  }
+  verifyBasicAuth(req);
 
   let payload: unknown;
   try {
     payload = JSON.parse(raw.toString("utf8"));
   } catch {
-    throw new AppError(
-      400,
-      "Invalid JSON in Timeless webhook body",
-      "TIMELESS_INVALID_JSON",
-    );
+    throw new AppError(400, "Invalid JSON in Salestrail webhook body", "SALESTRAIL_INVALID_JSON");
   }
 
-  const parsed = TimelessWebhookPayloadSchema.parse(payload);
+  const parsed = SalestrailWebhookPayloadSchema.parse(payload);
 
   try {
-    await handleTranscriptReady(parsed.meeting_id);
+    await handleSalestrailCall(parsed);
   } catch (err) {
     logger.error(
-      { err, meetingId: parsed.meeting_id },
-      "Failed to process Timeless transcript — returning 200 to prevent retries",
+      { err, callId: parsed.callId },
+      "Failed to process Salestrail call — returning 200 to prevent retries",
     );
   }
 

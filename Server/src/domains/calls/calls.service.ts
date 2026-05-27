@@ -1,4 +1,3 @@
-import { z } from "zod";
 import { env } from "../../config/env.js";
 import { logger } from "../../config/logger.js";
 import { AppError } from "../../lib/errors.js";
@@ -7,121 +6,12 @@ import {
   moveItemToGroup,
   incrementCallsColumn,
   updateLastCallDate,
+  addNoteToItem,
 } from "../monday/monday.service.js";
-import { timelessClient } from "./calls.client.js";
+import { salestrailClient } from "./salestrail.client.js";
+import { transcribeAudio } from "../../lib/transcribe.js";
+import type { SalestrailWebhookPayload } from "./calls.validator.js";
 import type { CallTestInjectBody } from "./calls.validator.js";
-
-// ---------------------------------------------------------------------------
-// LLM phone extraction
-// ---------------------------------------------------------------------------
-
-const PhoneExtractionSchema = z.object({
-  phone: z.string().nullable(),
-});
-
-interface OpenRouterResponse {
-  choices?: Array<{ message?: { content?: string } }>;
-}
-
-const PHONE_EXTRACTION_PROMPT = `You are a phone-number extraction assistant. You receive a transcript of a phone call in Hebrew and/or English.
-
-Your task: Find any phone number mentioned by either speaker during the call.
-
-Common patterns in Hebrew phone conversations:
-- "המספר שלי הוא..." (my number is...)
-- "תתקשרי אליי ל..." (call me at...)
-- A speaker stating digits one by one
-- International format: +972-50-123-4567
-- Local format: 050-1234567, 054-1234567
-
-Return STRICT JSON:
-{ "phone": "+972XXXXXXXXX" }
-
-Rules:
-- If you find a phone number, normalize it to international format (+972...).
-- If multiple phone numbers are mentioned, return the one that belongs to the OTHER party (not the caller/host).
-- If you cannot find any phone number, return { "phone": null }.
-- Output ONLY the JSON object. No commentary.`;
-
-async function extractPhoneFromTranscript(
-  text: string,
-): Promise<string | null> {
-  if (!env.OPENROUTER_API_KEY) {
-    throw new AppError(
-      503,
-      "Classifier not configured — OPENROUTER_API_KEY missing",
-      "CLASSIFIER_NOT_CONFIGURED",
-    );
-  }
-
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: env.OPENROUTER_MODEL,
-      messages: [
-        { role: "system", content: PHONE_EXTRACTION_PROMPT },
-        { role: "user", content: text },
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0,
-    }),
-  });
-
-  if (!res.ok) {
-    const body = await res.text();
-    throw new AppError(
-      502,
-      `OpenRouter ${res.status}: ${body.slice(0, 300)}`,
-      "OPENROUTER_HTTP_ERROR",
-    );
-  }
-
-  const json = (await res.json()) as OpenRouterResponse;
-  const rawResponse = json.choices?.[0]?.message?.content;
-  if (!rawResponse) {
-    throw new AppError(
-      502,
-      "OpenRouter returned empty content",
-      "OPENROUTER_EMPTY",
-    );
-  }
-
-  const cleaned = rawResponse
-    .trim()
-    .replace(/^```(?:json)?\s*\n?/i, "")
-    .replace(/\n?```\s*$/i, "")
-    .trim();
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(cleaned);
-  } catch {
-    logger.warn(
-      { rawResponse: rawResponse.slice(0, 200) },
-      "Phone extractor returned non-JSON",
-    );
-    return null;
-  }
-
-  const validation = PhoneExtractionSchema.safeParse(parsed);
-  if (!validation.success) {
-    logger.warn(
-      { parsed, issues: validation.error.issues },
-      "Phone extractor returned malformed schema",
-    );
-    return null;
-  }
-
-  return validation.data.phone;
-}
-
-// ---------------------------------------------------------------------------
-// Orchestration
-// ---------------------------------------------------------------------------
 
 interface CallResult {
   matched: boolean;
@@ -130,53 +20,84 @@ interface CallResult {
   phone?: string;
 }
 
-export async function handleTranscriptReady(
-  meetingId: string,
+export async function handleSalestrailCall(
+  payload: SalestrailWebhookPayload,
 ): Promise<CallResult> {
-  const transcript = await timelessClient.fetchTranscript(meetingId);
+  const phone = payload.formattedNumber;
 
   logger.info(
-    { meetingId, duration: transcript.duration, title: transcript.title },
-    "Fetched Timeless transcript",
+    { callId: payload.callId, phone, sourceDetail: payload.sourceDetail, duration: payload.duration, answered: payload.answered },
+    "Processing Salestrail call",
   );
 
-  const phone = await extractPhoneFromTranscript(transcript.fullText);
+  const lead = await findLeadByPhone(phone);
 
-  if (!phone) {
-    logger.warn({ meetingId }, "No phone number extracted from transcript");
-    return { matched: false, reason: "no_phone_extracted" };
+  if (!lead) {
+    logger.info(
+      { phone, callId: payload.callId, sourceDetail: payload.sourceDetail },
+      "No Monday CRM lead matched — skipping",
+    );
+    return { matched: false, reason: "no_match", phone };
   }
 
-  return matchAndUpdate(phone);
-}
-
-export async function handleTestInject(
-  body: CallTestInjectBody,
-): Promise<CallResult> {
-  let phone: string | null = null;
-
-  if (body.transcriptText) {
-    phone = await extractPhoneFromTranscript(body.transcriptText);
-    logger.info(
-      { extractedPhone: phone },
-      "LLM phone extraction from test transcript",
+  let audio: Buffer | null = null;
+  try {
+    audio = await salestrailClient.downloadRecording(payload.callId);
+    if (audio.length === 0) {
+      logger.warn({ callId: payload.callId }, "Salestrail returned empty recording");
+      audio = null;
+    }
+  } catch (err) {
+    logger.warn(
+      { err, callId: payload.callId },
+      "Failed to download Salestrail recording — continuing without transcript",
     );
   }
 
-  if (!phone) {
-    phone = body.phone;
+  let summary: string | null = null;
+  if (audio) {
+    try {
+      const result = await transcribeAudio(audio);
+      summary = result.summary;
+      logger.info(
+        { callId: payload.callId, service: result.service_interest, followUp: result.follow_up_needed },
+        "Call transcription complete",
+      );
+    } catch (err) {
+      logger.warn(
+        { err, callId: payload.callId },
+        "Transcription failed — continuing without summary",
+      );
+    }
   }
 
-  return matchAndUpdate(phone);
+  if (!env.MONDAY_GROUP_CONTACTED_ID) {
+    throw new AppError(503, "MONDAY_GROUP_CONTACTED_ID not configured", "MONDAY_GROUP_NOT_CONFIGURED");
+  }
+
+  await moveItemToGroup(lead.itemId, env.MONDAY_GROUP_CONTACTED_ID);
+  await incrementCallsColumn(lead.itemId);
+  await updateLastCallDate(env.MONDAY_BOARD_CRM_ID, lead.itemId);
+
+  if (summary) {
+    await addNoteToItem(lead.itemId, summary);
+  }
+
+  logger.info(
+    { itemId: lead.itemId, name: lead.name, phone, hasSummary: !!summary },
+    "Salestrail call processed — lead updated",
+  );
+
+  return { matched: true, itemId: lead.itemId, phone };
+}
+
+export async function handleTestInject(body: CallTestInjectBody): Promise<CallResult> {
+  return matchAndUpdate(body.phone);
 }
 
 async function matchAndUpdate(phone: string): Promise<CallResult> {
   if (!env.MONDAY_GROUP_CONTACTED_ID) {
-    throw new AppError(
-      503,
-      "MONDAY_GROUP_CONTACTED_ID not configured",
-      "MONDAY_GROUP_NOT_CONFIGURED",
-    );
+    throw new AppError(503, "MONDAY_GROUP_CONTACTED_ID not configured", "MONDAY_GROUP_NOT_CONFIGURED");
   }
 
   const lead = await findLeadByPhone(phone);
@@ -191,7 +112,7 @@ async function matchAndUpdate(phone: string): Promise<CallResult> {
 
   logger.info(
     { itemId: lead.itemId, name: lead.name, phone },
-    "Call matched and lead updated",
+    "Test inject — lead updated",
   );
 
   return { matched: true, itemId: lead.itemId, phone };

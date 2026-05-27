@@ -41,7 +41,7 @@ const envSchema = z.object({
   MONDAY_COL_NOTES_ID: z.string().default("long_text_mm2pqwp9"),
 
   // Monday service board IDs — items are duplicated here when closed in the CRM.
-  MONDAY_BOARD_UMAN_ID: z.string().default("5095155009"),
+  MONDAY_BOARD_UMAN_ID: z.string().default("5097312406"),
   MONDAY_BOARD_POLAND_ID: z.string().default("5095155041"),
   MONDAY_BOARD_CHALLAH_ID: z.string().default("5095155077"),
 
@@ -81,9 +81,10 @@ const envSchema = z.object({
   OPENROUTER_API_KEY: z.string().min(1).optional(),
   OPENROUTER_MODEL: z.string().default("anthropic/claude-haiku-4.5"),
 
-  // Timeless.day — call recording + transcription
-  TIMELESS_API_KEY: z.string().min(1).optional(),
-  TIMELESS_WEBHOOK_SECRET: z.string().min(1).optional(),
+  // Salestrail — call recording webhook + Pull API
+  SALESTRAIL_WEBHOOK_USERNAME: z.string().min(1).optional(),
+  SALESTRAIL_WEBHOOK_PASSWORD: z.string().min(1).optional(),
+  OPENROUTER_AUDIO_MODEL: z.string().default("google/gemini-2.5-flash"),
 
   // Monday.com — CRM group/column IDs for call tracking
   MONDAY_GROUP_CONTACTED_ID: z.string().optional(),

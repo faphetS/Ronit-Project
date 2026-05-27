@@ -98,8 +98,10 @@ Status of each integration. When a new decision is made, update this section and
 - **What's done:** GraphQL client wrapper (`monday.client.ts`) with auth and error handling. Lead creation service (`monday.service.ts`) — creates rows in CRM board with phone (IL country code), service dropdown (uman→1, poland→2, challah→3), and notes. Column IDs are env-configurable with defaults.
 - **Not yet done:** Webhook handler for `item_moved_to_specific_group` events at `POST /api/monday/webhook`, service board routing (3 service boards), dedup by `event.pulseId + event.timestamp`. Missing `monday.routes.ts`, `monday.controller.ts`, `monday.validator.ts`.
 - **Env in use:** `MONDAY_API_TOKEN`, `MONDAY_BOARD_CRM_ID`, `MONDAY_GROUP_NEW_LEADS_ID`, `MONDAY_COL_PHONE_ID`, `MONDAY_COL_SERVICE_ID`, `MONDAY_COL_NOTES_ID`.
-- **Env to add later:** `MONDAY_BOARD_UMAN_ID`, `MONDAY_BOARD_PURIM_ID`, `MONDAY_BOARD_CHALLAH_ID` (needed for service board routing).
-- **Notes:** Hebrew dropdown values for the `Service` column must match exactly: `טיסות לאומן`, `טיסות לפורים`, `הפרשות חלה`.
+- **Env to add later:** `MONDAY_BOARD_UMAN_ID`, `MONDAY_BOARD_POLAND_ID`, `MONDAY_BOARD_CHALLAH_ID` (needed for service board routing).
+- **Notes:** Hebrew dropdown values for the `Service` column must match exactly: `טיסות לאומן`, `טיסות לפורים`, `הפרשות חלה`. Uman board ID is 5097312406.
+- **Board column structures:** Uman and Challah boards have custom column structures seeded from Google Sheets (columns differ from CRM by ID and sometimes title). Duplication flow uses dynamic title-based column matching with `TITLE_ALIASES` for known mismatches (e.g., "עיר" ↔ "עיר מגורים").
+- **Phone search scope:** `findLeadByPhoneAllBoards`, `getAllLeadsWithPhones`, and `getAllLeadsForFollowup` all search CRM board only. Service boards are read-only from the backend perspective; leads are created in CRM and duplicated on close.
 - **Cross-board limitation — `הודעה אחרונה באינסטגרם` (Last IG message):** The column exists on all 4 boards (CRM/Uman/Poland/Challah) for visual consistency, but `updateLastIgMessage` always writes to CRM because `known_senders.monday_item_id` is CRM-only. When a CRM row is duplicated to a service board on close, the service-board copy's `lastIgMessage` is frozen at duplication time; subsequent IG messages keep updating the CRM row, not the service board. Cross-board sync is a future plan.
 
 ### LLM (classification + summarization)
@@ -110,18 +112,19 @@ Status of each integration. When a new decision is made, update this section and
 - **Env to add later:** `OPENROUTER_FALLBACK_MODEL` (when fallback logic is added).
 
 ### Call recording + transcription
-- **Decision:** Timeless.day (locked for now) — Israeli company, merge-call method, built-in Hebrew transcription, iOS + Android.
-- **How it works:** During a cellular call, Ronit taps "Add Call" → dials the Timeless bridge number → taps "Merge Calls" → Timeless records + transcribes. When transcript is ready, Timeless sends a webhook to our backend.
+- **Decision:** Salestrail (Android background recorder) + Gemini 2.5 Flash audio transcription via OpenRouter. ~$20/mo total ($13 Salestrail + ~$7 Gemini).
+- **How it works:** Salestrail Recorder runs in the background on Ronit's Samsung Galaxy A56 5G. Records WhatsApp + cellular calls automatically (no user action needed). Salestrail POSTs a webhook with call metadata (including the other party's phone number). Backend verifies Basic auth, looks up the phone in Monday CRM, downloads the recording via Pull API, transcribes via Gemini, and updates Monday.
 - **What's done:**
-  - `CallProvider` interface at [src/integrations/calls.ts](Server/src/integrations/calls.ts) — abstracts the provider so it can be swapped later.
-  - Timeless API client at [src/domains/calls/calls.client.ts](Server/src/domains/calls/calls.client.ts) — fetches transcripts via `GET /meetings/{id}/transcript`.
-  - Webhook handler at `POST /api/calls/webhook` — HMAC-SHA256 verification (`X-Webhook-Signature`), parses `meeting.transcript_ready` event, raw body mounted before `express.json()`.
-  - LLM phone extraction in [src/domains/calls/calls.service.ts](Server/src/domains/calls/calls.service.ts) — OpenRouter extracts phone numbers from Hebrew/English transcript text (needed because Timeless API has no phone field in participant metadata).
-  - Monday.com CRM automation — `findLeadByPhone()` searches CRM board with multi-format normalization (Israeli +972/0-prefix, Philippine +63), `moveItemToGroup()` moves lead to "Contacted", `incrementCallsColumn()` adds 1 to call counter. **Tested and working.**
-  - Dev test endpoint at `POST /api/calls/test-inject` — bypasses Timeless, takes `{ phone, transcriptText? }` to test the Monday.com matching + move + increment flow directly.
-- **Not yet done:** Real Timeless account connection (needs Max plan $39/mo for API + webhooks), end-to-end webhook test with actual call recording, verification that bridge number works with Israeli +972 numbers (currently only US +1 bridge number confirmed).
-- **Known gap:** Timeless participant metadata has NO phone number field. Phone is extracted from transcript text via LLM — if neither party says a phone number during the call, matching fails. Future workaround: pre-call tagging in Monday.com.
-- **Env in use:** `TIMELESS_API_KEY`, `TIMELESS_WEBHOOK_SECRET`, `MONDAY_GROUP_CONTACTED_ID`, `MONDAY_COL_CALLS_ID`.
+  - Salestrail client at [src/domains/calls/salestrail.client.ts](Server/src/domains/calls/salestrail.client.ts) — downloads recordings via `GET https://standalone-api.salestrail.io/export/calls/{callId}/recording` with Basic auth.
+  - Audio transcriber at [src/lib/transcribe.ts](Server/src/lib/transcribe.ts) — sends base64-encoded audio to Gemini 2.5 Flash via OpenRouter, returns `{ transcript, summary, customer_name, service_interest, key_points, follow_up_needed }`. Hebrew system prompt.
+  - Webhook handler at `POST /api/calls/webhook` — HTTP Basic auth verification (timing-safe), parses Salestrail JSON payload, raw body mounted before `express.json()`.
+  - Call service at [src/domains/calls/calls.service.ts](Server/src/domains/calls/calls.service.ts) — `handleSalestrailCall(payload)`: phone lookup via `formattedNumber` (no LLM extraction needed), download recording (non-fatal), transcribe (non-fatal), then Monday updates: move to Contacted + increment calls + update last-call date + add summary note.
+  - Monday.com CRM automation — `findLeadByPhone()` searches CRM board with multi-format normalization (Israeli +972/0-prefix, Philippine +63), `moveItemToGroup()`, `incrementCallsColumn()`, `updateLastCallDate()`, `addNoteToItem()`. **Tested and working via test-inject.**
+  - Dev test endpoint at `POST /api/calls/test-inject` — takes `{ phone }` to test the Monday.com matching + move + increment flow directly.
+- **No-filter policy:** We accept every call Salestrail sends — WhatsApp, WhatsApp Business, cellular SIM, answered or not, any duration. No pre-filtering. Natural gates: (a) phone matches a Monday lead, (b) recording exists in Salestrail.
+- **Not yet done:** Ronit's phone setup (Salestrail account + app install), end-to-end test with real recording on Samsung A56, Gemini Hebrew transcript quality verification.
+- **Known risk:** Android restricts third-party mic access during VoIP calls. Samsung is more permissive than Xiaomi/MIUI (which blocks completely), but WhatsApp calls may produce one-sided audio. Cellular/SIM calls should work with full two-way audio on Samsung. Samsung is Salestrail's best-supported device family.
+- **Env in use:** `SALESTRAIL_WEBHOOK_USERNAME`, `SALESTRAIL_WEBHOOK_PASSWORD`, `OPENROUTER_AUDIO_MODEL`, `MONDAY_GROUP_CONTACTED_ID`, `MONDAY_COL_CALLS_ID`.
 - **Research:** See [research/call-recording-comparison.md](research/call-recording-comparison.md) for full market comparison (15+ apps analyzed).
 
 ### Holiday calendar
@@ -156,27 +159,37 @@ Status of each integration. When a new decision is made, update this section and
 
 **Completed:**
 1. Express skeleton — middleware stack, health check, error handling, env validation, logging
-2. Meta domain — Instagram DM webhook ingest with HMAC verification, GET handshake
+2. Meta domain — Instagram DM webhook ingest with HMAC verification, GET handshake, outbound auto-reply, echo filtering, IG token auto-refresh
 3. LLM classifier — OpenRouter integration for lead classification (uman/poland/challah)
-4. Monday.com client — GraphQL client + lead-row creation in CRM board
-5. Call recording domain — Timeless webhook handler, LLM phone extraction, Monday.com lead matching + group move + calls increment. Backend tested via test-inject. Waiting on Timeless paid account for end-to-end.
+4. Monday.com client — GraphQL client + lead-row creation/update in CRM board, form columns, cross-board search
+5. Call recording domain — Salestrail webhook handler (Basic auth), recording download via Pull API, Gemini audio transcription, Monday.com lead matching + group move + calls increment + last-call date + summary note. Backend tested via test-inject.
+6. Website domain — form submission endpoint with IG + phone dedup
+7. WhatsApp domain — GreenAPI integration, holiday campaigns, follow-up campaigns, file upload to Monday
+8. SQLite database — dedup, known senders, holiday campaigns (migrated from Supabase)
 
 **Next up:**
-- Timeless end-to-end connection (when paid account is ready — see steps below)
+- Salestrail end-to-end test on Ronit's Samsung A56 (see steps below)
 - Monday.com webhook handler (item_moved_to_specific_group → service board routing)
-- Supabase database setup (processed_webhooks dedup, followup_log, holiday tables)
-- pg-boss + node-cron (job queue + scheduled tasks)
-- WhatsApp integration (holiday campaign prompt/reply)
-- Holiday campaign flow (Hebcal + WhatsApp)
-- Weekly follow-up flow
+- Weekly follow-up flow refinement
 
-### Steps to connect Timeless (when you have a paid Max plan)
-1. Get your **API key** from Timeless dashboard → Settings → API. Add to `.env` as `TIMELESS_API_KEY`.
-2. Configure a **webhook** in Timeless pointing to `https://<your-domain>/api/calls/webhook` with event `meeting.transcript_ready`. Copy the webhook secret → add to `.env` as `TIMELESS_WEBHOOK_SECRET`.
-3. Deploy to Hostinger so the webhook URL is publicly reachable.
-4. Make a test call: start a cellular call → "Add Call" → dial bridge number → "Merge Calls" → have a conversation that mentions a phone number.
-5. Wait for Timeless to transcribe → webhook fires → check server logs for the full pipeline (transcript fetch → LLM extraction → Monday.com match).
-6. If the bridge number is US-only (+1 530), email `hey@magical.team` to ask about Israeli local numbers — they're an Israeli company so there's a good chance.
+### Steps to connect Salestrail (for Ronit's phone)
+1. Ronit signs up at https://callanalytics.salestrail.io/signup (free 5-day trial, no card).
+2. Phone setup:
+   - Install main Salestrail app from Play Store
+   - Sideload Salestrail Recorder APK from https://salestrail.io/apk
+   - Allow Play Protect bypass + "Allow restricted settings"
+   - Enable Accessibility for Salestrail Recorder
+   - Set BOTH apps to "Don't optimize" in Battery + Autostart ON
+   - Grant Notification access to both apps
+   - In main app: Settings → Recording Settings → toggle "Record WhatsApp Calls" ON
+3. Dashboard: Integrations → Apps → Push API → Connect
+   - Webhook URL: `https://api.ronitbarash.site/api/calls/webhook`
+   - Username + Password: strong random values, also put into Hostinger env as `SALESTRAIL_WEBHOOK_USERNAME` / `SALESTRAIL_WEBHOOK_PASSWORD`
+4. Make a real test call with a colleague whose phone is in the Monday CRM board.
+5. Verify on the Salestrail dashboard: is the recording audible? Both sides?
+   - If silent/one-sided on WhatsApp → try different Recording Source (Voice Recognition / Voice Communication / Default). Cellular/SIM calls should work regardless.
+   - If nothing works → abort within 5-day trial (no charge) and pivot to PLAUD Note hardware (~$159 + $18/mo).
+6. Check Hostinger server logs: webhook → auth OK → audio downloaded → Gemini transcript → Monday updated.
 
 See [PLAN.md](PLAN.md) for full domain plan details.
 
