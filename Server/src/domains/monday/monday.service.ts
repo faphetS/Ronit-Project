@@ -420,7 +420,7 @@ export async function incrementCallsColumn(itemId: string): Promise<void> {
 
   const rawValue =
     readData.items[0]?.column_values[0]?.value;
-  const current = rawValue ? (JSON.parse(rawValue) as number) : 0;
+  const current = rawValue ? Number(JSON.parse(rawValue)) || 0 : 0;
   const next = current + 1;
 
   const columnValues: Record<string, string> = {
