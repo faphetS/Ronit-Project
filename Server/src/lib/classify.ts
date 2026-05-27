@@ -8,6 +8,7 @@ const ClassificationSchema = z.object({
   service: z.enum(["uman", "poland", "challah"]).nullable(),
   extractedName: z.string().nullable(),
   extractedPhone: z.string().nullable(),
+  extractedEventDate: z.string().nullable(),
   confidence: z.number().min(0).max(1),
 });
 
@@ -28,6 +29,7 @@ You receive a Hebrew or English message from a potential lead. Return STRICT JSO
   "service": "uman" | "poland" | "challah" | null,
   "extractedName": string | null,
   "extractedPhone": string | null,
+  "extractedEventDate": "YYYY-MM-DD" | null,
   "confidence": number
 }
 
@@ -38,6 +40,7 @@ Rules:
 - Small talk, compliments about content, unrelated questions, spam, insults → interested=false.
 - If the message mentions flying/travel/trip (טיסה, לטוס, טיול, flight, trip) but doesn't specify a destination → interested=true, service=null (likely one of the flight services).
 - Hebrew service keywords: "אומן" → uman; "פולין" → poland; "חלה" / "הפרשת חלה" → challah.
+- extractedEventDate: if a specific trip/event date is mentioned (e.g. "בספטמבר", "ב-15 לאוגוסט", "בראש השנה"), convert to ISO date (YYYY-MM-DD). Use the 1st of the month if only a month is mentioned. Use the current or next occurrence for Hebrew holidays. null if no date mentioned.
 - confidence: 0..1 — your confidence in the classification.`;
 
 interface OpenRouterResponse {

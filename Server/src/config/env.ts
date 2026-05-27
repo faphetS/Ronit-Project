@@ -111,6 +111,11 @@ const envSchema = z.object({
   // Monday.com — date column set to today on row creation by createLeadRow.
   MONDAY_COL_INQUIRY_DATE_ID: z.string().default("date_mm2psbnf"),
 
+  // Monday.com — event/trip date. Used by the close flow to determine the
+  // month group on the service board. Populated manually, from call transcripts,
+  // or from IG message classification.
+  MONDAY_COL_EVENT_DATE_ID: z.string().default("date_mm3r6b6"),
+
   // Monday.com — long_text column populated by every incoming IG message via
   // updateLastIgMessage. CRM-board ID; the column also exists on Uman/Poland/
   // Challah boards (see scripts/output/last-ig-message-column-ids.json) but

@@ -10,6 +10,7 @@ const TranscriptionResultSchema = z.object({
   service_interest: z.enum(["uman", "poland", "challah"]).nullable(),
   key_points: z.array(z.string()),
   follow_up_needed: z.boolean(),
+  event_date: z.string().nullable(),
 });
 
 export type TranscriptionResult = z.infer<typeof TranscriptionResultSchema>;
@@ -38,12 +39,14 @@ Return STRICT JSON:
   "customer_name": "customer's name if mentioned, or null",
   "service_interest": "uman" | "poland" | "challah" | null,
   "key_points": ["key point 1", "key point 2"],
-  "follow_up_needed": true/false
+  "follow_up_needed": true/false,
+  "event_date": "YYYY-MM-DD" | null
 }
 
 Rules:
 - summary MUST be in Hebrew
 - transcript should preserve the original language
+- event_date: if a specific trip/event date is mentioned (e.g. "בספטמבר", "ב-15 לאוגוסט", "בראש השנה"), convert to ISO date (YYYY-MM-DD). Use the 1st of the month if only a month is mentioned. Use the current or next occurrence for Hebrew holidays. null if no date mentioned.
 - Output ONLY the JSON object. No commentary.`;
 
 export async function transcribeAudio(audio: Buffer): Promise<TranscriptionResult> {

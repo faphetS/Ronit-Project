@@ -853,6 +853,21 @@ export async function updateLastCallDate(boardId: string, itemId: string): Promi
   logger.info({ itemId, boardId, date: today }, "Monday last call date updated");
 }
 
+export async function updateEventDate(boardId: string, itemId: string, date: string): Promise<void> {
+  const columnValues: Record<string, unknown> = {
+    [env.MONDAY_COL_EVENT_DATE_ID]: { date },
+  };
+
+  await gql<ChangeColumnValueResponse>(
+    `mutation ($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
+      change_multiple_column_values(board_id: $boardId, item_id: $itemId, column_values: $columnValues) { id }
+    }`,
+    { boardId, itemId, columnValues: JSON.stringify(columnValues) },
+  );
+
+  logger.info({ itemId, boardId, date }, "Monday event date updated");
+}
+
 export async function getItemGroupId(itemId: string): Promise<string | null> {
   const data = await gql<{ items: Array<{ group: { id: string } }> }>(
     `query ($ids: [ID!]!) { items(ids: $ids) { group { id } } }`,

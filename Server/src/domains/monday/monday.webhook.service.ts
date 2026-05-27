@@ -108,7 +108,7 @@ export async function moveClosedItem(
     return { moved: false, sourceItemId: itemId, skipped: "no_service" };
   }
 
-  const dateRaw = colMap.get("date_mm2psbnf");
+  const dateRaw = colMap.get(env.MONDAY_COL_EVENT_DATE_ID);
   const eventDate = extractDate(dateRaw);
   if (!eventDate) {
     logger.warn({ itemId, dateRaw }, "Skipping move — no date of event");
