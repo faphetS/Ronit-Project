@@ -2,6 +2,7 @@ import { env } from "../../config/env.js";
 import { logger } from "../../config/logger.js";
 import { AppError } from "../../lib/errors.js";
 import { gql } from "./monday.client.js";
+import { deleteItem } from "./monday.service.js";
 
 const LABEL_ID_TO_BOARD: Record<number, string> = {
   1: env.MONDAY_BOARD_UMAN_ID,
@@ -68,17 +69,17 @@ interface CreateItemResponse {
   create_item: { id: string };
 }
 
-export interface DuplicationResult {
-  duplicated: boolean;
+export interface MoveResult {
+  moved: boolean;
   sourceItemId: number;
   targetItemId?: string;
   targetBoardId?: string;
   skipped?: "no_service" | "no_date";
 }
 
-export async function duplicateClosedItem(
+export async function moveClosedItem(
   itemId: number,
-): Promise<DuplicationResult> {
+): Promise<MoveResult> {
   const { items } = await gql<ItemQueryResponse>(
     `query ($ids: [ID!]!) {
       items(ids: $ids) {
@@ -103,15 +104,15 @@ export async function duplicateClosedItem(
   const serviceRaw = colMap.get("dropdown_mm2p1nvf");
   const labelId = extractLabelId(serviceRaw);
   if (labelId === null || !(labelId in LABEL_ID_TO_BOARD)) {
-    logger.warn({ itemId, serviceRaw }, "Skipping duplication — no valid service");
-    return { duplicated: false, sourceItemId: itemId, skipped: "no_service" };
+    logger.warn({ itemId, serviceRaw }, "Skipping move — no valid service");
+    return { moved: false, sourceItemId: itemId, skipped: "no_service" };
   }
 
   const dateRaw = colMap.get("date_mm2psbnf");
   const eventDate = extractDate(dateRaw);
   if (!eventDate) {
-    logger.warn({ itemId, dateRaw }, "Skipping duplication — no date of event");
-    return { duplicated: false, sourceItemId: itemId, skipped: "no_date" };
+    logger.warn({ itemId, dateRaw }, "Skipping move — no date of event");
+    return { moved: false, sourceItemId: itemId, skipped: "no_date" };
   }
 
   const targetBoardId = LABEL_ID_TO_BOARD[labelId];
@@ -190,6 +191,8 @@ export async function duplicateClosedItem(
     },
   );
 
+  await deleteItem(String(itemId));
+
   logger.info(
     {
       sourceItemId: itemId,
@@ -199,11 +202,11 @@ export async function duplicateClosedItem(
       service: labelId,
       eventDate: `${eventDate.year}-${String(eventDate.month + 1).padStart(2, "0")}`,
     },
-    "Item duplicated from CRM to service board",
+    "Item moved from CRM to service board (original deleted)",
   );
 
   return {
-    duplicated: true,
+    moved: true,
     sourceItemId: itemId,
     targetItemId: create_item.id,
     targetBoardId,

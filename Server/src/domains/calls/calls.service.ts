@@ -3,6 +3,7 @@ import { logger } from "../../config/logger.js";
 import { AppError } from "../../lib/errors.js";
 import {
   findLeadByPhone,
+  getItemGroupId,
   moveItemToGroup,
   incrementCallsColumn,
   updateLastCallDate,
@@ -75,7 +76,14 @@ export async function handleSalestrailCall(
     throw new AppError(503, "MONDAY_GROUP_CONTACTED_ID not configured", "MONDAY_GROUP_NOT_CONFIGURED");
   }
 
-  await moveItemToGroup(lead.itemId, env.MONDAY_GROUP_CONTACTED_ID);
+  const isClosedLead = env.MONDAY_GROUP_CLOSED_ID
+    ? (await getItemGroupId(lead.itemId)) === env.MONDAY_GROUP_CLOSED_ID
+    : false;
+
+  if (!isClosedLead) {
+    await moveItemToGroup(lead.itemId, env.MONDAY_GROUP_CONTACTED_ID);
+  }
+
   await incrementCallsColumn(lead.itemId);
   await updateLastCallDate(env.MONDAY_BOARD_CRM_ID, lead.itemId);
 
@@ -84,7 +92,7 @@ export async function handleSalestrailCall(
   }
 
   logger.info(
-    { itemId: lead.itemId, name: lead.name, phone, hasSummary: !!summary },
+    { itemId: lead.itemId, name: lead.name, phone, hasSummary: !!summary, isClosedLead },
     "Salestrail call processed — lead updated",
   );
 
@@ -106,12 +114,19 @@ async function matchAndUpdate(phone: string): Promise<CallResult> {
     return { matched: false, reason: "no_match", phone };
   }
 
-  await moveItemToGroup(lead.itemId, env.MONDAY_GROUP_CONTACTED_ID);
+  const isClosedLead = env.MONDAY_GROUP_CLOSED_ID
+    ? (await getItemGroupId(lead.itemId)) === env.MONDAY_GROUP_CLOSED_ID
+    : false;
+
+  if (!isClosedLead) {
+    await moveItemToGroup(lead.itemId, env.MONDAY_GROUP_CONTACTED_ID);
+  }
+
   await incrementCallsColumn(lead.itemId);
   await updateLastCallDate(env.MONDAY_BOARD_CRM_ID, lead.itemId);
 
   logger.info(
-    { itemId: lead.itemId, name: lead.name, phone },
+    { itemId: lead.itemId, name: lead.name, phone, isClosedLead },
     "Test inject — lead updated",
   );
 

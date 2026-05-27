@@ -853,6 +853,22 @@ export async function updateLastCallDate(boardId: string, itemId: string): Promi
   logger.info({ itemId, boardId, date: today }, "Monday last call date updated");
 }
 
+export async function getItemGroupId(itemId: string): Promise<string | null> {
+  const data = await gql<{ items: Array<{ group: { id: string } }> }>(
+    `query ($ids: [ID!]!) { items(ids: $ids) { group { id } } }`,
+    { ids: [itemId] },
+  );
+  return data.items[0]?.group?.id ?? null;
+}
+
+export async function deleteItem(itemId: string): Promise<void> {
+  await gql<{ delete_item: { id: string } }>(
+    `mutation ($itemId: ID!) { delete_item(item_id: $itemId) { id } }`,
+    { itemId },
+  );
+  logger.info({ itemId }, "Monday item deleted");
+}
+
 export async function addNoteToItem(itemId: string, text: string): Promise<void> {
   const columnValues: Record<string, unknown> = {
     [env.MONDAY_COL_NOTES_ID]: { text },

@@ -5,7 +5,7 @@ import {
   MondayWebhookEventSchema,
   type TestInjectBody,
 } from "./monday.validator.js";
-import { duplicateClosedItem } from "./monday.webhook.service.js";
+import { moveClosedItem } from "./monday.webhook.service.js";
 
 export async function handleWebhook(
   req: Request,
@@ -32,7 +32,7 @@ export async function handleWebhook(
   const { pulseId } = parsed.data.event;
 
   try {
-    const result = await duplicateClosedItem(pulseId);
+    const result = await moveClosedItem(pulseId);
     res.status(200).json({ status: "ok", ...result });
   } catch (err) {
     logger.error(
@@ -47,6 +47,6 @@ export async function testInject(
   req: Request<unknown, unknown, TestInjectBody>,
   res: Response,
 ): Promise<void> {
-  const result = await duplicateClosedItem(Number(req.body.itemId));
+  const result = await moveClosedItem(Number(req.body.itemId));
   res.json({ status: "ok", ...result });
 }
