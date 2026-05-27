@@ -854,18 +854,23 @@ export async function updateLastCallDate(boardId: string, itemId: string): Promi
 }
 
 export async function addNoteToItem(itemId: string, text: string): Promise<void> {
-  const mutation = /* GraphQL */ `
-    mutation ($itemId: ID!, $body: String!) {
-      create_update(item_id: $itemId, body: $body) {
-        id
-      }
-    }
-  `;
+  const columnValues: Record<string, unknown> = {
+    [env.MONDAY_COL_NOTES_ID]: { text },
+  };
 
-  await gql<{ create_update: { id: string } }>(mutation, { itemId, body: text });
+  await gql<ChangeColumnValueResponse>(
+    `mutation ($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
+      change_multiple_column_values(board_id: $boardId, item_id: $itemId, column_values: $columnValues) { id }
+    }`,
+    {
+      boardId: env.MONDAY_BOARD_CRM_ID,
+      itemId,
+      columnValues: JSON.stringify(columnValues),
+    },
+  );
 
   logger.info(
     { itemId, textLen: text.length },
-    "Monday note added to item",
+    "Monday notes column updated",
   );
 }
