@@ -7,11 +7,9 @@ import {
   upsertKnownSender,
   updateSenderPhone,
 } from "../../lib/dedup.js";
-import { env } from "../../config/env.js";
 import {
   createLeadRow,
   updateItemPhone,
-  updateEventDate,
   updateLastIgMessage,
 } from "../monday/monday.service.js";
 import { sendFirstContactDM } from "./meta.outbound.service.js";
@@ -32,7 +30,6 @@ export async function handleIncomingMessage(input: {
         service: null,
         extractedName: null,
         extractedPhone: null,
-        extractedEventDate: null,
         confidence: 0,
         rawResponse: "",
       },
@@ -81,9 +78,6 @@ export async function handleIncomingMessage(input: {
         "Sender already has a CRM row — skipping duplicate creation",
       );
     }
-    if (classification.extractedEventDate) {
-      await updateEventDate(env.MONDAY_BOARD_CRM_ID, existing.monday_item_id, classification.extractedEventDate);
-    }
     return { itemId: existing.monday_item_id, classification };
   }
 
@@ -117,10 +111,6 @@ export async function handleIncomingMessage(input: {
   }
 
   await updateLastIgMessage(itemId, input.messageText);
-
-  if (classification.extractedEventDate) {
-    await updateEventDate(env.MONDAY_BOARD_CRM_ID, itemId, classification.extractedEventDate);
-  }
 
   // First-contact auto-reply on Instagram. Only fires on this new-sender path
   // (we got here via createLeadRow). Existing senders return earlier and never

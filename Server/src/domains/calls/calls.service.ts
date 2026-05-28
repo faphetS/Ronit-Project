@@ -7,7 +7,6 @@ import {
   moveItemToGroup,
   incrementCallsColumn,
   updateLastCallDate,
-  updateEventDate,
   addNoteToItem,
 } from "../monday/monday.service.js";
 import { salestrailClient } from "./salestrail.client.js";
@@ -57,14 +56,12 @@ export async function handleSalestrailCall(
   }
 
   let summary: string | null = null;
-  let eventDate: string | null = null;
   if (audio) {
     try {
       const result = await transcribeAudio(audio);
       summary = result.summary;
-      eventDate = result.event_date;
       logger.info(
-        { callId: payload.callId, service: result.service_interest, followUp: result.follow_up_needed, eventDate },
+        { callId: payload.callId, service: result.service_interest, followUp: result.follow_up_needed },
         "Call transcription complete",
       );
     } catch (err) {
@@ -94,12 +91,8 @@ export async function handleSalestrailCall(
     await addNoteToItem(lead.itemId, summary);
   }
 
-  if (eventDate) {
-    await updateEventDate(env.MONDAY_BOARD_CRM_ID, lead.itemId, eventDate);
-  }
-
   logger.info(
-    { itemId: lead.itemId, name: lead.name, phone, hasSummary: !!summary, hasEventDate: !!eventDate, isClosedLead },
+    { itemId: lead.itemId, name: lead.name, phone, hasSummary: !!summary, isClosedLead },
     "Salestrail call processed — lead updated",
   );
 

@@ -5,10 +5,9 @@ import { AppError } from "./errors.js";
 
 const ClassificationSchema = z.object({
   interested: z.boolean(),
-  service: z.enum(["uman", "poland", "challah"]).nullable(),
+  service: z.enum(["uman", "challah"]).nullable(),
   extractedName: z.string().nullable(),
   extractedPhone: z.string().nullable(),
-  extractedEventDate: z.string().nullable(),
   confidence: z.number().min(0).max(1),
 });
 
@@ -16,31 +15,28 @@ export type Classification = z.infer<typeof ClassificationSchema> & {
   rawResponse: string;
 };
 
-const SYSTEM_PROMPT = `You are a lead-classification assistant for Ronit Barash, an Israeli religious-content influencer who sells three paid services:
+const SYSTEM_PROMPT = `You are a lead-classification assistant for Ronit Barash, an Israeli religious-content influencer who sells two paid services:
 
 1. "uman"    — flights and packages for pilgrimage to Uman (אומן), usually around Rosh Hashanah. Hebrew keywords: אומן, טיסות לאומן, ראש השנה באומן.
-2. "poland"  — flights and tours for pilgrimage to Poland (פולין / טיסות לפולין). Hebrew keywords: פולין, טיסות לפולין.
-3. "challah" — in-person group events for the mitzvah of separating challah (הפרשת חלה). Hebrew keywords: חלה, הפרשת חלה, הפרשות חלה.
+2. "challah" — in-person group events for the mitzvah of separating challah (הפרשת חלה). Hebrew keywords: חלה, הפרשת חלה, הפרשות חלה.
 
 You receive a Hebrew or English message from a potential lead. Return STRICT JSON with exactly this shape and nothing else:
 
 {
   "interested": boolean,
-  "service": "uman" | "poland" | "challah" | null,
+  "service": "uman" | "challah" | null,
   "extractedName": string | null,
   "extractedPhone": string | null,
-  "extractedEventDate": "YYYY-MM-DD" | null,
   "confidence": number
 }
 
 Rules:
 - Output ONLY the JSON object. No markdown fences, no commentary, no keys outside the schema.
-- interested=true ONLY if the message shows genuine interest in one of the three services above, asks about trips/flights/events Ronit offers, or uses travel/service keywords (טיסה, לטוס, טיסות, flight, trip, חלה, אומן, פולין).
+- interested=true ONLY if the message shows genuine interest in one of the two services above, asks about trips/flights/events Ronit offers, or uses travel/service keywords (טיסה, לטוס, טיסות, flight, trip, חלה, אומן).
 - Plain greetings with no mention of services ("היי", "שלום", "hi", "how are you", "מה שלומך") → interested=false.
 - Small talk, compliments about content, unrelated questions, spam, insults → interested=false.
-- If the message mentions flying/travel/trip (טיסה, לטוס, טיול, flight, trip) but doesn't specify a destination → interested=true, service=null (likely one of the flight services).
-- Hebrew service keywords: "אומן" → uman; "פולין" → poland; "חלה" / "הפרשת חלה" → challah.
-- extractedEventDate: ONLY extract if a specific trip/event date is EXPLICITLY and CLEARLY stated in the message (e.g. "אני רוצה טיסה ב-15 לאוגוסט", "האירוע בספטמבר"). Do NOT guess, infer, or assume a date. If no date is clearly written, return null. When extracting, use ISO format (YYYY-MM-DD). Use the 1st of the month if only a month is mentioned.
+- If the message mentions flying/travel/trip (טיסה, לטוס, טיול, flight, trip) but doesn't specify a destination → interested=true, service=null (likely the Uman flight service).
+- Hebrew service keywords: "אומן" → uman; "חלה" / "הפרשת חלה" → challah.
 - confidence: 0..1 — your confidence in the classification.`;
 
 interface OpenRouterResponse {

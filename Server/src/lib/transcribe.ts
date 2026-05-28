@@ -7,10 +7,9 @@ const TranscriptionResultSchema = z.object({
   transcript: z.string(),
   summary: z.string(),
   customer_name: z.string().nullable(),
-  service_interest: z.enum(["uman", "poland", "challah"]).nullable(),
+  service_interest: z.enum(["uman", "challah"]).nullable(),
   key_points: z.array(z.string()),
   follow_up_needed: z.boolean(),
-  event_date: z.string().nullable(),
 });
 
 export type TranscriptionResult = z.infer<typeof TranscriptionResultSchema>;
@@ -27,9 +26,8 @@ Your tasks:
 2. Write a short Hebrew summary suitable for a CRM note (2-3 sentences max)
 3. Extract structured data
 
-The business offers three services:
+The business offers two services:
 - uman: Flights and trips to Uman (Rabbi Nachman pilgrimage)
-- poland: Flights and trips to Poland
 - challah: Challah separation events (הפרשות חלה)
 
 Return STRICT JSON:
@@ -37,16 +35,14 @@ Return STRICT JSON:
   "transcript": "full transcription of the conversation",
   "summary": "תקציר קצר בעברית של השיחה",
   "customer_name": "customer's name if mentioned, or null",
-  "service_interest": "uman" | "poland" | "challah" | null,
+  "service_interest": "uman" | "challah" | null,
   "key_points": ["key point 1", "key point 2"],
-  "follow_up_needed": true/false,
-  "event_date": "YYYY-MM-DD" | null
+  "follow_up_needed": true/false
 }
 
 Rules:
 - summary MUST be in Hebrew
 - transcript should preserve the original language
-- event_date: ONLY extract if a specific trip/event date is EXPLICITLY and CLEARLY stated in the conversation (e.g. "הטיסה ב-15 לאוגוסט", "האירוע בספטמבר"). Do NOT guess, infer, or assume a date. If no date is clearly spoken, return null. When extracting, use ISO format (YYYY-MM-DD). Use the 1st of the month if only a month is mentioned.
 - Output ONLY the JSON object. No commentary.`;
 
 export async function transcribeAudio(audio: Buffer): Promise<TranscriptionResult> {

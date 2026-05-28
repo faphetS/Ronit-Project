@@ -3,9 +3,8 @@ import { logger } from "../../config/logger.js";
 import { AppError } from "../../lib/errors.js";
 import { gql } from "./monday.client.js";
 
-const SERVICE_TO_LABEL_ID: Record<"uman" | "poland" | "challah", number> = {
+const SERVICE_TO_LABEL_ID: Record<"uman" | "challah", number> = {
   uman: 1,
-  poland: 2,
   challah: 3,
 };
 
@@ -33,14 +32,14 @@ export interface FormFields {
 export interface CreateLeadInput extends FormFields {
   name: string;
   phone: string | null;
-  service: "uman" | "poland" | "challah" | null;
+  service: "uman" | "challah" | null;
   source: "instagram" | "whatsapp" | "website";
 }
 
 export interface UpdateLeadInput extends FormFields {
   name?: string;
   phone?: string;
-  service?: "uman" | "poland" | "challah";
+  service?: "uman" | "challah";
 }
 
 function buildPhoneColumn(phone: string): Record<string, unknown> {
@@ -53,7 +52,7 @@ function buildPhoneColumn(phone: string): Record<string, unknown> {
 function buildColumnValues(
   fields: FormFields & {
     phone?: string | null;
-    service?: "uman" | "poland" | "challah" | null;
+    service?: "uman" | "challah" | null;
   },
 ): Record<string, unknown> {
   const columnValues: Record<string, unknown> = {};
@@ -851,21 +850,6 @@ export async function updateLastCallDate(boardId: string, itemId: string): Promi
   );
 
   logger.info({ itemId, boardId, date: today }, "Monday last call date updated");
-}
-
-export async function updateEventDate(boardId: string, itemId: string, date: string): Promise<void> {
-  const columnValues: Record<string, unknown> = {
-    [env.MONDAY_COL_EVENT_DATE_ID]: { date },
-  };
-
-  await gql<ChangeColumnValueResponse>(
-    `mutation ($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
-      change_multiple_column_values(board_id: $boardId, item_id: $itemId, column_values: $columnValues) { id }
-    }`,
-    { boardId, itemId, columnValues: JSON.stringify(columnValues) },
-  );
-
-  logger.info({ itemId, boardId, date }, "Monday event date updated");
 }
 
 export async function getItemGroupId(itemId: string): Promise<string | null> {

@@ -72,6 +72,12 @@ CREATE TABLE IF NOT EXISTS holiday_campaign_sends (
   UNIQUE(campaign_id, phone)
 );
 
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_processed_webhooks_lookup ON processed_webhooks(source, external_id);
 CREATE INDEX IF NOT EXISTS idx_known_senders_lookup ON known_senders(platform, sender_id);
 CREATE INDEX IF NOT EXISTS idx_followup_log_lookup ON followup_log(monday_item_id, last_call_date);
@@ -87,4 +93,20 @@ export function getDb(): Database.Database {
   db.exec(SCHEMA);
   logger.info({ path: env.DB_FILE_PATH }, "SQLite DB opened and schema applied");
   return db;
+}
+
+export function getSetting(key: string): string | null {
+  const row = getDb()
+    .prepare<[string], { value: string }>("SELECT value FROM settings WHERE key = ?")
+    .get(key);
+  return row?.value ?? null;
+}
+
+export function setSetting(key: string, value: string): void {
+  getDb()
+    .prepare(
+      `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
+    )
+    .run(key, value);
 }

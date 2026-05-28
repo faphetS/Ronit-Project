@@ -40,10 +40,17 @@ const envSchema = z.object({
   MONDAY_COL_SERVICE_ID: z.string().default("dropdown_mm2p1nvf"),
   MONDAY_COL_NOTES_ID: z.string().default("long_text_mm2pqwp9"),
 
-  // Monday service board IDs — items are duplicated here when closed in the CRM.
+  // Monday service board IDs — items move here when closed in the CRM.
+  // Challah is the 2026 board; later years auto-create via the close flow.
+  // Uman is the bootstrap flight board; later flights auto-create when the
+  // current flight date passes (see getActiveUmanBoard). The "current" Uman
+  // board ID is persisted in the SQLite settings table after the first roll-over.
   MONDAY_BOARD_UMAN_ID: z.string().default("5097312406"),
-  MONDAY_BOARD_POLAND_ID: z.string().default("5095155041"),
   MONDAY_BOARD_CHALLAH_ID: z.string().default("5095155077"),
+
+  // Uman board — per-row flight date column. Ronit fills this manually; the
+  // close flow reads it to decide if the current Uman board is still active.
+  MONDAY_UMAN_COL_DATE_ID: z.string().default("date_mm3s6dh6"),
 
   // Meta / Instagram
   META_APP_ID: z.string().min(1).optional(),
@@ -109,17 +116,12 @@ const envSchema = z.object({
   MONDAY_COL_EMAIL_ID: z.string().default("email_mm3p4w7"),
 
   // Monday.com — date column set to today on row creation by createLeadRow.
+  // Also drives Challah year-board routing on close (close flow reads this and
+  // picks/creates "הפרשות חלה NN" + the matching month group).
   MONDAY_COL_INQUIRY_DATE_ID: z.string().default("date_mm2psbnf"),
 
-  // Monday.com — event/trip date. Used by the close flow to determine the
-  // month group on the service board. Populated manually, from call transcripts,
-  // or from IG message classification.
-  MONDAY_COL_EVENT_DATE_ID: z.string().default("date_mm3r6b6"),
-
   // Monday.com — long_text column populated by every incoming IG message via
-  // updateLastIgMessage. CRM-board ID; the column also exists on Uman/Poland/
-  // Challah boards (see scripts/output/last-ig-message-column-ids.json) but
-  // updates only target CRM because known_senders.monday_item_id is CRM-only.
+  // updateLastIgMessage. CRM-board only; known_senders.monday_item_id is CRM-only.
   MONDAY_COL_LAST_IG_MESSAGE_ID: z.string().default("long_text_mm3qd4jt"),
 
   // GreenAPI / WhatsApp
