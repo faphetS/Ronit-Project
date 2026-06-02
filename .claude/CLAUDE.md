@@ -83,10 +83,13 @@ Status of each integration. When a new decision is made, update this section and
 
 ### Instagram DMs (inbound + outbound)
 - **Decision:** Implemented — Meta Cloud API
-- **What's done:** Webhook ingest at `POST /api/meta/webhook` with HMAC-SHA256 signature verification (timing-safe). GET handshake at same path echoes `hub.challenge`. Dev-only `POST /api/meta/test-inject` for end-to-end testing. Incoming messages are classified via OpenRouter and routed to Monday.com CRM.
-- **Not yet done:** Outbound reply messaging, 24-hour window enforcement, business verification (long-pole, 3–10 business days).
-- **Env in use:** `META_APP_SECRET`, `META_VERIFY_TOKEN`.
-- **Env to add later:** `META_APP_ID`, `IG_ACCESS_TOKEN`, `IG_PROFESSIONAL_ACCOUNT_ID` (needed for outbound messaging).
+- **What's done:** Webhook ingest at `POST /api/meta/webhook` with HMAC-SHA256 signature verification (timing-safe). GET handshake at same path echoes `hub.challenge`. Dev-only `POST /api/meta/test-inject` for end-to-end testing. Incoming messages are classified via OpenRouter and routed to Monday.com CRM. **First-contact auto-reply** (`sendFirstContactDM` in `meta.outbound.service.ts`) fires once per new interested sender (dedup via `known_senders`) and selects one of **four** templates by (did the lead name a specific service?) × (was a phone number in the message?):
+  - **service named** (`classification.service !== null`, uman/challah) → neutral templates `IG_MSG_SERVICE_PHONE_PRESENT` / `IG_MSG_SERVICE_PHONE_MISSING` (no `{form_link}`).
+  - **no service named** (`service === null`, interested-but-vague) → Uman-teaser fallback templates `IG_MSG_PHONE_PRESENT` / `IG_MSG_PHONE_MISSING` (carry the personalized `{form_link}`).
+  - Within each pair, a missing phone selects the variant that asks for the phone number. Not-interested senders and already-known senders get no DM.
+- **Not yet done:** Ongoing/conversational outbound replies (beyond the single first-contact DM), 24-hour window enforcement, business verification (long-pole, 3–10 business days).
+- **Env in use:** `META_APP_SECRET`, `META_VERIFY_TOKEN`, `IG_ACCESS_TOKEN`. IG message templates (all defaulted in `env.ts`): `IG_MSG_PHONE_PRESENT`, `IG_MSG_PHONE_MISSING`, `IG_MSG_SERVICE_PHONE_PRESENT`, `IG_MSG_SERVICE_PHONE_MISSING`.
+- **Env to add later:** `META_APP_ID`, `IG_PROFESSIONAL_ACCOUNT_ID`.
 
 ### WhatsApp (Ronit owner channel + optional lead messaging)
 - **Decision:** _TBD_

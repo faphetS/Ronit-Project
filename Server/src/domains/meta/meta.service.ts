@@ -116,7 +116,11 @@ export async function handleIncomingMessage(input: {
   // (we got here via createLeadRow). Existing senders return earlier and never
   // reach this point, so we never re-DM known leads.
   if (input.senderId) {
-    await sendFirstContactDM(input.senderId, !!classification.extractedPhone);
+    await sendFirstContactDM(
+      input.senderId,
+      !!classification.extractedPhone,
+      classification.service !== null,
+    );
   }
 
   return { itemId, classification };

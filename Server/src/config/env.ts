@@ -75,6 +75,20 @@ const envSchema = z.object({
       "היי יקירה 🤍\nאצור איתך קשר בהקדם 🙏📞\nובינתיים...\nאת מוזמנת לקבל הצצה מרגשת אל תוך המסע שלנו לרבינו ✨\n{form_link}",
     ),
 
+  // Sent when the lead NAMES a specific service (uman/challah). Neutral wording,
+  // no form link. The two IG_MSG_PHONE_* templates above are the fallback for an
+  // interested lead that names no service (service = null).
+  IG_MSG_SERVICE_PHONE_MISSING: z
+    .string()
+    .min(1)
+    .default(
+      "שלום וברכה,\nאשמח שתכתבי לי את מספר הטלפון שלך ונחזור אלייך בהקדם עם הפרטים המלאים🙏",
+    ),
+  IG_MSG_SERVICE_PHONE_PRESENT: z
+    .string()
+    .min(1)
+    .default("שלום וברכה,\nנחזור אלייך בהקדם עם הפרטים המלאים🙏"),
+
   // IG token auto-refresh — JSON file on a Docker volume holds the live token.
   // Container path; the host bind-mount is /opt/ronit-data → /data in compose.
   META_TOKEN_FILE_PATH: z.string().default("/data/meta-token.json"),

@@ -7,10 +7,16 @@ const FORM_BASE_URL = "https://www.orhazadik.online";
 export async function sendFirstContactDM(
   recipientIgsid: string,
   hasPhone: boolean,
+  serviceNamed: boolean,
 ): Promise<void> {
-  const template = hasPhone
-    ? env.IG_MSG_PHONE_PRESENT
-    : env.IG_MSG_PHONE_MISSING;
+  const template = serviceNamed
+    ? hasPhone
+      ? env.IG_MSG_SERVICE_PHONE_PRESENT
+      : env.IG_MSG_SERVICE_PHONE_MISSING
+    : hasPhone
+      ? env.IG_MSG_PHONE_PRESENT
+      : env.IG_MSG_PHONE_MISSING;
+  const templateLabel = `${serviceNamed ? "SERVICE" : "GENERAL"}_${hasPhone ? "PHONE_PRESENT" : "PHONE_MISSING"}`;
   const formLink = `${FORM_BASE_URL}/?ig_id=${encodeURIComponent(recipientIgsid)}`;
   const text = template.replace(/\\n/g, "\n").replaceAll("{form_link}", formLink);
 
@@ -40,7 +46,7 @@ export async function sendFirstContactDM(
           recipientIgsid,
           status: res.status,
           body: (await res.text()).slice(0, 300),
-          template: hasPhone ? "PHONE_PRESENT" : "PHONE_MISSING",
+          template: templateLabel,
         },
         "IG outbound non-2xx",
       );
@@ -50,7 +56,7 @@ export async function sendFirstContactDM(
       {
         recipientIgsid,
         textLen: text.length,
-        template: hasPhone ? "PHONE_PRESENT" : "PHONE_MISSING",
+        template: templateLabel,
       },
       "IG first-contact DM sent",
     );
