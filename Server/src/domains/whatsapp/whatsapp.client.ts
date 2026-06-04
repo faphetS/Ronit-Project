@@ -20,6 +20,17 @@ export function formatChatId(phone: string): string {
 }
 
 async function sendMessage(chatId: string, message: string): Promise<SendMessageResult> {
+  // HARD-DISABLED 2026-06-04 at owner's request. This GreenAPI instance
+  // (7107600944) is linked to the owner's personal WhatsApp number, so no
+  // automated outbound messages may go through it. The instance stays
+  // connected (inbound webhooks/file download still work) — only sending is
+  // blocked. Remove this throw once a dedicated sending number is in place.
+  throw new AppError(
+    503,
+    "Outbound WhatsApp sending via this GreenAPI instance is disabled",
+    "WHATSAPP_SENDING_DISABLED",
+  );
+
   if (!env.GREENAPI_INSTANCE_ID || !env.GREENAPI_API_TOKEN) {
     throw new AppError(
       503,
