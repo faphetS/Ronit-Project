@@ -860,7 +860,7 @@ export async function moveItemToGroup(
 }
 
 interface ItemLocationResponse {
-  items: Array<{ board: { id: string }; group: { id: string } }>;
+  items: Array<{ state: string; board: { id: string }; group: { id: string } }>;
 }
 
 export async function getItemBoardAndGroup(
@@ -869,6 +869,7 @@ export async function getItemBoardAndGroup(
   const data = await gql<ItemLocationResponse>(
     `query ($ids: [ID!]!) {
       items(ids: $ids) {
+        state
         board { id }
         group { id }
       }
@@ -876,7 +877,9 @@ export async function getItemBoardAndGroup(
     { ids: [itemId] },
   );
   const item = data.items[0];
-  if (!item) return null;
+  // Recently deleted/archived items still come back from items(ids) until the
+  // trash purges them — only an "active" item counts as a live CRM row.
+  if (!item || item.state !== "active") return null;
   return { boardId: item.board.id, groupId: item.group.id };
 }
 
