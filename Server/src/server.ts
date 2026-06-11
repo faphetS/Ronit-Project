@@ -15,6 +15,7 @@ import apiRoutes from "./routes/index.js";
 import rateLimit from "express-rate-limit";
 import { startWhatsAppCrons } from "./domains/whatsapp/cron.js";
 import { startMetaCrons } from "./domains/meta/meta.cron.js";
+import { startMondayCrons } from "./domains/monday/monday.cron.js";
 
 const app = express();
 
@@ -243,6 +244,7 @@ const server = app.listen(env.PORT, () => {
   logger.info(`Server running on ${env.BACKEND_URL} [${env.NODE_ENV}]`);
   startWhatsAppCrons();
   startMetaCrons();
+  startMondayCrons();
 });
 
 function shutdown(signal: string) {

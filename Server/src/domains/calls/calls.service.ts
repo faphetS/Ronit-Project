@@ -1,10 +1,7 @@
 import { env } from "../../config/env.js";
 import { logger } from "../../config/logger.js";
-import { AppError } from "../../lib/errors.js";
 import {
   findLeadByPhone,
-  getItemGroupId,
-  moveItemToGroup,
   incrementCallsColumn,
   updateLastCallDate,
   addNoteToItem,
@@ -72,18 +69,6 @@ export async function handleSalestrailCall(
     }
   }
 
-  if (!env.MONDAY_GROUP_CONTACTED_ID) {
-    throw new AppError(503, "MONDAY_GROUP_CONTACTED_ID not configured", "MONDAY_GROUP_NOT_CONFIGURED");
-  }
-
-  const isClosedLead = env.MONDAY_GROUP_CLOSED_ID
-    ? (await getItemGroupId(lead.itemId)) === env.MONDAY_GROUP_CLOSED_ID
-    : false;
-
-  if (!isClosedLead) {
-    await moveItemToGroup(lead.itemId, env.MONDAY_GROUP_CONTACTED_ID);
-  }
-
   await incrementCallsColumn(lead.itemId);
   await updateLastCallDate(env.MONDAY_BOARD_CRM_ID, lead.itemId);
 
@@ -92,7 +77,7 @@ export async function handleSalestrailCall(
   }
 
   logger.info(
-    { itemId: lead.itemId, name: lead.name, phone, hasSummary: !!summary, isClosedLead },
+    { itemId: lead.itemId, name: lead.name, phone, hasSummary: !!summary },
     "Salestrail call processed — lead updated",
   );
 
@@ -104,29 +89,17 @@ export async function handleTestInject(body: CallTestInjectBody): Promise<CallRe
 }
 
 async function matchAndUpdate(phone: string): Promise<CallResult> {
-  if (!env.MONDAY_GROUP_CONTACTED_ID) {
-    throw new AppError(503, "MONDAY_GROUP_CONTACTED_ID not configured", "MONDAY_GROUP_NOT_CONFIGURED");
-  }
-
   const lead = await findLeadByPhone(phone);
 
   if (!lead) {
     return { matched: false, reason: "no_match", phone };
   }
 
-  const isClosedLead = env.MONDAY_GROUP_CLOSED_ID
-    ? (await getItemGroupId(lead.itemId)) === env.MONDAY_GROUP_CLOSED_ID
-    : false;
-
-  if (!isClosedLead) {
-    await moveItemToGroup(lead.itemId, env.MONDAY_GROUP_CONTACTED_ID);
-  }
-
   await incrementCallsColumn(lead.itemId);
   await updateLastCallDate(env.MONDAY_BOARD_CRM_ID, lead.itemId);
 
   logger.info(
-    { itemId: lead.itemId, name: lead.name, phone, isClosedLead },
+    { itemId: lead.itemId, name: lead.name, phone },
     "Test inject — lead updated",
   );
 

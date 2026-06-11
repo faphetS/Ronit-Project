@@ -111,8 +111,6 @@ const envSchema = z.object({
   OPENROUTER_AUDIO_MODEL: z.string().default("google/gemini-2.5-flash"),
 
   // Monday.com — CRM group/column IDs for call tracking
-  MONDAY_GROUP_CONTACTED_ID: z.string().optional(),
-  MONDAY_GROUP_CLOSED_ID: z.string().optional(),
   MONDAY_COL_CALLS_ID: z.string().optional(),
   MONDAY_COL_LAST_CALL_DATE_ID: z.string().default("date_mm2psp19"),
 

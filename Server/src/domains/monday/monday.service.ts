@@ -363,30 +363,6 @@ export async function findLeadByPhone(
   return null;
 }
 
-interface MoveItemResponse {
-  move_item_to_group: { id: string };
-}
-
-export async function moveItemToGroup(
-  itemId: string,
-  targetGroupId: string,
-): Promise<void> {
-  const mutation = /* GraphQL */ `
-    mutation ($itemId: ID!, $groupId: String!) {
-      move_item_to_group(item_id: $itemId, group_id: $groupId) {
-        id
-      }
-    }
-  `;
-
-  await gql<MoveItemResponse>(mutation, { itemId, groupId: targetGroupId });
-
-  logger.info(
-    { itemId, targetGroupId },
-    "Monday CRM lead moved to Contacted group",
-  );
-}
-
 interface ItemColumnValuesResponse {
   items: Array<{
     column_values: Array<{ id: string; value: string | null }>;
@@ -852,12 +828,14 @@ export async function updateLastCallDate(boardId: string, itemId: string): Promi
   logger.info({ itemId, boardId, date: today }, "Monday last call date updated");
 }
 
-export async function getItemGroupId(itemId: string): Promise<string | null> {
-  const data = await gql<{ items: Array<{ group: { id: string } }> }>(
-    `query ($ids: [ID!]!) { items(ids: $ids) { group { id } } }`,
-    { ids: [itemId] },
+export interface BoardGroup { id: string; title: string }
+
+export async function getBoardGroups(boardId: string): Promise<BoardGroup[]> {
+  const data = await gql<{ boards: Array<{ groups: BoardGroup[] }> }>(
+    `query ($ids: [ID!]!) { boards(ids: $ids) { groups { id title } } }`,
+    { ids: [boardId] },
   );
-  return data.items[0]?.group?.id ?? null;
+  return data.boards[0]?.groups ?? [];
 }
 
 export async function deleteItem(itemId: string): Promise<void> {

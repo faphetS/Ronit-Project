@@ -3,7 +3,7 @@ import { logger } from "../../config/logger.js";
 import { getSetting, setSetting } from "../../config/db.js";
 import { AppError } from "../../lib/errors.js";
 import { gql } from "./monday.client.js";
-import { deleteItem } from "./monday.service.js";
+import { deleteItem, getBoardGroups } from "./monday.service.js";
 
 const SERVICE_LABEL_UMAN = 1;
 const SERVICE_LABEL_CHALLAH = 3;
@@ -265,27 +265,9 @@ async function findMonthGroup(
     : MONTH_NAMES_EN[date.month];
   const expected = `${monthName} ${date.year}`;
 
-  const { boards } = await gql<BoardGroupsResponse>(
-    `query ($ids: [ID!]!) {
-      boards(ids: $ids) {
-        groups {
-          id
-          title
-        }
-      }
-    }`,
-    { ids: [boardId] },
-  );
+  const groups = await getBoardGroups(boardId);
 
-  if (boards.length === 0) {
-    throw new AppError(
-      502,
-      `Board ${boardId} not found`,
-      "MONDAY_BOARD_NOT_FOUND",
-    );
-  }
-
-  const group = boards[0].groups.find(
+  const group = groups.find(
     (g) => g.title.trim().toLowerCase() === expected.toLowerCase(),
   );
 
