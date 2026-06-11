@@ -2,6 +2,7 @@ import { env } from "../../config/env.js";
 import { logger } from "../../config/logger.js";
 import { getSetting, setSetting } from "../../config/db.js";
 import { AppError } from "../../lib/errors.js";
+import { deleteKnownSenderByItemId } from "../../lib/dedup.js";
 import { gql } from "./monday.client.js";
 import { deleteItem, getBoardGroups } from "./monday.service.js";
 
@@ -206,6 +207,7 @@ export async function moveClosedItem(
   );
 
   await deleteItem(String(itemId));
+  deleteKnownSenderByItemId(String(itemId));
 
   logger.info(
     {
@@ -215,6 +217,7 @@ export async function moveClosedItem(
       targetGroupId,
       service: labelId,
       inquiryDate: `${inquiryDate.year}-${String(inquiryDate.month + 1).padStart(2, "0")}`,
+      knownSenderCleaned: true,
     },
     "Item moved from CRM to service board (original deleted)",
   );
@@ -396,10 +399,13 @@ interface ItemDatesResponse {
   }>;
 }
 
-async function getActiveUmanBoard(): Promise<{ boardId: string; groupId: string }> {
+export async function getCurrentUmanBoardState(): Promise<{
+  boardId: string;
+  isActive: boolean;
+  groupId: string | null;
+}> {
   const boardId = getSetting(UMAN_BOARD_SETTING_KEY) ?? env.MONDAY_BOARD_UMAN_ID;
 
-  // Pull every row's flight date + the board's groups in one round trip.
   const data = await gql<ItemDatesResponse>(
     `query ($ids: [ID!]!, $colIds: [String!]!) {
       boards(ids: $ids) {
@@ -427,12 +433,18 @@ async function getActiveUmanBoard(): Promise<{ boardId: string; groupId: string 
     dates.length === 0 ||
     today < [...dates].sort().slice(-1)[0]!;
 
-  if (isActive) {
-    const groupId = board.groups[0]?.id;
-    if (!groupId) {
-      throw new AppError(502, `Uman board ${boardId} has no groups`, "MONDAY_BOARD_NO_GROUPS");
+  const groupId = board.groups[0]?.id ?? null;
+  return { boardId, isActive, groupId };
+}
+
+async function getActiveUmanBoard(): Promise<{ boardId: string; groupId: string }> {
+  const state = await getCurrentUmanBoardState();
+
+  if (state.isActive) {
+    if (!state.groupId) {
+      throw new AppError(502, `Uman board ${state.boardId} has no groups`, "MONDAY_BOARD_NO_GROUPS");
     }
-    return { boardId, groupId };
+    return { boardId: state.boardId, groupId: state.groupId };
   }
 
   // Past flight → roll over to a fresh board duplicated from the current one.
@@ -449,7 +461,7 @@ async function getActiveUmanBoard(): Promise<{ boardId: string; groupId: string 
         board_name: $name
       ) { board { id } }
     }`,
-    { boardId, name: newName },
+    { boardId: state.boardId, name: newName },
   );
   const newBoardId = dup.duplicate_board.board.id;
 
@@ -461,7 +473,6 @@ async function getActiveUmanBoard(): Promise<{ boardId: string; groupId: string 
   if (!newGroup) {
     throw new AppError(502, `Duplicated Uman board ${newBoardId} has no groups`, "MONDAY_BOARD_NO_GROUPS");
   }
-  // Rename the lone group to match the new board name for consistency.
   await gql<UpdateGroupResponse>(
     `mutation ($boardId: ID!, $groupId: String!, $value: String!) {
       update_group(
@@ -476,9 +487,29 @@ async function getActiveUmanBoard(): Promise<{ boardId: string; groupId: string 
 
   setSetting(UMAN_BOARD_SETTING_KEY, newBoardId);
   logger.info(
-    { previousBoardId: boardId, newBoardId, newName },
+    { previousBoardId: state.boardId, newBoardId, newName },
     "Uman flight rolled over — new active board created",
   );
 
   return { boardId: newBoardId, groupId: newGroup.id };
+}
+
+export async function getActiveServiceBoardIds(
+  service: "uman" | "challah",
+): Promise<string[]> {
+  if (service === "uman") {
+    const state = await getCurrentUmanBoardState();
+    return state.isActive ? [state.boardId] : [];
+  }
+
+  // Challah — check current year and next year's settings keys. No board
+  // creation here; only return IDs that already exist in settings.
+  const now = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Jerusalem" });
+  const year = Number(now.split("-")[0]);
+  const ids: string[] = [];
+  for (const y of [year, year + 1]) {
+    const id = getSetting(`${CHALLAH_BOARD_SETTING_PREFIX}${y}`);
+    if (id) ids.push(id);
+  }
+  return ids;
 }

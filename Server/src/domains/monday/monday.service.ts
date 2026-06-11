@@ -288,7 +288,7 @@ export async function updateItemPhone(
 // Call tracking — find lead by phone, move to group, increment calls
 // ---------------------------------------------------------------------------
 
-function phoneVariants(raw: string): string[] {
+export function phoneVariants(raw: string): string[] {
   const digits = raw.replace(/\D/g, "");
   const variants = new Set<string>([digits]);
 
@@ -836,6 +836,126 @@ export async function getBoardGroups(boardId: string): Promise<BoardGroup[]> {
     { ids: [boardId] },
   );
   return data.boards[0]?.groups ?? [];
+}
+
+interface MoveItemResponse {
+  move_item_to_group: { id: string };
+}
+
+export async function moveItemToGroup(
+  itemId: string,
+  targetGroupId: string,
+): Promise<void> {
+  const mutation = /* GraphQL */ `
+    mutation ($itemId: ID!, $groupId: String!) {
+      move_item_to_group(item_id: $itemId, group_id: $groupId) {
+        id
+      }
+    }
+  `;
+
+  await gql<MoveItemResponse>(mutation, { itemId, groupId: targetGroupId });
+
+  logger.info({ itemId, targetGroupId }, "Monday lead moved to group");
+}
+
+interface ItemLocationResponse {
+  items: Array<{ board: { id: string }; group: { id: string } }>;
+}
+
+export async function getItemBoardAndGroup(
+  itemId: string,
+): Promise<{ boardId: string; groupId: string } | null> {
+  const data = await gql<ItemLocationResponse>(
+    `query ($ids: [ID!]!) {
+      items(ids: $ids) {
+        board { id }
+        group { id }
+      }
+    }`,
+    { ids: [itemId] },
+  );
+  const item = data.items[0];
+  if (!item) return null;
+  return { boardId: item.board.id, groupId: item.group.id };
+}
+
+export interface BoardLeadItem {
+  id: string;
+  name: string;
+  columnValues: Array<{ text: string | null; type: string }>;
+}
+
+export function matchLeadInItems(
+  items: BoardLeadItem[],
+  phones: string[],
+  name: string | null,
+): { itemId: string } | null {
+  const variantSets = phones.map((p) => new Set(phoneVariants(p)));
+
+  for (const item of items) {
+    for (const col of item.columnValues) {
+      if (col.type === "phone" && col.text) {
+        const storedDigits = col.text.replace(/\D/g, "");
+        for (const variants of variantSets) {
+          if (variants.has(storedDigits)) {
+            return { itemId: item.id };
+          }
+        }
+      }
+    }
+
+    if (name !== null && item.name.trim().toLowerCase() === name.trim().toLowerCase()) {
+      return { itemId: item.id };
+    }
+  }
+
+  return null;
+}
+
+interface BoardItemsPageResponse {
+  boards: Array<{
+    items_page: {
+      items: Array<{
+        id: string;
+        name: string;
+        column_values: Array<{ text: string | null; type: string }>;
+      }>;
+    };
+  }>;
+}
+
+export async function findLeadOnBoard(
+  boardId: string,
+  phones: string[],
+  name: string | null,
+): Promise<{ itemId: string } | null> {
+  const data = await gql<BoardItemsPageResponse>(
+    `query ($ids: [ID!]!) {
+      boards(ids: $ids) {
+        items_page(limit: 500) {
+          items {
+            id
+            name
+            column_values {
+              text
+              type
+            }
+          }
+        }
+      }
+    }`,
+    { ids: [boardId] },
+  );
+
+  const raw = data.boards[0]?.items_page.items ?? [];
+  const mapped: BoardLeadItem[] = raw.map((i) => ({
+    id: i.id,
+    name: i.name,
+    columnValues: i.column_values,
+  }));
+
+  return matchLeadInItems(mapped, phones, name);
 }
 
 export async function deleteItem(itemId: string): Promise<void> {

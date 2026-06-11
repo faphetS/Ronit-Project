@@ -58,6 +58,12 @@ export function upsertKnownSender(input: {
     );
 }
 
+export function deleteKnownSenderByItemId(mondayItemId: string): void {
+  getDb()
+    .prepare("DELETE FROM known_senders WHERE monday_item_id = ?")
+    .run(mondayItemId);
+}
+
 export function updateSenderPhone(
   platform: string,
   senderId: string,
