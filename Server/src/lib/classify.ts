@@ -32,9 +32,9 @@ You receive a Hebrew or English message from a potential lead. Return STRICT JSO
 
 Rules:
 - Output ONLY the JSON object. No markdown fences, no commentary, no keys outside the schema.
-- interested=true ONLY if the message shows genuine interest in one of the two services above, asks about trips/flights/events Ronit offers, or uses travel/service keywords (טיסה, לטוס, טיסות, flight, trip, חלה, אומן).
-- Plain greetings with no mention of services ("היי", "שלום", "hi", "how are you", "מה שלומך") → interested=false.
-- Small talk, compliments about content, unrelated questions, spam, insults → interested=false.
+- interested=true if the message shows genuine interest in booking or joining Ronit's paid services, OR asks for details / price / how to register about what she offers, OR uses travel/service keywords (טיסה, לטוס, טיסות, flight, trip, חלה, אומן). This INCLUDES a plain expression of interest or an inquiry even when NO service is named — for example: "אני מעוניינת", "מעוניין", "אשמח לפרטים", "יש פרטים?", "כמה זה עולה?", "אפשר מידע?", "אני רוצה להירשם", "I'm interested", "how much is it?", "can I get info?". For these (interested but no service named), set service=null — a follow-up step will ask which service.
+- interested=false for: a plain greeting with nothing else ("היי", "שלום", "hi", "מה שלומך", "בוקר טוב", "שבת שלום"); a compliment or reaction to her content ("מעניין מאוד", "איזה יופי", "את מדהימה", "אהבתי את הסרטון", "תודה על התוכן"); fan messages ("אני אוהבת אותך"); small talk; unrelated questions; spam ("רוצה לקנות עוקבים", "תבדקי DM", "תבדקי וואטסאפ"); insults.
+- DISTINGUISH carefully: "מעוניין"/"מעוניינת" means the PERSON is interested → interested=true. "מעניין" means something is INTERESTING (a compliment) → interested=false.
 - If the message mentions flying/travel/trip (טיסה, לטוס, טיול, flight, trip) but doesn't specify a destination → interested=true, service=null (likely the Uman flight service).
 - Hebrew service keywords: "אומן" → uman; "חלה" / "הפרשת חלה" → challah.
 - confidence: 0..1 — your confidence in the classification.`;
