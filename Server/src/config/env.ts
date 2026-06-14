@@ -59,6 +59,11 @@ const envSchema = z.object({
   IG_ACCESS_TOKEN: z.string().min(1).optional(),
   IG_PROFESSIONAL_ACCOUNT_ID: z.string().min(1).optional(),
 
+  // Outbound testing seam — when "true", sendIgMessage logs the rendered message
+  // and skips the IG Graph API call entirely (no DM sent). Default off in prod;
+  // enable per-process (e.g. docker exec -e IG_OUTBOUND_DRYRUN=true) for safe E2E.
+  IG_OUTBOUND_DRYRUN: z.string().default("false").transform((v) => v === "true"),
+
   // Outbound IG first-contact templates. Literal "\n" escapes get decoded into
   // real newlines at send time; "{form_link}" is replaced with the personalized
   // form URL containing ?ig_id=<senderId>.
@@ -88,6 +93,32 @@ const envSchema = z.object({
     .string()
     .min(1)
     .default("שלום וברכה,\nנחזור אלייך בהקדם עם הפרטים המלאים🙏"),
+
+  // Multi-turn clarification. When an interested lead names NO service, the bot
+  // asks IG_MSG_ASK_SERVICE and waits; her next message is treated as the answer
+  // and routed to the *_ANSWER_* templates below. These carry distinct wording
+  // from the first-contact templates above (uman keeps {form_link}; challah is
+  // plain). uman + no-phone after the question reuses IG_MSG_PHONE_MISSING.
+  IG_MSG_ASK_SERVICE: z
+    .string()
+    .min(1)
+    .default("היי יקירה 🤍 , את מעוניינת בהפרשת חלה או טיסה לאומן?"),
+  IG_MSG_UMAN_ANSWER_PHONE_PRESENT: z
+    .string()
+    .min(1)
+    .default(
+      "נחזור אלייך עם כל הפרטים בהקדם 🙏📞\n\nובינתיים… אני מצרפת לך כאן הצצה מרגשת אל תוך המסע לרבינו ✨\n\n{form_link}",
+    ),
+  IG_MSG_CHALLAH_ANSWER_PHONE_MISSING: z
+    .string()
+    .min(1)
+    .default(
+      "היי יקירה 🤍\nאשמח שתכתבי לי את מספר הנייד שלך ונחזור אלייך עם כל הפרטים 🙏📞",
+    ),
+  IG_MSG_CHALLAH_ANSWER_PHONE_PRESENT: z
+    .string()
+    .min(1)
+    .default("היי יקירה 🤍, אחזור אלייך עם כל הפרטים בהקדם 🙏📞"),
 
   // IG token auto-refresh — JSON file on a Docker volume holds the live token.
   // Container path; the host bind-mount is /opt/ronit-data → /data in compose.

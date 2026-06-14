@@ -10,6 +10,14 @@ vi.mock("../../lib/dedup.js", () => ({
   deleteKnownSenderByItemId: vi.fn(),
 }));
 
+vi.mock("../../lib/conversation.js", () => ({
+  getPendingClarification: vi.fn().mockReturnValue(null),
+  upsertPendingClarification: vi.fn(),
+  incrementReaskCount: vi.fn().mockReturnValue(1),
+  clearPendingClarification: vi.fn(),
+  deletePendingByItemId: vi.fn(),
+}));
+
 vi.mock("../../lib/classify.js", () => ({
   classifyLead: vi.fn(),
 }));
@@ -17,6 +25,7 @@ vi.mock("../../lib/classify.js", () => ({
 vi.mock("../monday/monday.service.js", () => ({
   createLeadRow: vi.fn().mockResolvedValue({ itemId: "new-item-123" }),
   updateItemPhone: vi.fn().mockResolvedValue(undefined),
+  updateItemService: vi.fn().mockResolvedValue(undefined),
   updateLastIgMessage: vi.fn().mockResolvedValue(undefined),
   getItemBoardAndGroup: vi.fn(),
   moveItemToGroup: vi.fn().mockResolvedValue(undefined),
@@ -28,7 +37,8 @@ vi.mock("../monday/monday.webhook.service.js", () => ({
 }));
 
 vi.mock("./meta.outbound.service.js", () => ({
-  sendFirstContactDM: vi.fn().mockResolvedValue(undefined),
+  sendReplyDM: vi.fn().mockResolvedValue(undefined),
+  sendServiceQuestion: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("./meta.profile.service.js", () => ({
@@ -38,6 +48,7 @@ vi.mock("./meta.profile.service.js", () => ({
 import { handleIncomingMessage } from "./meta.service.js";
 import { env } from "../../config/env.js";
 import * as dedup from "../../lib/dedup.js";
+import * as conversation from "../../lib/conversation.js";
 import * as classify from "../../lib/classify.js";
 import * as mondayService from "../monday/monday.service.js";
 import * as mondayWebhookService from "../monday/monday.webhook.service.js";
@@ -66,16 +77,30 @@ const notInterestedClassification = {
   rawResponse: "",
 };
 
+// Interested but names no service (the "vague" case).
+const vagueClassification = {
+  interested: true,
+  service: null,
+  extractedName: null,
+  extractedPhone: null,
+  confidence: 0.8,
+  rawResponse: "",
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(dedup.isMessageProcessed).mockReturnValue(false);
   vi.mocked(dedup.findKnownSender).mockReturnValue(null);
+  vi.mocked(conversation.getPendingClarification).mockReturnValue(null);
+  vi.mocked(conversation.incrementReaskCount).mockReturnValue(1);
   vi.mocked(classify.classifyLead).mockResolvedValue(interestedClassification);
   vi.mocked(mondayService.createLeadRow).mockResolvedValue({ itemId: "new-item-123" });
   vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue(null);
   vi.mocked(mondayService.findLeadOnBoard).mockResolvedValue(null);
+  vi.mocked(mondayService.updateItemService).mockResolvedValue(undefined);
   vi.mocked(mondayWebhookService.getActiveServiceBoardIds).mockResolvedValue([]);
-  vi.mocked(outbound.sendFirstContactDM).mockResolvedValue(undefined);
+  vi.mocked(outbound.sendReplyDM).mockResolvedValue(undefined);
+  vi.mocked(outbound.sendServiceQuestion).mockResolvedValue(undefined);
 });
 
 describe("handleIncomingMessage — live row in another group + interested", () => {
@@ -87,6 +112,7 @@ describe("handleIncomingMessage — live row in another group + interested", () 
     vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
       boardId: CRM_BOARD,
       groupId: "some_other_group",
+      service: null,
     });
 
     const result = await handleIncomingMessage({
@@ -110,6 +136,7 @@ describe("handleIncomingMessage — live row already in new-leads + interested",
     vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
       boardId: CRM_BOARD,
       groupId: NEW_LEADS_GROUP,
+      service: null,
     });
 
     await handleIncomingMessage({
@@ -133,6 +160,7 @@ describe("handleIncomingMessage — live row + not interested", () => {
     vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
       boardId: CRM_BOARD,
       groupId: "followup_group",
+      service: null,
     });
 
     await handleIncomingMessage({
@@ -168,7 +196,7 @@ describe("handleIncomingMessage — stale mapping (getItemBoardAndGroup → null
     // updateLastIgMessage must NOT be called with the stale item id
     const calls = vi.mocked(mondayService.updateLastIgMessage).mock.calls;
     expect(calls.every(([id]) => id !== "stale-item-id")).toBe(true);
-    expect(outbound.sendFirstContactDM).toHaveBeenCalled();
+    expect(outbound.sendReplyDM).toHaveBeenCalled();
     expect(result.itemId).toBe("new-item-123");
   });
 });
@@ -227,6 +255,7 @@ describe("handleIncomingMessage — stale where item lives on NON-CRM board", ()
     vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
       boardId: "some-other-board-999",
       groupId: "group-a",
+      service: null,
     });
     vi.mocked(mondayWebhookService.getActiveServiceBoardIds).mockResolvedValue([]);
 
@@ -238,5 +267,289 @@ describe("handleIncomingMessage — stale where item lives on NON-CRM board", ()
 
     expect(dedup.deleteKnownSenderByItemId).toHaveBeenCalledWith("service-board-item");
     expect(mondayService.createLeadRow).toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// New: service-based routing (Entry A) + the clarification flow (Entry B)
+// ---------------------------------------------------------------------------
+
+describe("handleIncomingMessage — new lead names a service (Entry A)", () => {
+  it("uman + phone → createLeadRow(service uman), sendReplyDM(answered:false), no question, no pending", async () => {
+    const result = await handleIncomingMessage({
+      messageText: "אני רוצה טיסה לאומן 0501234567",
+      senderId: SENDER_ID,
+      messageId: "entryA1",
+    });
+
+    expect(mondayService.createLeadRow).toHaveBeenCalledWith(
+      expect.objectContaining({ service: "uman" }),
+    );
+    expect(outbound.sendReplyDM).toHaveBeenCalledWith(SENDER_ID, {
+      service: "uman",
+      hasPhone: true,
+      answered: false,
+    });
+    expect(outbound.sendServiceQuestion).not.toHaveBeenCalled();
+    expect(conversation.upsertPendingClarification).not.toHaveBeenCalled();
+    expect(result.itemId).toBe("new-item-123");
+  });
+});
+
+describe("handleIncomingMessage — new vague lead (Entry B step 1)", () => {
+  it("creates row with service null, opens a pending clarification, asks the question, no reply DM", async () => {
+    vi.mocked(classify.classifyLead).mockResolvedValue(vagueClassification);
+
+    const result = await handleIncomingMessage({
+      messageText: "היי אני מעוניינת",
+      senderId: SENDER_ID,
+      messageId: "vague1",
+    });
+
+    expect(mondayService.createLeadRow).toHaveBeenCalledWith(
+      expect.objectContaining({ service: null }),
+    );
+    expect(conversation.upsertPendingClarification).toHaveBeenCalledWith(
+      expect.objectContaining({ senderId: SENDER_ID, mondayItemId: "new-item-123" }),
+    );
+    expect(outbound.sendServiceQuestion).toHaveBeenCalledWith(SENDER_ID);
+    expect(outbound.sendReplyDM).not.toHaveBeenCalled();
+    expect(result.itemId).toBe("new-item-123");
+  });
+});
+
+describe("handleIncomingMessage — pending lead answers with a service (Entry B step 2)", () => {
+  it("updates service, sends answered reply, clears pending, no new row", async () => {
+    vi.mocked(conversation.getPendingClarification).mockReturnValue({
+      monday_item_id: ITEM_ID,
+      phone: null,
+      reask_count: 0,
+    });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+      boardId: CRM_BOARD,
+      groupId: NEW_LEADS_GROUP,
+      service: null,
+    });
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      ...interestedClassification,
+      service: "uman",
+      extractedPhone: "0526964676",
+    });
+
+    const result = await handleIncomingMessage({
+      messageText: "אומן 0526964676",
+      senderId: SENDER_ID,
+      messageId: "ansB1",
+    });
+
+    expect(mondayService.updateItemService).toHaveBeenCalledWith(ITEM_ID, "uman");
+    expect(outbound.sendReplyDM).toHaveBeenCalledWith(SENDER_ID, {
+      service: "uman",
+      hasPhone: true,
+      answered: true,
+    });
+    expect(conversation.clearPendingClarification).toHaveBeenCalledWith("instagram", SENDER_ID);
+    expect(mondayService.createLeadRow).not.toHaveBeenCalled();
+    expect(result.itemId).toBe(ITEM_ID);
+  });
+});
+
+describe("handleIncomingMessage — pending lead replies WITHOUT a service", () => {
+  it("re-asks and increments when under the cap", async () => {
+    vi.mocked(conversation.getPendingClarification).mockReturnValue({
+      monday_item_id: ITEM_ID,
+      phone: null,
+      reask_count: 1,
+    });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+      boardId: CRM_BOARD,
+      groupId: NEW_LEADS_GROUP,
+      service: null,
+    });
+    vi.mocked(classify.classifyLead).mockResolvedValue(vagueClassification);
+
+    await handleIncomingMessage({
+      messageText: "מתי זה?",
+      senderId: SENDER_ID,
+      messageId: "reask1",
+    });
+
+    expect(outbound.sendServiceQuestion).toHaveBeenCalledWith(SENDER_ID);
+    expect(conversation.incrementReaskCount).toHaveBeenCalledWith("instagram", SENDER_ID);
+    expect(outbound.sendReplyDM).not.toHaveBeenCalled();
+    expect(mondayService.updateItemService).not.toHaveBeenCalled();
+  });
+
+  it("stays silent once the re-ask cap is reached", async () => {
+    vi.mocked(conversation.getPendingClarification).mockReturnValue({
+      monday_item_id: ITEM_ID,
+      phone: null,
+      reask_count: 3,
+    });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+      boardId: CRM_BOARD,
+      groupId: NEW_LEADS_GROUP,
+      service: null,
+    });
+    vi.mocked(classify.classifyLead).mockResolvedValue(vagueClassification);
+
+    await handleIncomingMessage({
+      messageText: "מתי זה?",
+      senderId: SENDER_ID,
+      messageId: "reask2",
+    });
+
+    expect(outbound.sendServiceQuestion).not.toHaveBeenCalled();
+    expect(conversation.incrementReaskCount).not.toHaveBeenCalled();
+  });
+});
+
+describe("handleIncomingMessage — pending lead replies NOT interested", () => {
+  it("clears pending, stays silent — no re-ask, no DM, no service update", async () => {
+    vi.mocked(conversation.getPendingClarification).mockReturnValue({
+      monday_item_id: ITEM_ID,
+      phone: null,
+      reask_count: 0,
+    });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+      boardId: CRM_BOARD,
+      groupId: NEW_LEADS_GROUP,
+      service: null,
+    });
+    vi.mocked(classify.classifyLead).mockResolvedValue(notInterestedClassification);
+
+    const result = await handleIncomingMessage({
+      messageText: "לא תודה",
+      senderId: SENDER_ID,
+      messageId: "decline1",
+    });
+
+    expect(conversation.clearPendingClarification).toHaveBeenCalledWith("instagram", SENDER_ID);
+    expect(outbound.sendServiceQuestion).not.toHaveBeenCalled();
+    expect(outbound.sendReplyDM).not.toHaveBeenCalled();
+    expect(mondayService.updateItemService).not.toHaveBeenCalled();
+    expect(conversation.incrementReaskCount).not.toHaveBeenCalled();
+    expect(result.itemId).toBe(ITEM_ID);
+  });
+});
+
+describe("handleIncomingMessage — pending mapping is stale", () => {
+  it("clears pending + known mapping, then creates a fresh row", async () => {
+    vi.mocked(conversation.getPendingClarification).mockReturnValue({
+      monday_item_id: "stale-pending-id",
+      phone: "0509999999",
+      reask_count: 0,
+    });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue(null);
+    vi.mocked(dedup.findKnownSender).mockReturnValue(null);
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      ...interestedClassification,
+      service: "uman",
+      extractedPhone: null,
+    });
+
+    await handleIncomingMessage({
+      messageText: "אומן",
+      senderId: SENDER_ID,
+      messageId: "stalepending1",
+    });
+
+    expect(conversation.deletePendingByItemId).toHaveBeenCalledWith("stale-pending-id");
+    expect(dedup.deleteKnownSenderByItemId).toHaveBeenCalledWith("stale-pending-id");
+    expect(mondayService.createLeadRow).toHaveBeenCalled();
+  });
+});
+
+describe("handleIncomingMessage — returning live lead names a service", () => {
+  it("updates the service column, no new row", async () => {
+    vi.mocked(dedup.findKnownSender).mockReturnValue({
+      monday_item_id: ITEM_ID,
+      phone: "0501234567",
+    });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+      boardId: CRM_BOARD,
+      groupId: NEW_LEADS_GROUP,
+      service: null,
+    });
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      ...interestedClassification,
+      service: "challah",
+      extractedPhone: null,
+    });
+
+    await handleIncomingMessage({
+      messageText: "רוצה הפרשת חלה",
+      senderId: SENDER_ID,
+      messageId: "svc1",
+    });
+
+    expect(mondayService.updateItemService).toHaveBeenCalledWith(ITEM_ID, "challah");
+    expect(mondayService.createLeadRow).not.toHaveBeenCalled();
+  });
+});
+
+describe("handleIncomingMessage — returning lead, service already set (fill-only)", () => {
+  it("does NOT overwrite an existing service from a later mention", async () => {
+    vi.mocked(dedup.findKnownSender).mockReturnValue({
+      monday_item_id: ITEM_ID,
+      phone: "0501234567",
+    });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+      boardId: CRM_BOARD,
+      groupId: NEW_LEADS_GROUP,
+      service: "טיסות לאומן", // already set to uman
+    });
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      ...interestedClassification,
+      service: "challah",
+      extractedPhone: null,
+    });
+
+    await handleIncomingMessage({
+      messageText: "חלה זה טעים",
+      senderId: SENDER_ID,
+      messageId: "fillonly1",
+    });
+
+    expect(mondayService.updateItemService).not.toHaveBeenCalled();
+    expect(mondayService.createLeadRow).not.toHaveBeenCalled();
+  });
+});
+
+describe("handleIncomingMessage — pending takes precedence over known-sender branch", () => {
+  it("resolves via the pending answer path; findKnownSender is never consulted", async () => {
+    vi.mocked(conversation.getPendingClarification).mockReturnValue({
+      monday_item_id: ITEM_ID,
+      phone: null,
+      reask_count: 0,
+    });
+    vi.mocked(dedup.findKnownSender).mockReturnValue({
+      monday_item_id: ITEM_ID,
+      phone: null,
+    });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+      boardId: CRM_BOARD,
+      groupId: NEW_LEADS_GROUP,
+      service: null,
+    });
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      ...interestedClassification,
+      service: "uman",
+      extractedPhone: null,
+    });
+
+    await handleIncomingMessage({
+      messageText: "אומן",
+      senderId: SENDER_ID,
+      messageId: "order1",
+    });
+
+    expect(outbound.sendReplyDM).toHaveBeenCalledWith(SENDER_ID, {
+      service: "uman",
+      hasPhone: false,
+      answered: true,
+    });
+    expect(conversation.clearPendingClarification).toHaveBeenCalled();
+    expect(dedup.findKnownSender).not.toHaveBeenCalled();
   });
 });

@@ -10,16 +10,45 @@ import {
   deleteKnownSenderByItemId,
 } from "../../lib/dedup.js";
 import {
+  getPendingClarification,
+  upsertPendingClarification,
+  incrementReaskCount,
+  clearPendingClarification,
+  deletePendingByItemId,
+} from "../../lib/conversation.js";
+import {
   createLeadRow,
   updateItemPhone,
+  updateItemService,
   updateLastIgMessage,
   getItemBoardAndGroup,
   moveItemToGroup,
   findLeadOnBoard,
 } from "../monday/monday.service.js";
 import { getActiveServiceBoardIds } from "../monday/monday.webhook.service.js";
-import { sendFirstContactDM } from "./meta.outbound.service.js";
+import { sendReplyDM, sendServiceQuestion } from "./meta.outbound.service.js";
 import { fetchIgProfile } from "./meta.profile.service.js";
+
+// Cap on how many times we re-ask "challah or uman?" when she keeps replying
+// without naming a service. After the cap we stay silent (the pending row is
+// kept, so a later service mention still gets answered).
+const MAX_REASKS = 3;
+
+// Service-column update is best-effort: a transient Monday failure here must NOT
+// abort the critical path (phone capture, move-back, reply DM, clearing pending).
+async function safeUpdateService(
+  itemId: string,
+  service: "uman" | "challah",
+): Promise<void> {
+  try {
+    await updateItemService(itemId, service);
+  } catch (err) {
+    logger.warn(
+      { err, itemId, service },
+      "updateItemService failed — continuing (non-fatal)",
+    );
+  }
+}
 
 export async function handleIncomingMessage(input: {
   messageText: string;
@@ -49,6 +78,110 @@ export async function handleIncomingMessage(input: {
   }
 
   let stalePhone: string | null = null;
+
+  // BLOCK 0 — pending service clarification. A pending sender is also a known
+  // sender (we created the row + mapping when we asked), so this MUST run before
+  // the known-sender branch below or her answer would be silently swallowed.
+  const pending = input.senderId
+    ? getPendingClarification("instagram", input.senderId)
+    : null;
+
+  if (pending) {
+    const live = await getItemBoardAndGroup(pending.monday_item_id);
+
+    if (live === null || live.boardId !== env.MONDAY_BOARD_CRM_ID) {
+      logger.warn(
+        {
+          senderId: input.senderId,
+          mondayItemId: pending.monday_item_id,
+          liveBoardId: live?.boardId ?? null,
+        },
+        "Stale pending clarification — treating sender as new",
+      );
+      deletePendingByItemId(pending.monday_item_id);
+      deleteKnownSenderByItemId(pending.monday_item_id);
+      stalePhone = pending.phone;
+      // fall through to the new-sender path below.
+    } else {
+      await updateLastIgMessage(pending.monday_item_id, input.messageText);
+
+      // She explicitly declined mid-clarification → end it and stay silent.
+      // Clearing the pending row stops further re-asks and avoids a stale row.
+      if (!classification.interested) {
+        clearPendingClarification("instagram", input.senderId!);
+        logger.info(
+          { senderId: input.senderId, mondayItemId: pending.monday_item_id },
+          "Pending lead not interested — clarification cleared, staying silent",
+        );
+        return { itemId: pending.monday_item_id, classification };
+      }
+
+      // (a) She named a service → finalize with the post-question reply.
+      if (classification.interested && classification.service !== null) {
+        await safeUpdateService(pending.monday_item_id, classification.service);
+
+        if (classification.extractedPhone && !pending.phone) {
+          await updateItemPhone(pending.monday_item_id, classification.extractedPhone);
+          updateSenderPhone("instagram", input.senderId!, classification.extractedPhone);
+        }
+
+        if (live.groupId !== env.MONDAY_GROUP_NEW_LEADS_ID) {
+          await moveItemToGroup(pending.monday_item_id, env.MONDAY_GROUP_NEW_LEADS_ID);
+        }
+
+        const hasPhone = !!(pending.phone || classification.extractedPhone);
+        await sendReplyDM(input.senderId!, {
+          service: classification.service,
+          hasPhone,
+          answered: true,
+        });
+
+        clearPendingClarification("instagram", input.senderId!);
+        logger.info(
+          {
+            senderId: input.senderId,
+            mondayItemId: pending.monday_item_id,
+            service: classification.service,
+          },
+          "Pending clarification resolved — service answered",
+        );
+        return { itemId: pending.monday_item_id, classification };
+      }
+
+      // (b) Still no service. Capture a phone if she offered one, then re-ask
+      // (under the cap). If she ghosts we never get here — no proactive sends.
+      if (classification.interested && classification.extractedPhone && !pending.phone) {
+        await updateItemPhone(pending.monday_item_id, classification.extractedPhone);
+        updateSenderPhone("instagram", input.senderId!, classification.extractedPhone);
+        upsertPendingClarification({
+          platform: "instagram",
+          senderId: input.senderId!,
+          mondayItemId: pending.monday_item_id,
+          phone: classification.extractedPhone,
+        });
+      }
+
+      if (pending.reask_count < MAX_REASKS) {
+        await sendServiceQuestion(input.senderId!);
+        incrementReaskCount("instagram", input.senderId!);
+        logger.info(
+          {
+            senderId: input.senderId,
+            mondayItemId: pending.monday_item_id,
+            reaskCount: pending.reask_count + 1,
+          },
+          "Pending clarification — re-asked service question",
+        );
+      } else {
+        logger.info(
+          { senderId: input.senderId, mondayItemId: pending.monday_item_id },
+          "Pending clarification re-ask cap reached — staying silent",
+        );
+      }
+      return { itemId: pending.monday_item_id, classification };
+    }
+  }
+
   const existing = input.senderId
     ? findKnownSender("instagram", input.senderId)
     : null;
@@ -63,6 +196,7 @@ export async function handleIncomingMessage(input: {
         "Stale known_senders mapping — treating sender as new",
       );
       deleteKnownSenderByItemId(mondayItemId);
+      deletePendingByItemId(mondayItemId);
       stalePhone = existing.phone;
     } else {
       // Live row on CRM — update last IG message on every message.
@@ -77,6 +211,12 @@ export async function handleIncomingMessage(input: {
           "Lead classified as not interested — skipping Monday create/update",
         );
         return { itemId: mondayItemId, classification };
+      }
+
+      // Fill the service column only if it is currently empty — never overwrite
+      // a confirmed service from a casual (possibly misclassified) mention.
+      if (classification.service !== null && live.service === null) {
+        await safeUpdateService(mondayItemId, classification.service);
       }
 
       // Interested + live row — update phone if newly captured.
@@ -174,16 +314,34 @@ export async function handleIncomingMessage(input: {
       mondayItemId: itemId,
       phone,
     });
+
+    // Entry B step 1 — vague lead (no service named). Open a clarification right
+    // after the row + mapping (both synchronous below) and before any further
+    // await, to shrink the window where a fast second message misses it.
+    if (classification.service === null) {
+      upsertPendingClarification({
+        platform: "instagram",
+        senderId: input.senderId,
+        mondayItemId: itemId,
+        phone,
+      });
+    }
   }
 
   await updateLastIgMessage(itemId, input.messageText);
 
   if (input.senderId) {
-    await sendFirstContactDM(
-      input.senderId,
-      !!phone,
-      classification.service !== null,
-    );
+    if (classification.service !== null) {
+      // Entry A — service named upfront.
+      await sendReplyDM(input.senderId, {
+        service: classification.service,
+        hasPhone: !!phone,
+        answered: false,
+      });
+    } else {
+      // Entry B step 1 — ask which service.
+      await sendServiceQuestion(input.senderId);
+    }
   }
 
   return { itemId, classification };

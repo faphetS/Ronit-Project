@@ -78,7 +78,20 @@ CREATE TABLE IF NOT EXISTS settings (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS pending_clarifications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  platform TEXT NOT NULL,
+  sender_id TEXT NOT NULL,
+  monday_item_id TEXT NOT NULL,
+  phone TEXT,
+  reask_count INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(platform, sender_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_processed_webhooks_lookup ON processed_webhooks(source, external_id);
+CREATE INDEX IF NOT EXISTS idx_pending_clar_lookup ON pending_clarifications(platform, sender_id);
 CREATE INDEX IF NOT EXISTS idx_known_senders_lookup ON known_senders(platform, sender_id);
 CREATE INDEX IF NOT EXISTS idx_followup_log_lookup ON followup_log(monday_item_id, last_call_date);
 CREATE INDEX IF NOT EXISTS idx_holiday_campaigns_form_token ON holiday_campaigns(form_token);

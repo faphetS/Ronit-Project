@@ -284,6 +284,34 @@ export async function updateItemPhone(
   logger.info({ itemId, hasPhone: true }, "Monday CRM lead phone updated");
 }
 
+export async function updateItemService(
+  itemId: string,
+  service: "uman" | "challah",
+): Promise<void> {
+  const columnValues: Record<string, unknown> = {
+    [env.MONDAY_COL_SERVICE_ID]: { ids: [SERVICE_TO_LABEL_ID[service]] },
+  };
+
+  await gql<ChangeColumnValueResponse>(
+    `mutation ($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
+      change_multiple_column_values(
+        board_id: $boardId
+        item_id: $itemId
+        column_values: $columnValues
+      ) {
+        id
+      }
+    }`,
+    {
+      boardId: env.MONDAY_BOARD_CRM_ID,
+      itemId,
+      columnValues: JSON.stringify(columnValues),
+    },
+  );
+
+  logger.info({ itemId, service }, "Monday CRM lead service updated");
+}
+
 // ---------------------------------------------------------------------------
 // Call tracking — find lead by phone, move to group, increment calls
 // ---------------------------------------------------------------------------
@@ -860,18 +888,24 @@ export async function moveItemToGroup(
 }
 
 interface ItemLocationResponse {
-  items: Array<{ state: string; board: { id: string }; group: { id: string } }>;
+  items: Array<{
+    state: string;
+    board: { id: string };
+    group: { id: string };
+    column_values: Array<{ text: string | null }>;
+  }>;
 }
 
 export async function getItemBoardAndGroup(
   itemId: string,
-): Promise<{ boardId: string; groupId: string } | null> {
+): Promise<{ boardId: string; groupId: string; service: string | null } | null> {
   const data = await gql<ItemLocationResponse>(
     `query ($ids: [ID!]!) {
       items(ids: $ids) {
         state
         board { id }
         group { id }
+        column_values(ids: ["${env.MONDAY_COL_SERVICE_ID}"]) { text }
       }
     }`,
     { ids: [itemId] },
@@ -880,7 +914,8 @@ export async function getItemBoardAndGroup(
   // Recently deleted/archived items still come back from items(ids) until the
   // trash purges them — only an "active" item counts as a live CRM row.
   if (!item || item.state !== "active") return null;
-  return { boardId: item.board.id, groupId: item.group.id };
+  const service = item.column_values[0]?.text?.trim() || null;
+  return { boardId: item.board.id, groupId: item.group.id, service };
 }
 
 export interface BoardLeadItem {
