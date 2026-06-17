@@ -30,6 +30,10 @@ vi.mock("../monday/monday.service.js", () => ({
   getItemBoardAndGroup: vi.fn(),
   moveItemToGroup: vi.fn().mockResolvedValue(undefined),
   findLeadOnBoard: vi.fn().mockResolvedValue(null),
+  // Real two-branch logic so phone-routing assertions work without stubbing every case.
+  leadGroupForPhone: vi.fn((phone: string | null | undefined) =>
+    phone ? "new_group29179" : "group_mm469wrf",
+  ),
 }));
 
 vi.mock("../monday/monday.webhook.service.js", () => ({
@@ -57,6 +61,7 @@ import * as outbound from "./meta.outbound.service.js";
 const SENDER_ID = "ig_sender_001";
 const ITEM_ID = "crm-item-456";
 const NEW_LEADS_GROUP = env.MONDAY_GROUP_NEW_LEADS_ID;
+const NO_PHONE_GROUP = env.MONDAY_GROUP_NO_PHONE_ID;
 const CRM_BOARD = env.MONDAY_BOARD_CRM_ID;
 
 const interestedClassification = {
@@ -551,5 +556,95 @@ describe("handleIncomingMessage — pending takes precedence over known-sender b
     });
     expect(conversation.clearPendingClarification).toHaveBeenCalled();
     expect(dedup.findKnownSender).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// No-phone group routing
+// ---------------------------------------------------------------------------
+
+describe("handleIncomingMessage — new interested lead with NO phone → no-phone group", () => {
+  it("calls createLeadRow with phone: null; createLeadRow receives null so group is no-phone", async () => {
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      interested: true,
+      service: "uman" as const,
+      extractedName: null,
+      extractedPhone: null,
+      confidence: 0.9,
+      rawResponse: "",
+    });
+
+    await handleIncomingMessage({
+      messageText: "אני רוצה לטוס לאומן",
+      senderId: SENDER_ID,
+      messageId: "nophone1",
+    });
+
+    expect(mondayService.createLeadRow).toHaveBeenCalledWith(
+      expect.objectContaining({ phone: null }),
+    );
+  });
+});
+
+describe("handleIncomingMessage — known no-phone sender sends phone → moves to new-leads", () => {
+  it("calls updateItemPhone AND moveItemToGroup with new-leads id", async () => {
+    vi.mocked(dedup.findKnownSender).mockReturnValue({
+      monday_item_id: ITEM_ID,
+      phone: null,
+    });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+      boardId: CRM_BOARD,
+      groupId: NO_PHONE_GROUP,
+      service: null,
+    });
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      interested: true,
+      service: null,
+      extractedName: null,
+      extractedPhone: "0501234567",
+      confidence: 0.9,
+      rawResponse: "",
+    });
+
+    await handleIncomingMessage({
+      messageText: "מספר שלי 050-123-4567",
+      senderId: SENDER_ID,
+      messageId: "phonecapture1",
+    });
+
+    expect(mondayService.updateItemPhone).toHaveBeenCalledWith(ITEM_ID, "0501234567");
+    expect(mondayService.moveItemToGroup).toHaveBeenCalledWith(ITEM_ID, NEW_LEADS_GROUP);
+  });
+});
+
+describe("handleIncomingMessage — pending lead names service, still no phone → stays in no-phone group", () => {
+  it("if lead has no phone after service answer, target is no-phone group (no move away from it)", async () => {
+    vi.mocked(conversation.getPendingClarification).mockReturnValue({
+      monday_item_id: ITEM_ID,
+      phone: null,
+      reask_count: 0,
+    });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+      boardId: CRM_BOARD,
+      groupId: NO_PHONE_GROUP,
+      service: null,
+    });
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      interested: true,
+      service: "uman" as const,
+      extractedName: null,
+      extractedPhone: null,
+      confidence: 0.9,
+      rawResponse: "",
+    });
+
+    await handleIncomingMessage({
+      messageText: "אומן",
+      senderId: SENDER_ID,
+      messageId: "nophoneservice1",
+    });
+
+    // Target resolves to no-phone group; groupId already matches → no move call.
+    expect(mondayService.moveItemToGroup).not.toHaveBeenCalled();
   });
 });

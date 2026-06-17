@@ -42,6 +42,11 @@ export interface UpdateLeadInput extends FormFields {
   service?: "uman" | "challah";
 }
 
+/** A live CRM lead belongs in new-leads when we have a phone, else the no-phone group. */
+export function leadGroupForPhone(phone: string | null | undefined): string {
+  return phone ? env.MONDAY_GROUP_NEW_LEADS_ID : env.MONDAY_GROUP_NO_PHONE_ID;
+}
+
 function buildPhoneColumn(phone: string): Record<string, unknown> {
   const digits = phone.replace(/\D/g, "");
   const country = digits.startsWith("63") ? "PH" : "IL";
@@ -131,7 +136,7 @@ export async function createLeadRow(
 
   const data = await gql<CreateItemResponse>(mutation, {
     boardId: env.MONDAY_BOARD_CRM_ID,
-    groupId: env.MONDAY_GROUP_NEW_LEADS_ID,
+    groupId: leadGroupForPhone(input.phone),
     itemName: input.name,
     columnValues: JSON.stringify(columnValues),
   });

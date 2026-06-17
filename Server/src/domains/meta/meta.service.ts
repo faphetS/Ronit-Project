@@ -24,6 +24,7 @@ import {
   getItemBoardAndGroup,
   moveItemToGroup,
   findLeadOnBoard,
+  leadGroupForPhone,
 } from "../monday/monday.service.js";
 import { getActiveServiceBoardIds } from "../monday/monday.webhook.service.js";
 import { sendReplyDM, sendServiceQuestion } from "./meta.outbound.service.js";
@@ -125,8 +126,9 @@ export async function handleIncomingMessage(input: {
           updateSenderPhone("instagram", input.senderId!, classification.extractedPhone);
         }
 
-        if (live.groupId !== env.MONDAY_GROUP_NEW_LEADS_ID) {
-          await moveItemToGroup(pending.monday_item_id, env.MONDAY_GROUP_NEW_LEADS_ID);
+        const target = leadGroupForPhone(pending.phone ?? classification.extractedPhone);
+        if (live.groupId !== target) {
+          await moveItemToGroup(pending.monday_item_id, target);
         }
 
         const hasPhone = !!(pending.phone || classification.extractedPhone);
@@ -159,6 +161,9 @@ export async function handleIncomingMessage(input: {
           mondayItemId: pending.monday_item_id,
           phone: classification.extractedPhone,
         });
+        if (live.groupId !== env.MONDAY_GROUP_NEW_LEADS_ID) {
+          await moveItemToGroup(pending.monday_item_id, env.MONDAY_GROUP_NEW_LEADS_ID);
+        }
       }
 
       if (pending.reask_count < MAX_REASKS) {
@@ -234,12 +239,15 @@ export async function handleIncomingMessage(input: {
         );
       }
 
-      // Move back to new-leads if the row drifted to another group.
-      if (live.groupId !== env.MONDAY_GROUP_NEW_LEADS_ID) {
-        await moveItemToGroup(mondayItemId, env.MONDAY_GROUP_NEW_LEADS_ID);
+      // Re-file by phone presence: phone → new-leads, none → no-phone group.
+      // When a phone was just captured above, the current group no longer
+      // matches the target, so the lead moves itself back to new-leads.
+      const target = leadGroupForPhone(classification.extractedPhone ?? existing.phone);
+      if (live.groupId !== target) {
+        await moveItemToGroup(mondayItemId, target);
         logger.info(
-          { senderId: input.senderId, mondayItemId, fromGroupId: live.groupId },
-          "Returning interested lead moved back to new-leads group",
+          { senderId: input.senderId, mondayItemId, fromGroupId: live.groupId, target },
+          "Returning interested lead re-filed by phone presence",
         );
       }
 

@@ -36,6 +36,7 @@ const envSchema = z.object({
   // Override via .env only if the CRM board structure changes.
   MONDAY_BOARD_CRM_ID: z.string().default("5094895163"),
   MONDAY_GROUP_NEW_LEADS_ID: z.string().default("new_group29179"),
+  MONDAY_GROUP_NO_PHONE_ID: z.string().default("group_mm469wrf"),
   MONDAY_COL_PHONE_ID: z.string().default("phone_mm2pf4nm"),
   MONDAY_COL_SERVICE_ID: z.string().default("dropdown_mm2p1nvf"),
   MONDAY_COL_NOTES_ID: z.string().default("long_text_mm2pqwp9"),

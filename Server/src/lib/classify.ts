@@ -39,6 +39,15 @@ Rules:
 - Hebrew service keywords: "אומן" → uman; "חלה" / "הפרשת חלה" → challah.
 - confidence: 0..1 — your confidence in the classification.`;
 
+// Fires ONLY when the LLM found no phone — a backstop, not a replacement.
+// Matches Israeli (05X-XXXXXXX / +9725…) and Philippine (09XX… / +639…) mobiles.
+export function extractPhoneFallback(text: string): string | null {
+  const s = text.replace(/[()\-.\s]/g, "");
+  const il = s.match(/(?:\+?972|0)5\d{8}/);
+  const ph = s.match(/(?:\+?63|0)9\d{9}/);
+  return il?.[0] ?? ph?.[0] ?? null;
+}
+
 interface OpenRouterResponse {
   choices?: Array<{ message?: { content?: string } }>;
 }
@@ -122,5 +131,8 @@ export async function classifyLead(input: {
     );
   }
 
-  return { ...validation.data, rawResponse };
+  const extractedPhone =
+    validation.data.extractedPhone || extractPhoneFallback(input.messageText);
+
+  return { ...validation.data, extractedPhone, rawResponse };
 }
