@@ -44,6 +44,30 @@ Rules:
 
 const MAX_TRANSCRIBE_ATTEMPTS = 3;
 
+// Strict structured output (mirrors TranscriptionResultSchema). json_schema makes
+// the provider ENFORCE the shape; the previous json_object mode was "soft" and
+// let Gemini return malformed/partial JSON intermittently (~1-in-5). Verified
+// 0/5 failures vs json_object's 1/5 on a real recording that used to fail.
+const RESPONSE_FORMAT = {
+  type: "json_schema",
+  json_schema: {
+    name: "call_transcription",
+    strict: true,
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        summary: { type: "string" },
+        customer_name: { type: ["string", "null"] },
+        service_interest: { type: ["string", "null"], enum: ["uman", "challah", null] },
+        key_points: { type: "array", items: { type: "string" } },
+        follow_up_needed: { type: "boolean" },
+      },
+      required: ["summary", "customer_name", "service_interest", "key_points", "follow_up_needed"],
+    },
+  },
+};
+
 export async function transcribeAudio(audio: Buffer): Promise<TranscriptionResult> {
   if (!env.OPENROUTER_API_KEY) {
     throw new AppError(503, "OpenRouter not configured — OPENROUTER_API_KEY missing", "OPENROUTER_NOT_CONFIGURED");
@@ -52,9 +76,8 @@ export async function transcribeAudio(audio: Buffer): Promise<TranscriptionResul
   const base64Audio = audio.toString("base64");
   let lastError: unknown;
 
-  // Gemini occasionally returns truncated/degenerate JSON (thinking tokens eating
-  // the output budget, or a transient blip). Retry a few times before giving up —
-  // cheap insurance, and the only protection in one-shot/backfill contexts.
+  // Final safety net under structured outputs + healing: retry on any residual
+  // bad response. Cheap insurance, and the only protection in one-shot/backfill.
   for (let attempt = 1; attempt <= MAX_TRANSCRIBE_ATTEMPTS; attempt++) {
     try {
       return await requestTranscription(base64Audio);
@@ -90,11 +113,16 @@ async function requestTranscription(base64Audio: string): Promise<TranscriptionR
           ],
         },
       ],
-      response_format: { type: "json_object" },
+      response_format: RESPONSE_FORMAT,
+      // Only route to providers that actually honor json_schema (all Gemini 2.5
+      // Flash providers do), so none silently ignores it and returns prose.
+      provider: { require_parameters: true },
+      // Auto-repair any residual malformed JSON (stray fences, trailing commas).
+      plugins: [{ id: "response-healing" }],
       temperature: 0,
       // Effectively unlimited for a short summary (model hard cap is ~65k).
-      // High headroom so a verbose Hebrew summary + Gemini "thinking" tokens
-      // never truncate the JSON the way max_tokens: 1024 did.
+      // High headroom so a verbose Hebrew summary never truncates the JSON
+      // (healing can't repair a max_tokens-truncated response).
       max_tokens: 16384,
     }),
   });
