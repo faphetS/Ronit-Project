@@ -90,6 +90,17 @@ CREATE TABLE IF NOT EXISTS pending_clarifications (
   UNIQUE(platform, sender_id)
 );
 
+CREATE TABLE IF NOT EXISTS pending_recordings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  call_id TEXT NOT NULL UNIQUE,
+  item_id TEXT NOT NULL,
+  call_time TEXT NOT NULL,
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_processed_webhooks_lookup ON processed_webhooks(source, external_id);
 CREATE INDEX IF NOT EXISTS idx_pending_clar_lookup ON pending_clarifications(platform, sender_id);
 CREATE INDEX IF NOT EXISTS idx_known_senders_lookup ON known_senders(platform, sender_id);
@@ -122,4 +133,80 @@ export function setSetting(key: string, value: string): void {
        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
     )
     .run(key, value);
+}
+
+export interface PendingRecording {
+  id: number;
+  call_id: string;
+  item_id: string;
+  call_time: string;
+  attempt_count: number;
+  created_at: string;
+}
+
+const PENDING_COLS = "id, call_id, item_id, call_time, attempt_count, created_at";
+
+export function enqueuePendingRecording(callId: string, itemId: string, callTime: string): void {
+  getDb()
+    .prepare(
+      "INSERT OR IGNORE INTO pending_recordings (call_id, item_id, call_time) VALUES (?, ?, ?)",
+    )
+    .run(callId, itemId, callTime);
+}
+
+// Fast checker: rows from the last 3h (the normal case — recording ready in seconds).
+export function getRecentPendingRecordings(limit: number): PendingRecording[] {
+  return getDb()
+    .prepare(
+      `SELECT ${PENDING_COLS} FROM pending_recordings
+       WHERE created_at >= datetime('now','-3 hours')
+       ORDER BY created_at ASC LIMIT ?`,
+    )
+    .all(limit) as PendingRecording[];
+}
+
+// Catch-up sweep: rows 3h–7d old (phone was offline; recording uploaded late).
+export function getCatchupPendingRecordings(limit: number): PendingRecording[] {
+  return getDb()
+    .prepare(
+      `SELECT ${PENDING_COLS} FROM pending_recordings
+       WHERE created_at < datetime('now','-3 hours')
+         AND created_at >= datetime('now','-7 days')
+       ORDER BY created_at ASC LIMIT ?`,
+    )
+    .all(limit) as PendingRecording[];
+}
+
+export function getPendingRecordingByCallId(callId: string): PendingRecording | null {
+  const row = getDb()
+    .prepare(`SELECT ${PENDING_COLS} FROM pending_recordings WHERE call_id = ?`)
+    .get(callId) as PendingRecording | undefined;
+  return row ?? null;
+}
+
+export function deletePendingRecording(id: number): void {
+  getDb().prepare("DELETE FROM pending_recordings WHERE id = ?").run(id);
+}
+
+export function bumpPendingRecording(id: number, error: string): void {
+  getDb()
+    .prepare(
+      `UPDATE pending_recordings
+       SET attempt_count = attempt_count + 1, last_error = ?, updated_at = datetime('now')
+       WHERE id = ?`,
+    )
+    .run(error, id);
+}
+
+// Final give-up: rows older than 7 days. Returns the call_ids it removed so the
+// caller can log each permanently-missed recording.
+export function expireOldPendingRecordings(): string[] {
+  const db = getDb();
+  const rows = db
+    .prepare("SELECT call_id FROM pending_recordings WHERE created_at < datetime('now','-7 days')")
+    .all() as Array<{ call_id: string }>;
+  if (rows.length > 0) {
+    db.prepare("DELETE FROM pending_recordings WHERE created_at < datetime('now','-7 days')").run();
+  }
+  return rows.map((r) => r.call_id);
 }

@@ -1,8 +1,8 @@
 import express from "express";
 import { env } from "../../config/env.js";
 import { validate } from "../../middleware/validate.js";
-import { receiveWebhook, testInject } from "./calls.controller.js";
-import { CallTestInjectBodySchema } from "./calls.validator.js";
+import { receiveWebhook, testInject, testRecording } from "./calls.controller.js";
+import { CallTestInjectBodySchema, CallTestRecordingBodySchema } from "./calls.validator.js";
 
 const router = express.Router();
 
@@ -13,6 +13,12 @@ if (env.NODE_ENV !== "production") {
     "/test-inject",
     validate({ body: CallTestInjectBodySchema }),
     testInject,
+  );
+
+  router.post(
+    "/test-recording",
+    validate({ body: CallTestRecordingBodySchema }),
+    testRecording,
   );
 }
 

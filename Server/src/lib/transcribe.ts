@@ -4,7 +4,6 @@ import { logger } from "../config/logger.js";
 import { AppError } from "./errors.js";
 
 const TranscriptionResultSchema = z.object({
-  transcript: z.string(),
   summary: z.string(),
   customer_name: z.string().nullable(),
   service_interest: z.enum(["uman", "challah"]).nullable(),
@@ -18,13 +17,12 @@ interface OpenRouterResponse {
   choices?: Array<{ message?: { content?: string } }>;
 }
 
-const SYSTEM_PROMPT = `You are a call transcription and analysis assistant for an Israeli travel/events business.
+const SYSTEM_PROMPT = `You are a call analysis assistant for an Israeli travel/events business.
 You receive an audio recording of a sales call (usually in Hebrew, sometimes mixed Hebrew/English).
 
-Your tasks:
-1. Transcribe the full conversation
-2. Write a short Hebrew summary suitable for a CRM note (2-3 sentences max)
-3. Extract structured data
+Listen to the full conversation, then:
+1. Write a short Hebrew summary suitable for a CRM note (2-3 sentences max)
+2. Extract structured data
 
 The business offers two services:
 - uman: Flights and trips to Uman (Rabbi Nachman pilgrimage)
@@ -32,7 +30,6 @@ The business offers two services:
 
 Return STRICT JSON:
 {
-  "transcript": "full transcription of the conversation",
   "summary": "תקציר קצר בעברית של השיחה",
   "customer_name": "customer's name if mentioned, or null",
   "service_interest": "uman" | "challah" | null,
@@ -42,7 +39,7 @@ Return STRICT JSON:
 
 Rules:
 - summary MUST be in Hebrew
-- transcript should preserve the original language
+- Do NOT output a full transcript — only the fields above
 - Output ONLY the JSON object. No commentary.`;
 
 export async function transcribeAudio(audio: Buffer): Promise<TranscriptionResult> {
@@ -74,6 +71,7 @@ export async function transcribeAudio(audio: Buffer): Promise<TranscriptionResul
       ],
       response_format: { type: "json_object" },
       temperature: 0,
+      max_tokens: 1024,
     }),
   });
 
@@ -111,7 +109,6 @@ export async function transcribeAudio(audio: Buffer): Promise<TranscriptionResul
 
   logger.info(
     {
-      transcriptLen: validation.data.transcript.length,
       summaryLen: validation.data.summary.length,
       service: validation.data.service_interest,
       followUp: validation.data.follow_up_needed,

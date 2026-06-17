@@ -3,9 +3,10 @@ import type { Request, Response } from "express";
 import { env } from "../../config/env.js";
 import { logger } from "../../config/logger.js";
 import { AppError, UnauthorizedError } from "../../lib/errors.js";
-import { handleSalestrailCall, handleTestInject } from "./calls.service.js";
+import { handleSalestrailCall, handleTestInject, processRecordingJob } from "./calls.service.js";
+import { enqueuePendingRecording, getPendingRecordingByCallId } from "../../config/db.js";
 import { SalestrailWebhookPayloadSchema } from "./calls.validator.js";
-import type { CallTestInjectBody } from "./calls.validator.js";
+import type { CallTestInjectBody, CallTestRecordingBody } from "./calls.validator.js";
 
 function verifyBasicAuth(req: Request): void {
   if (!env.SALESTRAIL_WEBHOOK_USERNAME || !env.SALESTRAIL_WEBHOOK_PASSWORD) {
@@ -79,4 +80,19 @@ export async function testInject(
 ): Promise<void> {
   const result = await handleTestInject(req.body);
   res.json({ status: "ok", ...result });
+}
+
+export async function testRecording(
+  req: Request<unknown, unknown, CallTestRecordingBody>,
+  res: Response,
+): Promise<void> {
+  const { callId, itemId, callTime } = req.body;
+  enqueuePendingRecording(callId, itemId, callTime ?? new Date().toISOString());
+  const job = getPendingRecordingByCallId(callId);
+  if (!job) {
+    throw new AppError(500, "Failed to enqueue test recording", "TEST_RECORDING_ENQUEUE_FAILED");
+  }
+  await processRecordingJob(job);
+  const remaining = getPendingRecordingByCallId(callId);
+  res.json({ status: "ok", callId, itemId, completed: remaining === null });
 }

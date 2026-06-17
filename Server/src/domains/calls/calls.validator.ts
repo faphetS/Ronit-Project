@@ -24,3 +24,10 @@ export const CallTestInjectBodySchema = z.object({
   transcriptText: z.string().max(10_000).optional(),
 });
 export type CallTestInjectBody = z.infer<typeof CallTestInjectBodySchema>;
+
+export const CallTestRecordingBodySchema = z.object({
+  callId: z.string().min(1),
+  itemId: z.string().min(1),
+  callTime: z.string().min(1).optional(),
+});
+export type CallTestRecordingBody = z.infer<typeof CallTestRecordingBodySchema>;

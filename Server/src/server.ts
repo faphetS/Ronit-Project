@@ -16,6 +16,7 @@ import rateLimit from "express-rate-limit";
 import { startWhatsAppCrons } from "./domains/whatsapp/cron.js";
 import { startMetaCrons } from "./domains/meta/meta.cron.js";
 import { startMondayCrons } from "./domains/monday/monday.cron.js";
+import { startCallsCrons } from "./domains/calls/calls.cron.js";
 
 const app = express();
 
@@ -245,6 +246,7 @@ const server = app.listen(env.PORT, () => {
   startWhatsAppCrons();
   startMetaCrons();
   startMondayCrons();
+  startCallsCrons();
 });
 
 function shutdown(signal: string) {
