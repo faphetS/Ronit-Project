@@ -9,7 +9,6 @@ import {
 } from "./whatsapp.controller.js";
 import { getHolidayForm, postHolidayForm } from "./holiday.controller.js";
 import {
-  GreenApiWebhookSchema,
   HolidayTestInjectSchema,
   BroadcastTestInjectSchema,
   FollowupTestInjectSchema,
@@ -18,7 +17,9 @@ import {
 
 const router = Router();
 
-router.post("/webhook", validate({ body: GreenApiWebhookSchema }), receiveWebhook);
+// Plain inbound receiver — accepts ANY payload (no schema validation), logs it,
+// returns 200. Decoupled from GreenAPI; handling will be rebuilt for the new gateway.
+router.post("/webhook", receiveWebhook);
 
 router.get("/holiday-form", getHolidayForm);
 router.post("/holiday-form", validate({ body: HolidayFormSubmitSchema }), postHolidayForm);
