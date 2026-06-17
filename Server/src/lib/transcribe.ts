@@ -42,13 +42,34 @@ Rules:
 - Do NOT output a full transcript — only the fields above
 - Output ONLY the JSON object. No commentary.`;
 
+const MAX_TRANSCRIBE_ATTEMPTS = 3;
+
 export async function transcribeAudio(audio: Buffer): Promise<TranscriptionResult> {
   if (!env.OPENROUTER_API_KEY) {
     throw new AppError(503, "OpenRouter not configured — OPENROUTER_API_KEY missing", "OPENROUTER_NOT_CONFIGURED");
   }
 
   const base64Audio = audio.toString("base64");
+  let lastError: unknown;
 
+  // Gemini occasionally returns truncated/degenerate JSON (thinking tokens eating
+  // the output budget, or a transient blip). Retry a few times before giving up —
+  // cheap insurance, and the only protection in one-shot/backfill contexts.
+  for (let attempt = 1; attempt <= MAX_TRANSCRIBE_ATTEMPTS; attempt++) {
+    try {
+      return await requestTranscription(base64Audio);
+    } catch (err) {
+      lastError = err;
+      logger.warn(
+        { attempt, code: (err as AppError).code, msg: (err as Error).message },
+        "Transcription attempt failed — retrying",
+      );
+    }
+  }
+  throw lastError;
+}
+
+async function requestTranscription(base64Audio: string): Promise<TranscriptionResult> {
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -71,7 +92,10 @@ export async function transcribeAudio(audio: Buffer): Promise<TranscriptionResul
       ],
       response_format: { type: "json_object" },
       temperature: 0,
-      max_tokens: 1024,
+      // Effectively unlimited for a short summary (model hard cap is ~65k).
+      // High headroom so a verbose Hebrew summary + Gemini "thinking" tokens
+      // never truncate the JSON the way max_tokens: 1024 did.
+      max_tokens: 16384,
     }),
   });
 
