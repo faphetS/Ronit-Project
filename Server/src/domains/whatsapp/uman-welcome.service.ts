@@ -4,6 +4,9 @@ import { isMessageProcessed, markMessageProcessed } from "../../lib/dedup.js";
 import { toMsisdn, isValidMsisdn, sendGatewayMessage } from "./whatsapp.gateway.js";
 
 const DEDUP_SOURCE = "wa_uman_welcome";
+// Per-bubble progress: once bubble 1 is confirmed sent we never re-send it, so a
+// chronically-failing bubble 2 can't loop the (spammy) bubble 1 on every inbound.
+const B1_DONE_SOURCE = "wa_uman_welcome_b1";
 
 // Same Node process: two concurrent webhook requests for the same sender could
 // both pass the dedup check before either marks. This guard (checked + added
@@ -61,16 +64,22 @@ export async function maybeSendUmanWelcome(input: {
   inFlight.add(input.senderId);
 
   try {
-    const ok1 = await sendGatewayMessage(to, env.WA_MSG_UMAN_WELCOME_1.replace(/\\n/g, "\n"));
-    if (!ok1) {
-      logger.error(
-        { senderId: input.senderId, to },
-        "Uman WhatsApp welcome — bubble 1 failed, not marking (retries on next inbound)",
-      );
-      return;
+    // Bubble 1 — send at most once. If a prior run already delivered it, skip
+    // straight to bubble 2 (no resend, no delay) so a failing bubble 2 can never
+    // re-loop bubble 1.
+    if (!isMessageProcessed(B1_DONE_SOURCE, input.senderId)) {
+      const ok1 = await sendGatewayMessage(to, env.WA_MSG_UMAN_WELCOME_1.replace(/\\n/g, "\n"));
+      if (!ok1) {
+        logger.error(
+          { senderId: input.senderId, to },
+          "Uman WhatsApp welcome — bubble 1 failed, not marking (retries on next inbound)",
+        );
+        return;
+      }
+      markMessageProcessed(B1_DONE_SOURCE, input.senderId);
+      await sleep(env.WA_WELCOME_BUBBLE_DELAY_MS); // human-like gap, only when we just sent bubble 1
     }
 
-    await sleep(env.WA_WELCOME_BUBBLE_DELAY_MS);
     const ok2 = await sendGatewayMessage(to, env.WA_MSG_UMAN_WELCOME_2);
 
     if (ok2) {
@@ -79,7 +88,7 @@ export async function maybeSendUmanWelcome(input: {
     } else {
       logger.error(
         { senderId: input.senderId, to },
-        "Uman WhatsApp welcome — bubble 2 failed, not marking (retries on next inbound)",
+        "Uman WhatsApp welcome — bubble 2 failed, not marking (bubble 1 already sent; only bubble 2 retries)",
       );
     }
   } catch (err) {

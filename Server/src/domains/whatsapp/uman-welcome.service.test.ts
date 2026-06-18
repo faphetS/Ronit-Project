@@ -91,14 +91,36 @@ describe("maybeSendUmanWelcome", () => {
     expect(dedup.markMessageProcessed).not.toHaveBeenCalled();
   });
 
-  it("bubble 2 fails → does NOT mark (retryable)", async () => {
+  it("bubble 2 fails → full welcome NOT marked (retryable); bubble 1 marked done so it won't resend", async () => {
     vi.mocked(gateway.sendGatewayMessage)
       .mockResolvedValueOnce(true) // bubble 1
       .mockResolvedValueOnce(false); // bubble 2
     await maybeSendUmanWelcome({ senderId: SENDER, service: "uman", phone: PH_ALLOWED });
 
     expect(gateway.sendGatewayMessage).toHaveBeenCalledTimes(2);
-    expect(dedup.markMessageProcessed).not.toHaveBeenCalled();
+    expect(dedup.markMessageProcessed).not.toHaveBeenCalledWith("wa_uman_welcome", SENDER);
+    expect(dedup.markMessageProcessed).toHaveBeenCalledWith("wa_uman_welcome_b1", SENDER);
+  });
+
+  it("retry after a bubble-2 failure re-sends ONLY bubble 2 — bubble 1 is never sent twice", async () => {
+    const marked = new Set<string>();
+    vi.mocked(dedup.isMessageProcessed).mockImplementation((s: string, id: string) => marked.has(`${s}:${id}`));
+    vi.mocked(dedup.markMessageProcessed).mockImplementation((s: string, id: string) => {
+      marked.add(`${s}:${id}`);
+    });
+    vi.mocked(gateway.sendGatewayMessage)
+      .mockResolvedValueOnce(true) // attempt 1: bubble 1 ok
+      .mockResolvedValueOnce(false) // attempt 1: bubble 2 fails
+      .mockResolvedValueOnce(true); // retry: bubble 2 ok
+
+    await maybeSendUmanWelcome({ senderId: SENDER, service: "uman", phone: PH_ALLOWED }); // attempt 1
+    await maybeSendUmanWelcome({ senderId: SENDER, service: "uman", phone: PH_ALLOWED }); // retry
+
+    const calls = vi.mocked(gateway.sendGatewayMessage).mock.calls;
+    expect(calls.length).toBe(3); // bubble 1 once + bubble 2 twice (NOT 4)
+    expect(calls.filter((c) => c[1] === "שורה ראשונה\nשורה שנייה").length).toBe(1); // bubble 1 exactly once
+    expect(calls.filter((c) => c[1] === "https://www.orhazadik.online/").length).toBe(2); // bubble 2 retried
+    expect(marked.has(`wa_uman_welcome:${SENDER}`)).toBe(true); // eventually fully marked
   });
 
   it("invalid msisdn (IL landline) → nothing sent, NOT marked", async () => {
@@ -141,6 +163,9 @@ describe("maybeSendUmanWelcome", () => {
     const p2 = maybeSendUmanWelcome({ senderId: SENDER, service: "uman", phone: PH_ALLOWED });
     await Promise.all([p1, p2]);
     expect(gateway.sendGatewayMessage).toHaveBeenCalledTimes(2);
-    expect(dedup.markMessageProcessed).toHaveBeenCalledTimes(1);
+    const fullMarks = vi
+      .mocked(dedup.markMessageProcessed)
+      .mock.calls.filter((c) => c[0] === "wa_uman_welcome");
+    expect(fullMarks.length).toBe(1);
   });
 });

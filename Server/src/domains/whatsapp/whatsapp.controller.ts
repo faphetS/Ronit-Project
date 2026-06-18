@@ -7,9 +7,35 @@ import type { z } from "zod";
 
 type FollowupTestBody = z.infer<typeof FollowupTestInjectSchema>;
 
-// Plain inbound receiver — accepts ANY payload, logs it, returns 200.
-// GreenAPI parsing/routing was removed; the new gateway's handling will be built here.
+// Inbound receiver. The gateway forwards EVERY WhatsApp event, but only an
+// INCOMING PRIVATE message is a potential lead. We distinguish by payload shape:
+//   - chatType: "private" | "group"  (the definitive flag)
+//   - participant: present ONLY on group messages (the sender inside the group)
+//   - from: a phone (~12 digits) for private; a long group-id (~18 digits) for group
+//   - type: "incoming" | "outgoing"  (outgoing = the account's own sent echoes)
+// Group messages and outgoing echoes are logged and ignored; private inbound is
+// logged as before (the new gateway's lead handling will build on this).
 export async function receiveWebhook(req: Request, res: Response): Promise<void> {
+  const body = (req.body ?? {}) as {
+    type?: string;
+    chatType?: string;
+    participant?: string;
+    from?: string;
+    messageType?: string;
+  };
+
+  const isGroup = body.chatType === "group" || typeof body.participant === "string";
+  const isOutgoing = body.type === "outgoing";
+
+  if (isGroup || isOutgoing) {
+    logger.info(
+      { kind: isGroup ? "group" : "outgoing", type: body.type, chatType: body.chatType, from: body.from },
+      "WhatsApp non-lead event — ignored",
+    );
+    res.sendStatus(200);
+    return;
+  }
+
   logger.info({ webhookBody: JSON.stringify(req.body) }, "Inbound webhook received");
   res.sendStatus(200);
 }
