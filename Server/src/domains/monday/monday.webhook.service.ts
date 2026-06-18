@@ -116,20 +116,24 @@ export async function moveClosedItem(
     return { moved: false, sourceItemId: itemId, skipped: "no_service" };
   }
 
-  const dateRaw = colMap.get(env.MONDAY_COL_INQUIRY_DATE_ID);
-  const inquiryDate = extractDate(dateRaw);
-  if (!inquiryDate) {
-    logger.warn({ itemId, dateRaw }, "Skipping move — no inquiry date");
-    return { moved: false, sourceItemId: itemId, skipped: "no_date" };
-  }
-
   let targetBoardId: string;
   let targetGroupId: string;
+  let inquiryTag: string | null = null;
   if (labelId === SERVICE_LABEL_CHALLAH) {
+    // Only Challah needs the inquiry date — it selects the year board + month group.
+    const dateRaw = colMap.get(env.MONDAY_COL_INQUIRY_DATE_ID);
+    const inquiryDate = extractDate(dateRaw);
+    if (!inquiryDate) {
+      logger.warn({ itemId, dateRaw }, "Skipping move — no inquiry date (challah)");
+      return { moved: false, sourceItemId: itemId, skipped: "no_date" };
+    }
+    inquiryTag = `${inquiryDate.year}-${String(inquiryDate.month + 1).padStart(2, "0")}`;
     targetBoardId = await getOrCreateChallahYearBoard(inquiryDate.year);
     targetGroupId = await findMonthGroup(targetBoardId, inquiryDate, labelId);
   } else {
-    // Uman — 1 board = 1 flight = 1 group; no month grouping.
+    // Uman — 1 board = 1 flight = 1 group; no month grouping. The CRM inquiry
+    // date is irrelevant here (active/roll-over is decided by the Uman board's
+    // own flight dates), so don't gate the close on it.
     ({ boardId: targetBoardId, groupId: targetGroupId } = await getActiveUmanBoard());
   }
 
@@ -216,7 +220,7 @@ export async function moveClosedItem(
       targetBoardId,
       targetGroupId,
       service: labelId,
-      inquiryDate: `${inquiryDate.year}-${String(inquiryDate.month + 1).padStart(2, "0")}`,
+      inquiryDate: inquiryTag,
       knownSenderCleaned: true,
     },
     "Item moved from CRM to service board (original deleted)",
