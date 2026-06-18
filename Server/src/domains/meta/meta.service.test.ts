@@ -617,6 +617,62 @@ describe("handleIncomingMessage — known no-phone sender sends phone → moves 
   });
 });
 
+describe("handleIncomingMessage — known no-phone lead sends phone in a NOT-interested message", () => {
+  it("still captures phone + moves to new-leads (phone is the sole gate, even when interested:false)", async () => {
+    vi.mocked(dedup.findKnownSender).mockReturnValue({
+      monday_item_id: ITEM_ID,
+      phone: null,
+    });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+      boardId: CRM_BOARD,
+      groupId: NO_PHONE_GROUP,
+      service: null,
+    });
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      interested: false,
+      service: null,
+      extractedName: null,
+      extractedPhone: "0501234567",
+      confidence: 0.2,
+      rawResponse: "",
+    });
+
+    const result = await handleIncomingMessage({
+      messageText: "0501234567",
+      senderId: SENDER_ID,
+      messageId: "nophone_notinterested1",
+    });
+
+    expect(mondayService.updateItemPhone).toHaveBeenCalledWith(ITEM_ID, "0501234567");
+    expect(mondayService.moveItemToGroup).toHaveBeenCalledWith(ITEM_ID, NEW_LEADS_GROUP);
+    expect(mondayService.createLeadRow).not.toHaveBeenCalled();
+    expect(result.itemId).toBe(ITEM_ID);
+  });
+});
+
+describe("handleIncomingMessage — not-interested, no-phone lead in another group → NOT disturbed", () => {
+  it("does not move a no-phone lead out of its current group on a not-interested message", async () => {
+    vi.mocked(dedup.findKnownSender).mockReturnValue({
+      monday_item_id: ITEM_ID,
+      phone: null,
+    });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+      boardId: CRM_BOARD,
+      groupId: "followup_group",
+      service: null,
+    });
+    vi.mocked(classify.classifyLead).mockResolvedValue(notInterestedClassification);
+
+    await handleIncomingMessage({
+      messageText: "תודה רבה",
+      senderId: SENDER_ID,
+      messageId: "notdisturb1",
+    });
+
+    expect(mondayService.moveItemToGroup).not.toHaveBeenCalled();
+  });
+});
+
 describe("handleIncomingMessage — pending lead names service, still no phone → stays in no-phone group", () => {
   it("if lead has no phone after service answer, target is no-phone group (no move away from it)", async () => {
     vi.mocked(conversation.getPendingClarification).mockReturnValue({

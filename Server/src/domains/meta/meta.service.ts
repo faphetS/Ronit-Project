@@ -109,6 +109,20 @@ export async function handleIncomingMessage(input: {
       // She explicitly declined mid-clarification → end it and stay silent.
       // Clearing the pending row stops further re-asks and avoids a stale row.
       if (!classification.interested) {
+        // A phone handed over even while declining still moves a tracked lead
+        // back to new-leads — phone presence is the sole gate. With no phone we
+        // leave her where she sits (don't disturb placement on a decline).
+        if (classification.extractedPhone && !pending.phone) {
+          await updateItemPhone(pending.monday_item_id, classification.extractedPhone);
+          updateSenderPhone("instagram", input.senderId!, classification.extractedPhone);
+        }
+        const declinePhone = classification.extractedPhone ?? pending.phone;
+        if (declinePhone) {
+          const declineTarget = leadGroupForPhone(declinePhone);
+          if (live.groupId !== declineTarget) {
+            await moveItemToGroup(pending.monday_item_id, declineTarget);
+          }
+        }
         clearPendingClarification("instagram", input.senderId!);
         logger.info(
           { senderId: input.senderId, mondayItemId: pending.monday_item_id },
@@ -207,13 +221,42 @@ export async function handleIncomingMessage(input: {
       // Live row on CRM — update last IG message on every message.
       await updateLastIgMessage(mondayItemId, input.messageText);
 
+      // Phone capture + re-file run on EVERY message, even a not-interested one:
+      // a tracked lead handing over a number should always move back to new-leads,
+      // regardless of how that single message happens to classify.
+      if (classification.extractedPhone && !existing.phone) {
+        await updateItemPhone(mondayItemId, classification.extractedPhone);
+        updateSenderPhone("instagram", input.senderId!, classification.extractedPhone);
+        logger.info(
+          { senderId: input.senderId, mondayItemId },
+          "Updated phone on existing lead instead of creating duplicate",
+        );
+      }
+
+      // Re-file by phone presence. A phone always pulls a tracked lead back to
+      // new-leads — even on a not-interested message (phone presence is the sole
+      // gate). With no phone, only an *interested* message re-files (into the
+      // no-phone group); a not-interested message never disturbs the lead's
+      // current placement (e.g. a follow-up group).
+      const phone = classification.extractedPhone ?? existing.phone;
+      if (phone || classification.interested) {
+        const target = leadGroupForPhone(phone);
+        if (live.groupId !== target) {
+          await moveItemToGroup(mondayItemId, target);
+          logger.info(
+            { senderId: input.senderId, mondayItemId, fromGroupId: live.groupId, target },
+            "Returning lead re-filed by phone presence",
+          );
+        }
+      }
+
       if (!classification.interested) {
         logger.info(
           {
             senderUsername: input.senderUsername,
             confidence: classification.confidence,
           },
-          "Lead classified as not interested — skipping Monday create/update",
+          "Lead classified as not interested — phone/move applied, skipping service update",
         );
         return { itemId: mondayItemId, classification };
       }
@@ -222,33 +265,6 @@ export async function handleIncomingMessage(input: {
       // a confirmed service from a casual (possibly misclassified) mention.
       if (classification.service !== null && live.service === null) {
         await safeUpdateService(mondayItemId, classification.service);
-      }
-
-      // Interested + live row — update phone if newly captured.
-      if (classification.extractedPhone && !existing.phone) {
-        await updateItemPhone(mondayItemId, classification.extractedPhone);
-        updateSenderPhone("instagram", input.senderId!, classification.extractedPhone);
-        logger.info(
-          { senderId: input.senderId, mondayItemId },
-          "Updated phone on existing lead instead of creating duplicate",
-        );
-      } else {
-        logger.info(
-          { senderId: input.senderId, mondayItemId },
-          "Sender already has a CRM row — skipping duplicate creation",
-        );
-      }
-
-      // Re-file by phone presence: phone → new-leads, none → no-phone group.
-      // When a phone was just captured above, the current group no longer
-      // matches the target, so the lead moves itself back to new-leads.
-      const target = leadGroupForPhone(classification.extractedPhone ?? existing.phone);
-      if (live.groupId !== target) {
-        await moveItemToGroup(mondayItemId, target);
-        logger.info(
-          { senderId: input.senderId, mondayItemId, fromGroupId: live.groupId, target },
-          "Returning interested lead re-filed by phone presence",
-        );
       }
 
       return { itemId: mondayItemId, classification };
