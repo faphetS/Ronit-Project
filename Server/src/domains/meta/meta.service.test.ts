@@ -34,10 +34,17 @@ vi.mock("../monday/monday.service.js", () => ({
   leadGroupForPhone: vi.fn((phone: string | null | undefined) =>
     phone ? "new_group29179" : "group_mm469wrf",
   ),
+  mapItemServiceToKey: vi.fn((label: string | null | undefined) =>
+    !label ? null : label.includes("אומן") ? "uman" : label.includes("חלה") ? "challah" : null,
+  ),
 }));
 
 vi.mock("../monday/monday.webhook.service.js", () => ({
   getActiveServiceBoardIds: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock("../whatsapp/uman-welcome.service.js", () => ({
+  maybeSendUmanWelcome: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("./meta.outbound.service.js", () => ({
@@ -57,6 +64,7 @@ import * as classify from "../../lib/classify.js";
 import * as mondayService from "../monday/monday.service.js";
 import * as mondayWebhookService from "../monday/monday.webhook.service.js";
 import * as outbound from "./meta.outbound.service.js";
+import * as umanWelcome from "../whatsapp/uman-welcome.service.js";
 
 const SENDER_ID = "ig_sender_001";
 const ITEM_ID = "crm-item-456";
@@ -702,5 +710,63 @@ describe("handleIncomingMessage — pending lead names service, still no phone �
 
     // Target resolves to no-phone group; groupId already matches → no move call.
     expect(mondayService.moveItemToGroup).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WhatsApp Uman welcome trigger (gating happens inside maybeSendUmanWelcome)
+// ---------------------------------------------------------------------------
+
+describe("handleIncomingMessage — WhatsApp uman welcome trigger", () => {
+  it("new interested uman lead with a phone → maybeSendUmanWelcome(uman, phone)", async () => {
+    // default interestedClassification: service uman, phone 0501234567
+    await handleIncomingMessage({
+      messageText: "אני רוצה טיסה לאומן 0501234567",
+      senderId: SENDER_ID,
+      messageId: "wa-welcome-1",
+    });
+
+    expect(umanWelcome.maybeSendUmanWelcome).toHaveBeenCalledWith(
+      expect.objectContaining({ senderId: SENDER_ID, service: "uman", phone: "0501234567" }),
+    );
+  });
+
+  it("known no-phone uman lead sends phone later → welcome called with stored uman service", async () => {
+    vi.mocked(dedup.findKnownSender).mockReturnValue({ monday_item_id: ITEM_ID, phone: null });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+      boardId: CRM_BOARD,
+      groupId: NO_PHONE_GROUP,
+      service: "טיסות לאומן", // stored uman
+    });
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      interested: true,
+      service: null, // this message is just a number, no service named
+      extractedName: null,
+      extractedPhone: "0526964676",
+      confidence: 0.9,
+      rawResponse: "",
+    });
+
+    await handleIncomingMessage({
+      messageText: "0526964676",
+      senderId: SENDER_ID,
+      messageId: "wa-welcome-2",
+    });
+
+    expect(umanWelcome.maybeSendUmanWelcome).toHaveBeenCalledWith(
+      expect.objectContaining({ senderId: SENDER_ID, service: "uman", phone: "0526964676" }),
+    );
+  });
+
+  it("not-interested new sender → welcome NOT called", async () => {
+    vi.mocked(classify.classifyLead).mockResolvedValue(notInterestedClassification);
+
+    await handleIncomingMessage({
+      messageText: "לא תודה",
+      senderId: SENDER_ID,
+      messageId: "wa-welcome-3",
+    });
+
+    expect(umanWelcome.maybeSendUmanWelcome).not.toHaveBeenCalled();
   });
 });

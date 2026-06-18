@@ -8,6 +8,18 @@ const SERVICE_TO_LABEL_ID: Record<"uman" | "challah", number> = {
   challah: 3,
 };
 
+/** Map a Monday service-dropdown label (Hebrew text) back to a service key.
+ *  uman → "אומן", challah → "חלה" (matches the classifier keywords); legacy
+ *  labels (e.g. "טיסות לפורים") and empty values → null. */
+export function mapItemServiceToKey(
+  label: string | null | undefined,
+): "uman" | "challah" | null {
+  if (!label) return null;
+  if (label.includes("אומן")) return "uman";
+  if (label.includes("חלה")) return "challah";
+  return null;
+}
+
 const PHONE_TYPE_TO_LABEL_ID: Record<"kosher" | "regular", number> = {
   kosher: 1,
   regular: 2,

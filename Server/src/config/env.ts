@@ -173,6 +173,23 @@ const envSchema = z.object({
   GREENAPI_INSTANCE_ID: z.string().min(1).optional(),
   GREENAPI_API_TOKEN: z.string().min(1).optional(),
   RONIT_OWNER_WA_NUMBER: z.string().min(10).optional(),
+
+  // Custom WhatsApp gateway (Supabase "ronit-send" edge function). Optional so the
+  // app still boots if unset — sendGatewayMessage no-ops when URL/token are missing.
+  RONIT_WA_SEND_URL: z.string().url().optional(),
+  RONIT_WA_SEND_TOKEN: z.string().min(1).optional(),
+  // Outbound safety gate: CSV of allowed recipient msisdns. "all" = no gate
+  // (production); "" (default) = send to NOBODY (fail-closed for testing).
+  RONIT_WA_ALLOWED_NUMBERS: z.string().default(""),
+  // Uman welcome — 2 WhatsApp messages sent once a uman lead's phone is captured.
+  // "\n" escapes are decoded into real newlines at send time.
+  WA_MSG_UMAN_WELCOME_1: z
+    .string()
+    .min(1)
+    .default(
+      "אם הגעת לפה זה אומר שאולי רבנו קורא לך📣\nאני מצרפת לך קישור אל תוך המסע המיוחד שלנו,שווה לצפות🥹\nהפרטים נמצאים בפנים👇\n במידה וזה רלוונטי עבורך תרשמי לי ואחזור טלפונית בהקדם 💞",
+    ),
+  WA_MSG_UMAN_WELCOME_2: z.string().min(1).default("https://www.orhazadik.online/"),
 });
 
 const parsed = envSchema.safeParse(process.env);

@@ -25,8 +25,10 @@ import {
   moveItemToGroup,
   findLeadOnBoard,
   leadGroupForPhone,
+  mapItemServiceToKey,
 } from "../monday/monday.service.js";
 import { getActiveServiceBoardIds } from "../monday/monday.webhook.service.js";
+import { maybeSendUmanWelcome } from "../whatsapp/uman-welcome.service.js";
 import { sendReplyDM, sendServiceQuestion } from "./meta.outbound.service.js";
 import { fetchIgProfile } from "./meta.profile.service.js";
 
@@ -161,6 +163,14 @@ export async function handleIncomingMessage(input: {
           },
           "Pending clarification resolved — service answered",
         );
+
+        // Service just confirmed → if uman + phone, send the WhatsApp welcome.
+        await maybeSendUmanWelcome({
+          senderId: input.senderId!,
+          service: classification.service,
+          phone: pending.phone ?? classification.extractedPhone,
+        });
+
         return { itemId: pending.monday_item_id, classification };
       }
 
@@ -267,6 +277,15 @@ export async function handleIncomingMessage(input: {
         await safeUpdateService(mondayItemId, classification.service);
       }
 
+      // Uman + phone (from this message or already stored) → WhatsApp welcome.
+      // Covers the "uman lead created with no phone, sends phone later" case,
+      // where this message carries a number but no service.
+      await maybeSendUmanWelcome({
+        senderId: input.senderId!,
+        service: classification.service ?? mapItemServiceToKey(live.service),
+        phone: classification.extractedPhone ?? existing.phone,
+      });
+
       return { itemId: mondayItemId, classification };
     }
   }
@@ -366,6 +385,13 @@ export async function handleIncomingMessage(input: {
       // Entry B step 1 — ask which service.
       await sendServiceQuestion(input.senderId);
     }
+
+    // Uman lead created with a phone → send the WhatsApp welcome (gated + once).
+    await maybeSendUmanWelcome({
+      senderId: input.senderId,
+      service: classification.service,
+      phone,
+    });
   }
 
   return { itemId, classification };
