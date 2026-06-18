@@ -164,12 +164,13 @@ export async function handleIncomingMessage(input: {
           "Pending clarification resolved — service answered",
         );
 
-        // Service just confirmed → if uman + phone, send the WhatsApp welcome.
-        await maybeSendUmanWelcome({
+        // Service just confirmed → if uman + phone, send the WhatsApp welcome
+        // (fire-and-forget; it has its own inter-bubble delay).
+        void maybeSendUmanWelcome({
           senderId: input.senderId!,
           service: classification.service,
           phone: pending.phone ?? classification.extractedPhone,
-        });
+        }).catch((err) => logger.error({ err }, "Uman welcome rejected unexpectedly"));
 
         return { itemId: pending.monday_item_id, classification };
       }
@@ -260,13 +261,26 @@ export async function handleIncomingMessage(input: {
         }
       }
 
+      // An existing CRM lead who hands over a phone gets the Uman welcome no
+      // matter how THIS message classifies — they were already classified
+      // interested when the row was created, so we never re-require it. Runs
+      // ABOVE the not-interested gate (a bare-number reply often classifies
+      // not-interested). Fire-and-forget — it has its own inter-bubble delay, so
+      // we don't hold the Meta webhook open. Service comes from this message or
+      // the stored Monday label.
+      void maybeSendUmanWelcome({
+        senderId: input.senderId!,
+        service: classification.service ?? mapItemServiceToKey(live.service),
+        phone,
+      }).catch((err) => logger.error({ err }, "Uman welcome rejected unexpectedly"));
+
       if (!classification.interested) {
         logger.info(
           {
             senderUsername: input.senderUsername,
             confidence: classification.confidence,
           },
-          "Lead classified as not interested — phone/move applied, skipping service update",
+          "Lead classified as not interested — phone/move/welcome applied, skipping service update",
         );
         return { itemId: mondayItemId, classification };
       }
@@ -276,15 +290,6 @@ export async function handleIncomingMessage(input: {
       if (classification.service !== null && live.service === null) {
         await safeUpdateService(mondayItemId, classification.service);
       }
-
-      // Uman + phone (from this message or already stored) → WhatsApp welcome.
-      // Covers the "uman lead created with no phone, sends phone later" case,
-      // where this message carries a number but no service.
-      await maybeSendUmanWelcome({
-        senderId: input.senderId!,
-        service: classification.service ?? mapItemServiceToKey(live.service),
-        phone: classification.extractedPhone ?? existing.phone,
-      });
 
       return { itemId: mondayItemId, classification };
     }
@@ -386,12 +391,13 @@ export async function handleIncomingMessage(input: {
       await sendServiceQuestion(input.senderId);
     }
 
-    // Uman lead created with a phone → send the WhatsApp welcome (gated + once).
-    await maybeSendUmanWelcome({
+    // Uman lead created with a phone → send the WhatsApp welcome (gated + once;
+    // fire-and-forget, it has its own inter-bubble delay).
+    void maybeSendUmanWelcome({
       senderId: input.senderId,
       service: classification.service,
       phone,
-    });
+    }).catch((err) => logger.error({ err }, "Uman welcome rejected unexpectedly"));
   }
 
   return { itemId, classification };

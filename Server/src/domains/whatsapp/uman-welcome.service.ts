@@ -1,9 +1,17 @@
 import { env } from "../../config/env.js";
 import { logger } from "../../config/logger.js";
 import { isMessageProcessed, markMessageProcessed } from "../../lib/dedup.js";
-import { toMsisdn, sendGatewayMessage } from "./whatsapp.gateway.js";
+import { toMsisdn, isValidMsisdn, sendGatewayMessage } from "./whatsapp.gateway.js";
 
 const DEDUP_SOURCE = "wa_uman_welcome";
+
+// Same Node process: two concurrent webhook requests for the same sender could
+// both pass the dedup check before either marks. This guard (checked + added
+// synchronously before any await) closes that double-fire window.
+const inFlight = new Set<string>();
+
+const sleep = (ms: number): Promise<void> =>
+  ms > 0 ? new Promise((r) => setTimeout(r, ms)) : Promise.resolve();
 
 /**
  * Fail-closed allowlist. RONIT_WA_ALLOWED_NUMBERS is a CSV of recipient numbers
@@ -24,8 +32,10 @@ export function isAllowed(msisdn: string): boolean {
 
 /**
  * Send the 2-message Uman welcome the first time a tracked lead is both
- * service=uman AND has a phone. Gated by the allowlist and deduped per sender,
- * so it is safe to call from every site where phone/service may have changed.
+ * service=uman AND has a (valid, allowlisted) phone. Deduped per sender and
+ * marked ONLY on a confirmed send, so a gateway failure retries on the lead's
+ * next inbound message rather than being lost. Idempotent + non-throwing, so
+ * callers can fire-and-forget it from any site where phone/service changed.
  */
 export async function maybeSendUmanWelcome(input: {
   senderId: string;
@@ -35,16 +45,46 @@ export async function maybeSendUmanWelcome(input: {
   if (input.service !== "uman" || !input.phone) return;
 
   const to = toMsisdn(input.phone);
+  if (!isValidMsisdn(to)) {
+    logger.warn(
+      { senderId: input.senderId, rawPhone: input.phone, to },
+      "Uman WhatsApp welcome skipped — invalid msisdn (not an IL/PH mobile)",
+    );
+    return; // do NOT mark — a corrected number can still trigger it later
+  }
   if (!isAllowed(to)) {
     logger.info({ senderId: input.senderId, to }, "Uman WhatsApp welcome skipped — not allowlisted");
     return;
   }
-
   if (isMessageProcessed(DEDUP_SOURCE, input.senderId)) return;
+  if (inFlight.has(input.senderId)) return;
+  inFlight.add(input.senderId);
 
-  await sendGatewayMessage(to, env.WA_MSG_UMAN_WELCOME_1.replace(/\\n/g, "\n"));
-  await sendGatewayMessage(to, env.WA_MSG_UMAN_WELCOME_2);
+  try {
+    const ok1 = await sendGatewayMessage(to, env.WA_MSG_UMAN_WELCOME_1.replace(/\\n/g, "\n"));
+    if (!ok1) {
+      logger.error(
+        { senderId: input.senderId, to },
+        "Uman WhatsApp welcome — bubble 1 failed, not marking (retries on next inbound)",
+      );
+      return;
+    }
 
-  markMessageProcessed(DEDUP_SOURCE, input.senderId);
-  logger.info({ senderId: input.senderId, to }, "Uman WhatsApp welcome sent");
+    await sleep(env.WA_WELCOME_BUBBLE_DELAY_MS);
+    const ok2 = await sendGatewayMessage(to, env.WA_MSG_UMAN_WELCOME_2);
+
+    if (ok2) {
+      markMessageProcessed(DEDUP_SOURCE, input.senderId);
+      logger.info({ senderId: input.senderId, to }, "Uman WhatsApp welcome sent");
+    } else {
+      logger.error(
+        { senderId: input.senderId, to },
+        "Uman WhatsApp welcome — bubble 2 failed, not marking (retries on next inbound)",
+      );
+    }
+  } catch (err) {
+    logger.error({ err, senderId: input.senderId, to }, "Uman WhatsApp welcome threw — not marking");
+  } finally {
+    inFlight.delete(input.senderId);
+  }
 }

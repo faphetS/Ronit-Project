@@ -190,6 +190,9 @@ const envSchema = z.object({
       "אם הגעת לפה זה אומר שאולי רבנו קורא לך📣\nאני מצרפת לך קישור אל תוך המסע המיוחד שלנו,שווה לצפות🥹\nהפרטים נמצאים בפנים👇\n במידה וזה רלוונטי עבורך תרשמי לי ואחזור טלפונית בהקדם 💞",
     ),
   WA_MSG_UMAN_WELCOME_2: z.string().min(1).default("https://www.orhazadik.online/"),
+  // Human-like gap between the two welcome messages (ms). Default ~5s (within the
+  // intended 3-6s); set to 0 in tests so they stay fast.
+  WA_WELCOME_BUBBLE_DELAY_MS: z.coerce.number().int().min(0).default(5000),
 });
 
 const parsed = envSchema.safeParse(process.env);

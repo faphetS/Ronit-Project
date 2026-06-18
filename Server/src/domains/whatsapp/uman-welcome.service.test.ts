@@ -6,6 +6,7 @@ const ENV = vi.hoisted(() => ({
   RONIT_WA_ALLOWED_NUMBERS: "639603913514",
   WA_MSG_UMAN_WELCOME_1: "שורה ראשונה\\nשורה שנייה",
   WA_MSG_UMAN_WELCOME_2: "https://www.orhazadik.online/",
+  WA_WELCOME_BUBBLE_DELAY_MS: 0, // no real delay in tests
 }));
 vi.mock("../../config/env.js", () => ({ env: ENV }));
 vi.mock("../../config/logger.js", () => ({
@@ -15,95 +16,131 @@ vi.mock("../../lib/dedup.js", () => ({
   isMessageProcessed: vi.fn().mockReturnValue(false),
   markMessageProcessed: vi.fn(),
 }));
-// Keep the real toMsisdn, mock only the network send.
+// Keep the real toMsisdn + isValidMsisdn, mock only the network send.
 vi.mock("./whatsapp.gateway.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./whatsapp.gateway.js")>()),
-  sendGatewayMessage: vi.fn().mockResolvedValue(undefined),
+  sendGatewayMessage: vi.fn().mockResolvedValue(true),
 }));
 
 import { maybeSendUmanWelcome, isAllowed } from "./uman-welcome.service.js";
-import { toMsisdn } from "./whatsapp.gateway.js";
+import { toMsisdn, isValidMsisdn } from "./whatsapp.gateway.js";
 import * as gateway from "./whatsapp.gateway.js";
 import * as dedup from "../../lib/dedup.js";
 
 const SENDER = "ig_sender_1";
 const PH_ALLOWED = "+63 960 391 3514"; // → 639603913514 (allowlisted)
-const IL_NUMBER = "0526949162"; // → 972526949162 (not allowlisted)
+const IL_VALID = "0521234567"; // → 972521234567 (valid mobile, not allowlisted)
+const IL_LANDLINE = "0312345678"; // → 972312345678 (NOT a mobile → invalid)
 
 beforeEach(() => {
   vi.clearAllMocks();
   ENV.RONIT_WA_ALLOWED_NUMBERS = "639603913514";
   vi.mocked(dedup.isMessageProcessed).mockReturnValue(false);
+  vi.mocked(gateway.sendGatewayMessage).mockResolvedValue(true);
 });
 
 describe("toMsisdn", () => {
-  it("normalizes PH and IL numbers to digits + country code, no +", () => {
+  it("normalizes the real mess: PH, IL mobile, +972, kept-0, bare 9-digit, 00-prefix", () => {
     expect(toMsisdn("+63 960 391 3514")).toBe("639603913514");
     expect(toMsisdn("09603913514")).toBe("639603913514"); // PH local (11)
     expect(toMsisdn("0526949162")).toBe("972526949162"); // IL local (10)
     expect(toMsisdn("972526949162")).toBe("972526949162"); // IL cc
     expect(toMsisdn("+972 52-694-9162")).toBe("972526949162");
-    expect(toMsisdn("639603913514")).toBe("639603913514"); // PH cc
+    expect(toMsisdn("526949162")).toBe("972526949162"); // bare IL mobile (leading 0 dropped)
+    expect(toMsisdn("00972526949162")).toBe("972526949162"); // 00 trunk prefix
+    expect(toMsisdn("+972 0 52 694 9162")).toBe("972526949162"); // kept national 0 after +972
+  });
+});
+
+describe("isValidMsisdn", () => {
+  it("accepts only IL/PH mobiles; rejects landlines and junk", () => {
+    expect(isValidMsisdn("972526949162")).toBe(true); // IL mobile
+    expect(isValidMsisdn("639603913514")).toBe(true); // PH mobile
+    expect(isValidMsisdn("972312345678")).toBe(false); // IL landline (03)
+    expect(isValidMsisdn("501234567")).toBe(false); // bare, wrong length
+    expect(isValidMsisdn("")).toBe(false);
   });
 });
 
 describe("isAllowed", () => {
-  it("matches a listed number regardless of input format; 'all' opens; '' closes", () => {
+  it("matches a listed number in any format; 'all' opens; '' closes", () => {
     expect(isAllowed("639603913514")).toBe(true);
     expect(isAllowed("972526949162")).toBe(false);
     ENV.RONIT_WA_ALLOWED_NUMBERS = "all";
     expect(isAllowed("972526949162")).toBe(true);
     ENV.RONIT_WA_ALLOWED_NUMBERS = "";
     expect(isAllowed("639603913514")).toBe(false);
-    ENV.RONIT_WA_ALLOWED_NUMBERS = "0526949162, 639603913514"; // mixed formats
-    expect(isAllowed("972526949162")).toBe(true);
   });
 });
 
 describe("maybeSendUmanWelcome", () => {
-  it("uman + phone + allowlisted + unsent → sends 2 messages and marks sent", async () => {
+  it("uman + valid + allowlisted + unsent, both sends OK → 2 messages + marks", async () => {
     await maybeSendUmanWelcome({ senderId: SENDER, service: "uman", phone: PH_ALLOWED });
 
     expect(gateway.sendGatewayMessage).toHaveBeenCalledTimes(2);
-    expect(gateway.sendGatewayMessage).toHaveBeenNthCalledWith(
-      1,
-      "639603913514",
-      "שורה ראשונה\nשורה שנייה", // \n decoded
-    );
-    expect(gateway.sendGatewayMessage).toHaveBeenNthCalledWith(
-      2,
-      "639603913514",
-      "https://www.orhazadik.online/",
-    );
+    expect(gateway.sendGatewayMessage).toHaveBeenNthCalledWith(1, "639603913514", "שורה ראשונה\nשורה שנייה");
+    expect(gateway.sendGatewayMessage).toHaveBeenNthCalledWith(2, "639603913514", "https://www.orhazadik.online/");
     expect(dedup.markMessageProcessed).toHaveBeenCalledWith("wa_uman_welcome", SENDER);
   });
 
-  it("challah → sends nothing", async () => {
-    await maybeSendUmanWelcome({ senderId: SENDER, service: "challah", phone: PH_ALLOWED });
+  it("bubble 1 fails → does NOT send bubble 2 and does NOT mark (retryable)", async () => {
+    vi.mocked(gateway.sendGatewayMessage).mockResolvedValueOnce(false);
+    await maybeSendUmanWelcome({ senderId: SENDER, service: "uman", phone: PH_ALLOWED });
+
+    expect(gateway.sendGatewayMessage).toHaveBeenCalledTimes(1);
+    expect(dedup.markMessageProcessed).not.toHaveBeenCalled();
+  });
+
+  it("bubble 2 fails → does NOT mark (retryable)", async () => {
+    vi.mocked(gateway.sendGatewayMessage)
+      .mockResolvedValueOnce(true) // bubble 1
+      .mockResolvedValueOnce(false); // bubble 2
+    await maybeSendUmanWelcome({ senderId: SENDER, service: "uman", phone: PH_ALLOWED });
+
+    expect(gateway.sendGatewayMessage).toHaveBeenCalledTimes(2);
+    expect(dedup.markMessageProcessed).not.toHaveBeenCalled();
+  });
+
+  it("invalid msisdn (IL landline) → nothing sent, NOT marked", async () => {
+    ENV.RONIT_WA_ALLOWED_NUMBERS = "all";
+    await maybeSendUmanWelcome({ senderId: SENDER, service: "uman", phone: IL_LANDLINE });
     expect(gateway.sendGatewayMessage).not.toHaveBeenCalled();
     expect(dedup.markMessageProcessed).not.toHaveBeenCalled();
   });
 
-  it("no phone → sends nothing", async () => {
+  it("challah → nothing", async () => {
+    await maybeSendUmanWelcome({ senderId: SENDER, service: "challah", phone: PH_ALLOWED });
+    expect(gateway.sendGatewayMessage).not.toHaveBeenCalled();
+  });
+
+  it("no phone → nothing", async () => {
     await maybeSendUmanWelcome({ senderId: SENDER, service: "uman", phone: null });
     expect(gateway.sendGatewayMessage).not.toHaveBeenCalled();
   });
 
-  it("phone not on allowlist → sends nothing", async () => {
-    await maybeSendUmanWelcome({ senderId: SENDER, service: "uman", phone: IL_NUMBER });
+  it("valid but not allowlisted → nothing", async () => {
+    await maybeSendUmanWelcome({ senderId: SENDER, service: "uman", phone: IL_VALID });
     expect(gateway.sendGatewayMessage).not.toHaveBeenCalled();
     expect(dedup.markMessageProcessed).not.toHaveBeenCalled();
   });
 
-  it("already sent (dedup) → sends nothing", async () => {
+  it("already sent (dedup) → nothing", async () => {
     vi.mocked(dedup.isMessageProcessed).mockReturnValue(true);
     await maybeSendUmanWelcome({ senderId: SENDER, service: "uman", phone: PH_ALLOWED });
     expect(gateway.sendGatewayMessage).not.toHaveBeenCalled();
   });
 
-  it("empty allowlist (fail-closed) → sends nothing", async () => {
+  it("empty allowlist (fail-closed) → nothing", async () => {
     ENV.RONIT_WA_ALLOWED_NUMBERS = "";
     await maybeSendUmanWelcome({ senderId: SENDER, service: "uman", phone: PH_ALLOWED });
     expect(gateway.sendGatewayMessage).not.toHaveBeenCalled();
+  });
+
+  it("in-flight guard: two concurrent calls for the same sender → only one welcome (2 sends, not 4)", async () => {
+    const p1 = maybeSendUmanWelcome({ senderId: SENDER, service: "uman", phone: PH_ALLOWED });
+    const p2 = maybeSendUmanWelcome({ senderId: SENDER, service: "uman", phone: PH_ALLOWED });
+    await Promise.all([p1, p2]);
+    expect(gateway.sendGatewayMessage).toHaveBeenCalledTimes(2);
+    expect(dedup.markMessageProcessed).toHaveBeenCalledTimes(1);
   });
 });

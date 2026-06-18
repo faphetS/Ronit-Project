@@ -731,19 +731,19 @@ describe("handleIncomingMessage — WhatsApp uman welcome trigger", () => {
     );
   });
 
-  it("known no-phone uman lead sends phone later → welcome called with stored uman service", async () => {
+  it("known uman lead pastes a BARE number that classifies NOT-interested → welcome STILL called (above the gate)", async () => {
     vi.mocked(dedup.findKnownSender).mockReturnValue({ monday_item_id: ITEM_ID, phone: null });
     vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
       boardId: CRM_BOARD,
       groupId: NO_PHONE_GROUP,
-      service: "טיסות לאומן", // stored uman
+      service: "טיסות לאומן", // stored uman (lead was classified interested earlier)
     });
     vi.mocked(classify.classifyLead).mockResolvedValue({
-      interested: true,
-      service: null, // this message is just a number, no service named
+      interested: false, // a bare number carries no interest signal
+      service: null,
       extractedName: null,
       extractedPhone: "0526964676",
-      confidence: 0.9,
+      confidence: 0.3,
       rawResponse: "",
     });
 
@@ -753,6 +753,8 @@ describe("handleIncomingMessage — WhatsApp uman welcome trigger", () => {
       messageId: "wa-welcome-2",
     });
 
+    // Existing CRM uman lead + a new phone ⇒ welcome, regardless of this
+    // message's interested flag (service recovered from the stored Monday label).
     expect(umanWelcome.maybeSendUmanWelcome).toHaveBeenCalledWith(
       expect.objectContaining({ senderId: SENDER_ID, service: "uman", phone: "0526964676" }),
     );
