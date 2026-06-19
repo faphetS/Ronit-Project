@@ -261,9 +261,10 @@ const envSchema = z.object({
   // mean 3 days / 10 days. For a fast end-to-end TEST set this to 60000 (1 minute →
   // 3 min / 10 min) AND set WA_FOLLOWUP_CRON to "* * * * *" so the job checks often.
   WA_FOLLOWUP_UNIT_MS: z.coerce.number().int().min(1000).default(86_400_000),
-  // Cron schedule for the follow-up job (Asia/Jerusalem). Default daily 10:00; for a
-  // fast test set "* * * * *" (every minute).
-  WA_FOLLOWUP_CRON: z.string().default("0 10 * * *"),
+  // Cron schedule for the follow-up job (Asia/Jerusalem). Default TWICE daily — 10:00
+  // and 19:00. One scan handles 3d/10d inactivity AND the 2-week flight reminder, so
+  // all three are checked on this schedule. For a fast test set "* * * * *".
+  WA_FOLLOWUP_CRON: z.string().default("0 10,19 * * *"),
 });
 
 const parsed = envSchema.safeParse(process.env);
