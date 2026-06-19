@@ -1,11 +1,34 @@
-import type { Request, Response } from "express";
+import crypto from "node:crypto";
+import type { Request, Response, NextFunction } from "express";
+import { env } from "../../config/env.js";
 import { logger } from "../../config/logger.js";
+import { UnauthorizedError } from "../../lib/errors.js";
 import { checkAndPromptHoliday, broadcastHolidayCampaign } from "./holiday.service.js";
 import { checkAndSendFollowups } from "./followup.service.js";
+import { handleInboundWhatsApp, type InboundWhatsApp } from "./wa-inbound.service.js";
 import type { FollowupTestInjectSchema } from "./whatsapp.validator.js";
 import type { z } from "zod";
 
 type FollowupTestBody = z.infer<typeof FollowupTestInjectSchema>;
+
+// Backwards-compatible secret gate for the inbound webhook. Disabled (open) when
+// WA_WEBHOOK_SECRET is empty. When set, every inbound POST must carry ?token=<secret>
+// in the URL (the gateway can only add a query param, not a custom header). The
+// token is redacted from request logs — see config/logger.ts.
+export function verifyWhatsAppSecret(req: Request, _res: Response, next: NextFunction): void {
+  const secret = env.WA_WEBHOOK_SECRET;
+  if (!secret) return next();
+  const raw = req.query.token;
+  const provided = typeof raw === "string" ? raw : "";
+  const a = Buffer.from(provided);
+  const b = Buffer.from(secret);
+  const ok = a.length === b.length && crypto.timingSafeEqual(a, b);
+  if (!ok) {
+    logger.warn({ ip: req.ip }, "WhatsApp webhook token mismatch — rejected");
+    throw new UnauthorizedError("Invalid WhatsApp webhook token");
+  }
+  next();
+}
 
 // Inbound receiver. The gateway forwards EVERY WhatsApp event, but only an
 // INCOMING PRIVATE message is a potential lead. We distinguish by payload shape:
@@ -37,6 +60,16 @@ export async function receiveWebhook(req: Request, res: Response): Promise<void>
   }
 
   logger.info({ webhookBody: JSON.stringify(req.body) }, "Inbound webhook received");
+
+  // Lead handling (phone match → activity tracking → negative-intent routing) runs
+  // only when the follow-up feature is switched on. While off, this stays a plain
+  // logger (the pre-feature behavior). Fire-and-forget so the 200 is never delayed.
+  if (env.WA_FOLLOWUP_ENABLED) {
+    void handleInboundWhatsApp(req.body as InboundWhatsApp).catch((err) =>
+      logger.error({ err }, "handleInboundWhatsApp failed"),
+    );
+  }
+
   res.sendStatus(200);
 }
 

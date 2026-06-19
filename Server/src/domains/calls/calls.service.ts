@@ -4,6 +4,7 @@ import {
   enqueuePendingRecording,
   deletePendingRecording,
   bumpPendingRecording,
+  saveRecordingSummary,
   getSetting,
   setSetting,
   type PendingRecording,
@@ -110,42 +111,50 @@ export async function processRecordingJob(job: PendingRecording): Promise<void> 
 }
 
 async function runRecordingJob(job: PendingRecording): Promise<void> {
-  const result = await salestrailClient.tryDownloadOnce(job.call_id);
+  // Reuse a prior attempt's transcript so a Monday-write retry never re-calls
+  // Gemini. Only download + transcribe when we don't already have the summary.
+  let summary = job.summary;
+  let service: string | null = null;
+  let followUp: boolean | null = null;
 
-  if (result.status === "not_ready" || result.status === "error") {
-    const reason = result.status === "error" ? result.message : "recording not ready";
-    bumpPendingRecording(job.id, reason);
-    logger.info(
-      { callId: job.call_id, attempt: job.attempt_count + 1, status: result.status },
-      "Recording not ready yet — will retry",
-    );
-    return;
+  if (!summary) {
+    const result = await salestrailClient.tryDownloadOnce(job.call_id);
+
+    if (result.status === "not_ready" || result.status === "error") {
+      const reason = result.status === "error" ? result.message : "recording not ready";
+      bumpPendingRecording(job.id, reason);
+      logger.info(
+        { callId: job.call_id, attempt: job.attempt_count + 1, status: result.status },
+        "Recording not ready yet — will retry",
+      );
+      return;
+    }
+
+    try {
+      const transcription = await transcribeAudio(result.buffer);
+      summary = transcription.summary;
+      service = transcription.service_interest;
+      followUp = transcription.follow_up_needed;
+    } catch (err) {
+      bumpPendingRecording(job.id, (err as Error).message);
+      logger.warn(
+        { err, callId: job.call_id, attempt: job.attempt_count + 1 },
+        "Transcription failed — will retry",
+      );
+      return;
+    }
+
+    // Persist immediately: a later Monday failure must not cost another Gemini call.
+    saveRecordingSummary(job.id, summary);
   }
 
-  let summary: string;
-  let service: string | null;
-  let followUp: boolean;
-  try {
-    const transcription = await transcribeAudio(result.buffer);
-    summary = transcription.summary;
-    service = transcription.service_interest;
-    followUp = transcription.follow_up_needed;
-  } catch (err) {
-    bumpPendingRecording(job.id, (err as Error).message);
-    logger.warn(
-      { err, callId: job.call_id, attempt: job.attempt_count + 1 },
-      "Transcription failed — will retry",
-    );
-    return;
-  }
-
-  // Latest-call-wins: don't let an older call's late recording overwrite a
-  // newer call's summary already shown on the row.
-  const thisCallMs = toEpochMs(job.call_time);
+  // Latest-call-wins. An uncertain/unparseable timestamp is treated as "now" so a
+  // real summary is never silently dropped (and can't collapse to epoch 0).
+  const thisCallMs = toEpochMs(job.call_time) ?? Date.now();
   const shownRaw = getSetting(LAST_SUMMARY_KEY(job.item_id));
   const shownMs = shownRaw ? Number(shownRaw) : null;
 
-  if (shownMs !== null && thisCallMs <= shownMs) {
+  if (shownMs !== null && thisCallMs < shownMs) {
     deletePendingRecording(job.id);
     logger.info(
       { callId: job.call_id, itemId: job.item_id, thisCallMs, shownMs },
@@ -154,7 +163,17 @@ async function runRecordingJob(job: PendingRecording): Promise<void> {
     return;
   }
 
-  await addNoteToItem(job.item_id, summary);
+  try {
+    await addNoteToItem(job.item_id, summary);
+  } catch (err) {
+    bumpPendingRecording(job.id, (err as Error).message);
+    logger.warn(
+      { err, callId: job.call_id, itemId: job.item_id, attempt: job.attempt_count + 1 },
+      "Monday note write failed — will retry (summary cached, no re-transcription)",
+    );
+    return;
+  }
+
   setSetting(LAST_SUMMARY_KEY(job.item_id), String(thisCallMs));
   deletePendingRecording(job.id);
   logger.info(
@@ -164,14 +183,16 @@ async function runRecordingJob(job: PendingRecording): Promise<void> {
 }
 
 // Salestrail startTime may be an ISO string or a numeric epoch (ms or s).
-export function toEpochMs(startTime: string): number {
+// Returns null when unparseable so the caller can decide a safe fallback
+// (never 0, which would collide with the latest-call-wins ordering).
+export function toEpochMs(startTime: string): number | null {
   const trimmed = startTime.trim();
   if (/^\d+$/.test(trimmed)) {
     const n = Number(trimmed);
     return trimmed.length <= 10 ? n * 1000 : n; // 10-digit = seconds
   }
   const parsed = Date.parse(trimmed);
-  return Number.isNaN(parsed) ? 0 : parsed;
+  return Number.isNaN(parsed) ? null : parsed;
 }
 
 export async function handleTestInject(body: CallTestInjectBody): Promise<CallResult> {

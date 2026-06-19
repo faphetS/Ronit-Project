@@ -857,6 +857,72 @@ export async function getAllLeadsForFollowup(): Promise<FollowupLead[]> {
   return leads;
 }
 
+export interface UmanFollowupLead {
+  itemId: string;
+  name: string;
+  phone: string | null;
+  /** Raw flight-date text from MONDAY_COL_FLIGHT_DATE_ID (DD/MM/YYYY) or null. */
+  flightDateRaw: string | null;
+}
+
+/** Fetch the leads currently sitting in the Uman follow-up group, with phone and
+ *  the (text) flight-date column. CRM board only. The group holds ~66 items today;
+ *  if it ever exceeds one page we log a warn rather than silently truncating. */
+export async function getUmanFollowupLeads(): Promise<UmanFollowupLead[]> {
+  const colIds = [env.MONDAY_COL_PHONE_ID, env.MONDAY_COL_FLIGHT_DATE_ID];
+
+  const data = await gql<{
+    boards: Array<{
+      groups: Array<{
+        items_page: {
+          cursor: string | null;
+          items: Array<{
+            id: string;
+            name: string;
+            column_values: Array<{ id: string; text: string | null }>;
+          }>;
+        };
+      }>;
+    }>;
+  }>(
+    `query ($boardId: [ID!], $groupId: [String!], $colIds: [String!]) {
+      boards(ids: $boardId) {
+        groups(ids: $groupId) {
+          items_page(limit: 500) {
+            cursor
+            items {
+              id
+              name
+              column_values(ids: $colIds) { id text }
+            }
+          }
+        }
+      }
+    }`,
+    {
+      boardId: [env.MONDAY_BOARD_CRM_ID],
+      groupId: [env.MONDAY_GROUP_UMAN_FOLLOWUP_ID],
+      colIds,
+    },
+  );
+
+  const page = data.boards[0]?.groups[0]?.items_page;
+  const items = page?.items ?? [];
+  if (page?.cursor) {
+    logger.warn(
+      { groupId: env.MONDAY_GROUP_UMAN_FOLLOWUP_ID, fetched: items.length },
+      "Uman follow-up group exceeds one page (500) — only the first page is processed; add pagination",
+    );
+  }
+
+  return items.map((item) => {
+    const phone = item.column_values.find((c) => c.id === env.MONDAY_COL_PHONE_ID)?.text?.trim() || null;
+    const flightDateRaw =
+      item.column_values.find((c) => c.id === env.MONDAY_COL_FLIGHT_DATE_ID)?.text?.trim() || null;
+    return { itemId: item.id, name: item.name, phone, flightDateRaw };
+  });
+}
+
 export async function updateLastCallDate(boardId: string, itemId: string): Promise<void> {
   const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Jerusalem" });
   const columnValues: Record<string, unknown> = {

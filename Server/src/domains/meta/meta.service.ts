@@ -4,6 +4,7 @@ import { classifyLead, type Classification } from "../../lib/classify.js";
 import {
   isMessageProcessed,
   markMessageProcessed,
+  unmarkMessageProcessed,
   findKnownSender,
   upsertKnownSender,
   updateSenderPhone,
@@ -53,33 +54,35 @@ async function safeUpdateService(
   }
 }
 
-export async function handleIncomingMessage(input: {
-  messageText: string;
-  senderId?: string;
-  senderUsername?: string;
-  messageId?: string;
-}): Promise<{ itemId: string | null; classification: Classification }> {
-  if (input.messageId && isMessageProcessed("meta", input.messageId)) {
-    logger.info({ messageId: input.messageId }, "Skipping duplicate webhook message");
-    return {
-      itemId: null,
-      classification: {
-        interested: false,
-        service: null,
-        extractedName: null,
-        extractedPhone: null,
-        confidence: 0,
-        rawResponse: "",
-      },
-    };
+// DM sends are best-effort — a transient IG API blip must not abort lead creation.
+async function safeSendReplyDM(
+  senderId: string,
+  opts: { service: "uman" | "challah"; hasPhone: boolean; answered: boolean },
+): Promise<void> {
+  try {
+    await sendReplyDM(senderId, opts);
+  } catch (err) {
+    logger.warn({ err, senderId }, "sendReplyDM failed — continuing (non-fatal)");
   }
+}
 
-  const classification = await classifyLead(input);
-
-  if (input.messageId) {
-    markMessageProcessed("meta", input.messageId);
+async function safeSendServiceQuestion(senderId: string): Promise<void> {
+  try {
+    await sendServiceQuestion(senderId);
+  } catch (err) {
+    logger.warn({ err, senderId }, "sendServiceQuestion failed — continuing (non-fatal)");
   }
+}
 
+async function processClassifiedMessage(
+  input: {
+    messageText: string;
+    senderId?: string;
+    senderUsername?: string;
+    messageId?: string;
+  },
+  classification: Classification,
+): Promise<{ itemId: string | null; classification: Classification }> {
   let stalePhone: string | null = null;
 
   // BLOCK 0 — pending service clarification. A pending sender is also a known
@@ -148,7 +151,7 @@ export async function handleIncomingMessage(input: {
         }
 
         const hasPhone = !!(pending.phone || classification.extractedPhone);
-        await sendReplyDM(input.senderId!, {
+        await safeSendReplyDM(input.senderId!, {
           service: classification.service,
           hasPhone,
           answered: true,
@@ -192,7 +195,7 @@ export async function handleIncomingMessage(input: {
       }
 
       if (pending.reask_count < MAX_REASKS) {
-        await sendServiceQuestion(input.senderId!);
+        await safeSendServiceQuestion(input.senderId!);
         incrementReaskCount("instagram", input.senderId!);
         logger.info(
           {
@@ -381,14 +384,14 @@ export async function handleIncomingMessage(input: {
   if (input.senderId) {
     if (classification.service !== null) {
       // Entry A — service named upfront.
-      await sendReplyDM(input.senderId, {
+      await safeSendReplyDM(input.senderId, {
         service: classification.service,
         hasPhone: !!phone,
         answered: false,
       });
     } else {
       // Entry B step 1 — ask which service.
-      await sendServiceQuestion(input.senderId);
+      await safeSendServiceQuestion(input.senderId);
     }
 
     // Uman lead created with a phone → send the WhatsApp welcome (gated + once;
@@ -401,4 +404,41 @@ export async function handleIncomingMessage(input: {
   }
 
   return { itemId, classification };
+}
+
+export async function handleIncomingMessage(input: {
+  messageText: string;
+  senderId?: string;
+  senderUsername?: string;
+  messageId?: string;
+}): Promise<{ itemId: string | null; classification: Classification }> {
+  if (input.messageId && isMessageProcessed("meta", input.messageId)) {
+    logger.info({ messageId: input.messageId }, "Skipping duplicate webhook message");
+    return {
+      itemId: null,
+      classification: {
+        interested: false,
+        service: null,
+        extractedName: null,
+        extractedPhone: null,
+        confidence: 0,
+        rawResponse: "",
+      },
+    };
+  }
+
+  const classification = await classifyLead(input);
+
+  if (input.messageId) {
+    markMessageProcessed("meta", input.messageId);
+  }
+
+  try {
+    return await processClassifiedMessage(input, classification);
+  } catch (err) {
+    if (input.messageId) {
+      unmarkMessageProcessed("meta", input.messageId);
+    }
+    throw err;
+  }
 }

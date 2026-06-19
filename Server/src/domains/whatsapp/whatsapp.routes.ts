@@ -3,6 +3,7 @@ import { env } from "../../config/env.js";
 import { validate } from "../../middleware/validate.js";
 import {
   receiveWebhook,
+  verifyWhatsAppSecret,
   testHolidayCheck,
   testBroadcast,
   testFollowup,
@@ -17,9 +18,8 @@ import {
 
 const router = Router();
 
-// Plain inbound receiver — accepts ANY payload (no schema validation), logs it,
-// returns 200. Decoupled from GreenAPI; handling will be rebuilt for the new gateway.
-router.post("/webhook", receiveWebhook);
+// Secret-gated when WA_WEBHOOK_SECRET is set; open (backwards-compatible) when empty.
+router.post("/webhook", verifyWhatsAppSecret, receiveWebhook);
 
 router.get("/holiday-form", getHolidayForm);
 router.post("/holiday-form", validate({ body: HolidayFormSubmitSchema }), postHolidayForm);

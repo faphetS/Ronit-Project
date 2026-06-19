@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("../../lib/dedup.js", () => ({
   isMessageProcessed: vi.fn().mockReturnValue(false),
   markMessageProcessed: vi.fn(),
+  unmarkMessageProcessed: vi.fn(),
   findKnownSender: vi.fn().mockReturnValue(null),
   upsertKnownSender: vi.fn(),
   updateSenderPhone: vi.fn(),
@@ -66,6 +67,7 @@ import * as mondayWebhookService from "../monday/monday.webhook.service.js";
 import * as outbound from "./meta.outbound.service.js";
 import * as umanWelcome from "../whatsapp/uman-welcome.service.js";
 
+
 const SENDER_ID = "ig_sender_001";
 const ITEM_ID = "crm-item-456";
 const NEW_LEADS_GROUP = env.MONDAY_GROUP_NEW_LEADS_ID;
@@ -103,6 +105,7 @@ const vagueClassification = {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(dedup.isMessageProcessed).mockReturnValue(false);
+  vi.mocked(dedup.unmarkMessageProcessed).mockReturnValue(undefined);
   vi.mocked(dedup.findKnownSender).mockReturnValue(null);
   vi.mocked(conversation.getPendingClarification).mockReturnValue(null);
   vi.mocked(conversation.incrementReaskCount).mockReturnValue(1);
@@ -770,5 +773,77 @@ describe("handleIncomingMessage — WhatsApp uman welcome trigger", () => {
     });
 
     expect(umanWelcome.maybeSendUmanWelcome).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fix 1 — dedup claim released on side-effect failure
+// ---------------------------------------------------------------------------
+
+describe("handleIncomingMessage — unmarkMessageProcessed on failure", () => {
+  it("calls unmarkMessageProcessed when a Monday side-effect throws, and re-throws", async () => {
+    // createLeadRow throws after the dedup mark is set
+    vi.mocked(mondayService.createLeadRow).mockRejectedValue(new Error("Monday down"));
+
+    await expect(
+      handleIncomingMessage({
+        messageText: "אני רוצה לטוס לאומן",
+        senderId: SENDER_ID,
+        messageId: "unmark-1",
+      }),
+    ).rejects.toThrow("Monday down");
+
+    expect(dedup.markMessageProcessed).toHaveBeenCalledWith("meta", "unmark-1");
+    expect(dedup.unmarkMessageProcessed).toHaveBeenCalledWith("meta", "unmark-1");
+  });
+
+  it("does NOT call unmarkMessageProcessed when messageId is absent", async () => {
+    vi.mocked(mondayService.createLeadRow).mockRejectedValue(new Error("Monday down"));
+
+    await expect(
+      handleIncomingMessage({
+        messageText: "אני רוצה לטוס לאומן",
+        senderId: SENDER_ID,
+        // no messageId
+      }),
+    ).rejects.toThrow("Monday down");
+
+    expect(dedup.unmarkMessageProcessed).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fix 2 — failing DM send must not abort lead creation
+// ---------------------------------------------------------------------------
+
+describe("handleIncomingMessage — DM send failure is non-fatal", () => {
+  it("resolves and creates lead even when sendReplyDM throws", async () => {
+    vi.mocked(outbound.sendReplyDM).mockRejectedValue(new Error("IG API 503"));
+
+    const result = await handleIncomingMessage({
+      messageText: "אני רוצה טיסה לאומן 0501234567",
+      senderId: SENDER_ID,
+      messageId: "dm-fail-1",
+    });
+
+    expect(mondayService.createLeadRow).toHaveBeenCalled();
+    expect(result.itemId).toBe("new-item-123");
+    // the dedup mark must remain (not unmarked)
+    expect(dedup.unmarkMessageProcessed).not.toHaveBeenCalled();
+  });
+
+  it("resolves and creates lead even when sendServiceQuestion throws", async () => {
+    vi.mocked(classify.classifyLead).mockResolvedValue(vagueClassification);
+    vi.mocked(outbound.sendServiceQuestion).mockRejectedValue(new Error("IG 429"));
+
+    const result = await handleIncomingMessage({
+      messageText: "היי אני מעוניינת",
+      senderId: SENDER_ID,
+      messageId: "dm-fail-2",
+    });
+
+    expect(mondayService.createLeadRow).toHaveBeenCalled();
+    expect(result.itemId).toBe("new-item-123");
+    expect(dedup.unmarkMessageProcessed).not.toHaveBeenCalled();
   });
 });

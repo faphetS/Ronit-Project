@@ -6,6 +6,7 @@ import {
   findLeadByPhoneAllBoards,
   updateLeadRow,
 } from "../monday/monday.service.js";
+import { maybeSendUmanWelcome } from "../whatsapp/uman-welcome.service.js";
 import type { WebsiteLead } from "./website.validator.js";
 
 export interface SubmissionResult {
@@ -119,6 +120,16 @@ export async function handleFormSubmission(
     { itemId, utm_source: input.utm_source },
     "Website form: created new lead",
   );
+
+  // A brand-new website lead who chose Uman and left a phone gets the same WhatsApp
+  // welcome as an IG-origin lead. Uman-only + allowlist-gated inside the call (no-ops
+  // otherwise); fire-and-forget so the form response isn't delayed. Deduped on ig_id
+  // when present, else the phone, so it sends at most once per person.
+  void maybeSendUmanWelcome({
+    senderId: input.ig_id ?? input.phone ?? "",
+    service: input.service ?? null,
+    phone: input.phone,
+  }).catch((err) => logger.error({ err, itemId }, "Website Uman welcome failed"));
 
   // Link ig_id → new CRM row so a future IG DM from this lead finds the row
   // via known_senders instead of creating a duplicate.

@@ -15,6 +15,12 @@ export function markMessageProcessed(source: string, externalId: string): void {
     .run(source, externalId);
 }
 
+export function unmarkMessageProcessed(source: string, externalId: string): void {
+  getDb()
+    .prepare("DELETE FROM processed_webhooks WHERE source = ? AND external_id = ?")
+    .run(source, externalId);
+}
+
 export interface KnownSender {
   monday_item_id: string;
   phone: string | null;

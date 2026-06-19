@@ -178,6 +178,9 @@ const envSchema = z.object({
   // app still boots if unset — sendGatewayMessage no-ops when URL/token are missing.
   RONIT_WA_SEND_URL: z.string().url().optional(),
   RONIT_WA_SEND_TOKEN: z.string().min(1).optional(),
+  // Inbound webhook secret. Empty string (default) = open (backwards-compatible).
+  // Set to a non-empty value to require an x-webhook-secret header on inbound calls.
+  WA_WEBHOOK_SECRET: z.string().default(""),
   // Outbound safety gate: CSV of allowed recipient msisdns. "all" = no gate
   // (production); "" (default) = send to NOBODY (fail-closed for testing).
   RONIT_WA_ALLOWED_NUMBERS: z.string().default(""),
@@ -193,6 +196,74 @@ const envSchema = z.object({
   // Human-like gap between the two welcome messages (ms). Default ~5s (within the
   // intended 3-6s); set to 0 in tests so they stay fast.
   WA_WELCOME_BUBBLE_DELAY_MS: z.coerce.number().int().min(0).default(5000),
+
+  // --- Uman WhatsApp follow-up engine (daily cron + inbound activity/negative routing) ---
+  // Master kill-switch. While "false" (default) the daily follow-up cron is dormant
+  // AND inbound WhatsApp processing stays log-only — nothing is sent and no lead is
+  // moved. Flip to "true" only when ready to test (outbound sends still pass the
+  // RONIT_WA_ALLOWED_NUMBERS allowlist, so real leads stay untouched until that opens).
+  WA_FOLLOWUP_ENABLED: z.string().default("false").transform((v) => v === "true"),
+
+  // Follow-up message copy (Hebrew), supplied by Ronit. Overridable via .env on the
+  // VPS (no rebuild). When overriding on one line, "\n" escapes decode to real
+  // newlines at send time; "{name}" / "{flight_date}" are interpolated if present.
+  // 3D = 3-day inactivity, 10D = 10-day inactivity, FLIGHT = ~2 weeks before the flight.
+  WA_FOLLOWUP_3D: z
+    .string()
+    .min(1)
+    .default(
+      `היי מה שלומך יקרה?
+רציתי לוודא שקיבלת את כל הפרטים לגבי הפקת ט"ו באב  אצל רבי נחמן יחד עם הרבנית רונית ברש.
+
+אם יש לך שאלה או משהו שעדיין לא ברור, אני כאן בשמחה לענות. ❤️
+
+אשמח גם לשמוע האם את שוקלת להצטרף אלינו למסע המיוחד הזה?`,
+    ),
+  WA_FOLLOWUP_10D: z
+    .string()
+    .min(1)
+    .default(
+      `היי יקרה 🌷
+מעדכנת שאנחנו בעיצומה של ההרשמה להפקת טו באב אצל הצדיק 💫
+
+זהו זמן מיוחד מאוד לתפילות על זיווג, זוגיות, שלום בית וישועות, ואנחנו מתרגשות לקראת המסע המשותף עם הרבנית רונית ברש.
+
+אם את עדיין מתלבטת או שיש לך שאלות, מוזמנת לכתוב לי ואשמח לעזור. 💕`,
+    ),
+  WA_FOLLOWUP_FLIGHT: z
+    .string()
+    .min(1)
+    .default(
+      `תזכורת אחרונה לגבי נסיעת הנשים לט"ו באב לאומן עם הרבנית רונית ברש.
+
+ההרשמה צפויה להיסגר בעוד *כשבועיים* , ומספר המקומות שנותרו מוגבל.
+
+אם את מרגישה שהנסיעה הזו קוראת לך,שרבנו קורא לך 📣📣📣
+ זה הזמן לשמור מקום ולהצטרף לחוויה עוצמתית של תפילה, התעלות, שמחה וחיבור מיוחד בציון רבנו הקדוש. ✨
+
+לפרטים והרשמה אני זמינה עבורך באהבה. ❤️`,
+    ),
+
+  // Uman follow-up group + not-relevant group + flight-date column (verified live
+  // on the CRM board 2026-06-19). Override only if the board changes. Negative-intent
+  // routing only moves leads OUT of the follow-up group, so the closed/not-relevant
+  // groups need no exclusion list. Flight date is a TEXT column (DD/MM/YYYY), not a
+  // Monday date column.
+  MONDAY_GROUP_UMAN_FOLLOWUP_ID: z.string().default("group_mm3ya11w"),
+  MONDAY_GROUP_NOT_RELEVANT_ID: z.string().default("group_mm3yzqqc"),
+  MONDAY_COL_FLIGHT_DATE_ID: z.string().default("text_mm4a7ax8"),
+  // Pause AFTER each actual send in the follow-up cron (ms). Spaces outbound
+  // messages so a day's batch trickles out instead of bursting (lowers spam-flag
+  // risk on the personal number). Default 10s. Set to 0 in tests so they stay fast.
+  WA_FOLLOWUP_PACING_MS: z.coerce.number().int().min(0).default(10000),
+
+  // Inactivity UNIT (ms) for the 3-step / 10-step clock. Default 1 day → the steps
+  // mean 3 days / 10 days. For a fast end-to-end TEST set this to 60000 (1 minute →
+  // 3 min / 10 min) AND set WA_FOLLOWUP_CRON to "* * * * *" so the job checks often.
+  WA_FOLLOWUP_UNIT_MS: z.coerce.number().int().min(1000).default(86_400_000),
+  // Cron schedule for the follow-up job (Asia/Jerusalem). Default daily 10:00; for a
+  // fast test set "* * * * *" (every minute).
+  WA_FOLLOWUP_CRON: z.string().default("0 10 * * *"),
 });
 
 const parsed = envSchema.safeParse(process.env);

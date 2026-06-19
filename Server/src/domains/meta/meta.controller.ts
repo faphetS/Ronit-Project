@@ -105,17 +105,21 @@ export async function receiveWebhook(
         continue;
       }
 
+      const messageId =
+        event.message?.mid ??
+        (event.timestamp != null ? `${event.sender.id}:${event.timestamp}` : undefined);
+
       try {
         const result = await handleIncomingMessage({
           messageText,
           senderId: event.sender.id,
           senderUsername: event.sender.username,
-          messageId: event.message?.mid,
+          messageId,
         });
         logger.info(
           {
             senderId: event.sender.id,
-            messageId: event.message?.mid,
+            messageId,
             interested: result.classification.interested,
             service: result.classification.service,
             itemId: result.itemId,
@@ -126,7 +130,7 @@ export async function receiveWebhook(
         // Per-message failure must not 5xx the webhook — Meta would retry and
         // we'd risk duplicate Monday rows for messages that did succeed.
         logger.error(
-          { err, senderId: event.sender.id, messageId: event.message?.mid },
+          { err, senderId: event.sender.id, messageId },
           "Failed to process Instagram DM — continuing",
         );
       }
