@@ -27,7 +27,6 @@ vi.mock("../../lib/transcribe.js", () => ({
     summary: "סיכום שיחה",
     customer_name: null,
     service_interest: "uman",
-    key_points: [],
     follow_up_needed: false,
   }),
 }));
@@ -118,7 +117,6 @@ describe("older call does not overwrite a newer summary (latest-call-wins)", () 
       summary: "old call summary",
       customer_name: null,
       service_interest: null,
-      key_points: [],
       follow_up_needed: false,
     });
 

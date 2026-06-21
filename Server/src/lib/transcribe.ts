@@ -7,7 +7,6 @@ const TranscriptionResultSchema = z.object({
   summary: z.string(),
   customer_name: z.string().nullable(),
   service_interest: z.enum(["uman", "challah"]).nullable(),
-  key_points: z.array(z.string()),
   follow_up_needed: z.boolean(),
 });
 
@@ -33,12 +32,11 @@ Return STRICT JSON:
   "summary": "תקציר קצר בעברית של השיחה",
   "customer_name": "customer's name if mentioned, or null",
   "service_interest": "uman" | "challah" | null,
-  "key_points": ["key point 1", "key point 2"],
   "follow_up_needed": true/false
 }
 
 Rules:
-- summary MUST be in Hebrew
+- summary MUST be in Hebrew, 2-3 sentences max
 - Do NOT output a full transcript — only the fields above
 - Output ONLY the JSON object. No commentary.`;
 
@@ -60,10 +58,9 @@ const RESPONSE_FORMAT = {
         summary: { type: "string" },
         customer_name: { type: ["string", "null"] },
         service_interest: { type: ["string", "null"], enum: ["uman", "challah", null] },
-        key_points: { type: "array", items: { type: "string" } },
         follow_up_needed: { type: "boolean" },
       },
-      required: ["summary", "customer_name", "service_interest", "key_points", "follow_up_needed"],
+      required: ["summary", "customer_name", "service_interest", "follow_up_needed"],
     },
   },
 };
@@ -119,11 +116,17 @@ async function requestTranscription(base64Audio: string): Promise<TranscriptionR
       provider: { require_parameters: true },
       // Auto-repair any residual malformed JSON (stray fences, trailing commas).
       plugins: [{ id: "response-healing" }],
-      temperature: 0,
-      // Effectively unlimited for a short summary (model hard cap is ~65k).
-      // High headroom so a verbose Hebrew summary never truncates the JSON
-      // (healing can't repair a max_tokens-truncated response).
-      max_tokens: 16384,
+      // Dropping the unbounded key_points array kills the greedy repetition loop
+      // that used to run away until it blew max_tokens and dropped the trailing
+      // required field (follow_up_needed) → "malformed schema". A small (non-zero)
+      // temperature adds a decode escape-hatch and makes the 3× retry actually
+      // vary instead of repeating the identical failure.
+      // NOTE: do NOT add frequency_penalty — Gemini providers don't advertise it,
+      // so with provider.require_parameters it leaves zero endpoints → 404.
+      temperature: 0.2,
+      // A 2-3 sentence Hebrew summary is ~150 tokens; bound the output so any
+      // degenerate response is capped (and cheaper) rather than running to 16k.
+      max_tokens: 1024,
     }),
   });
 
