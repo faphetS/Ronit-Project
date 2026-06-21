@@ -25,9 +25,6 @@ vi.mock("./salestrail.client.js", () => ({
 vi.mock("../../lib/transcribe.js", () => ({
   transcribeAudio: vi.fn().mockResolvedValue({
     summary: "סיכום שיחה",
-    customer_name: null,
-    service_interest: "uman",
-    follow_up_needed: false,
   }),
 }));
 vi.mock("../monday/monday.service.js", () => ({
@@ -115,9 +112,6 @@ describe("older call does not overwrite a newer summary (latest-call-wins)", () 
     vi.mocked(salestrailClient.tryDownloadOnce).mockResolvedValueOnce({ status: "ok", buffer: Buffer.from("audio") });
     vi.mocked(transcribeAudio).mockResolvedValueOnce({
       summary: "old call summary",
-      customer_name: null,
-      service_interest: null,
-      follow_up_needed: false,
     });
 
     await processRecordingJob(job("callOld", "item1", "2026-06-17T11:00:00Z"));

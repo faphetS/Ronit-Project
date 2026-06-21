@@ -114,8 +114,6 @@ async function runRecordingJob(job: PendingRecording): Promise<void> {
   // Reuse a prior attempt's transcript so a Monday-write retry never re-calls
   // Gemini. Only download + transcribe when we don't already have the summary.
   let summary = job.summary;
-  let service: string | null = null;
-  let followUp: boolean | null = null;
 
   if (!summary) {
     const result = await salestrailClient.tryDownloadOnce(job.call_id);
@@ -131,10 +129,7 @@ async function runRecordingJob(job: PendingRecording): Promise<void> {
     }
 
     try {
-      const transcription = await transcribeAudio(result.buffer);
-      summary = transcription.summary;
-      service = transcription.service_interest;
-      followUp = transcription.follow_up_needed;
+      summary = (await transcribeAudio(result.buffer)).summary;
     } catch (err) {
       bumpPendingRecording(job.id, (err as Error).message);
       logger.warn(
@@ -177,7 +172,7 @@ async function runRecordingJob(job: PendingRecording): Promise<void> {
   setSetting(LAST_SUMMARY_KEY(job.item_id), String(thisCallMs));
   deletePendingRecording(job.id);
   logger.info(
-    { callId: job.call_id, itemId: job.item_id, service, followUp },
+    { callId: job.call_id, itemId: job.item_id },
     "Recording transcribed — summary written to Monday",
   );
 }

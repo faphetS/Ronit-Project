@@ -5,9 +5,6 @@ import { AppError } from "./errors.js";
 
 const TranscriptionResultSchema = z.object({
   summary: z.string(),
-  customer_name: z.string().nullable(),
-  service_interest: z.enum(["uman", "challah"]).nullable(),
-  follow_up_needed: z.boolean(),
 });
 
 export type TranscriptionResult = z.infer<typeof TranscriptionResultSchema>;
@@ -19,25 +16,18 @@ interface OpenRouterResponse {
 const SYSTEM_PROMPT = `You are a call analysis assistant for an Israeli travel/events business.
 You receive an audio recording of a sales call (usually in Hebrew, sometimes mixed Hebrew/English).
 
-Listen to the full conversation, then:
-1. Write a short Hebrew summary suitable for a CRM note (2-3 sentences max)
-2. Extract structured data
+Write a short Hebrew summary of the call, suitable for a CRM note.
 
-The business offers two services:
-- uman: Flights and trips to Uman (Rabbi Nachman pilgrimage)
-- challah: Challah separation events (הפרשות חלה)
+For context, the business offers two services: trips to Uman (Rabbi Nachman pilgrimage) and challah separation events (הפרשות חלה).
 
 Return STRICT JSON:
 {
-  "summary": "תקציר קצר בעברית של השיחה",
-  "customer_name": "customer's name if mentioned, or null",
-  "service_interest": "uman" | "challah" | null,
-  "follow_up_needed": true/false
+  "summary": "תקציר קצר בעברית של השיחה"
 }
 
 Rules:
 - summary MUST be in Hebrew, 2-3 sentences max
-- Do NOT output a full transcript — only the fields above
+- Do NOT output a full transcript — only the summary
 - Output ONLY the JSON object. No commentary.`;
 
 const MAX_TRANSCRIBE_ATTEMPTS = 3;
@@ -56,11 +46,8 @@ const RESPONSE_FORMAT = {
       additionalProperties: false,
       properties: {
         summary: { type: "string" },
-        customer_name: { type: ["string", "null"] },
-        service_interest: { type: ["string", "null"], enum: ["uman", "challah", null] },
-        follow_up_needed: { type: "boolean" },
       },
-      required: ["summary", "customer_name", "service_interest", "follow_up_needed"],
+      required: ["summary"],
     },
   },
 };
@@ -116,11 +103,10 @@ async function requestTranscription(base64Audio: string): Promise<TranscriptionR
       provider: { require_parameters: true },
       // Auto-repair any residual malformed JSON (stray fences, trailing commas).
       plugins: [{ id: "response-healing" }],
-      // Dropping the unbounded key_points array kills the greedy repetition loop
-      // that used to run away until it blew max_tokens and dropped the trailing
-      // required field (follow_up_needed) → "malformed schema". A small (non-zero)
-      // temperature adds a decode escape-hatch and makes the 3× retry actually
-      // vary instead of repeating the identical failure.
+      // A single-field schema (summary only) makes the old failure structurally
+      // impossible: there is no trailing required field to drop if the model ever
+      // runs long. temperature>0 still helps as a decode escape-hatch and makes
+      // the 3× retry vary instead of repeating an identical failure.
       // NOTE: do NOT add frequency_penalty — Gemini providers don't advertise it,
       // so with provider.require_parameters it leaves zero endpoints → 404.
       temperature: 0.2,
@@ -162,14 +148,7 @@ async function requestTranscription(base64Audio: string): Promise<TranscriptionR
     throw new AppError(502, "Transcriber returned malformed schema", "TRANSCRIBER_INVALID_SCHEMA");
   }
 
-  logger.info(
-    {
-      summaryLen: validation.data.summary.length,
-      service: validation.data.service_interest,
-      followUp: validation.data.follow_up_needed,
-    },
-    "Audio transcription complete",
-  );
+  logger.info({ summaryLen: validation.data.summary.length }, "Audio transcription complete");
 
   return validation.data;
 }
