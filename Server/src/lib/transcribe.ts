@@ -110,9 +110,11 @@ async function requestTranscription(base64Audio: string): Promise<TranscriptionR
       // NOTE: do NOT add frequency_penalty — Gemini providers don't advertise it,
       // so with provider.require_parameters it leaves zero endpoints → 404.
       temperature: 0.2,
-      // A 2-3 sentence Hebrew summary is ~150 tokens; bound the output so any
-      // degenerate response is capped (and cheaper) rather than running to 16k.
-      max_tokens: 1024,
+      // ~150 tokens covers a 2-3 sentence summary; 2048 is generous headroom so a
+      // real summary never truncates, while still capping a degenerate response far
+      // below the ~16k it used to run to. If the cap were ever hit, summary-only
+      // means at worst a cut-off (but still valid) summary — not a hard failure.
+      max_tokens: 2048,
     }),
   });
 
