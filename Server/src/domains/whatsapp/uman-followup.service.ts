@@ -11,6 +11,7 @@ import {
 import { getUmanFollowupLeads, type UmanFollowupLead } from "../monday/monday.service.js";
 import { isAllowed } from "./uman-welcome.service.js";
 import { sendGatewayMessage, toMsisdn, isValidMsisdn } from "./whatsapp.gateway.js";
+import { getLastWaActivityMs } from "./whatsapp.history.js";
 
 // Inactivity thresholds in UNITS. One unit = env.WA_FOLLOWUP_UNIT_MS (1 day in prod,
 // so 3 days / 10 days; set the unit to 1 minute for a fast test → 3 min / 10 min).
@@ -32,6 +33,11 @@ export function sqliteUtcToMs(s: string | null | undefined): number {
   if (!s) return 0;
   const ms = Date.parse(`${s.replace(" ", "T")}Z`);
   return Number.isNaN(ms) ? 0 : ms;
+}
+
+/** Format epoch ms as a SQLite UTC timestamp ("YYYY-MM-DD HH:MM:SS") — inverse of sqliteUtcToMs. */
+export function msToSqliteUtc(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 19).replace("T", " ");
 }
 
 /** Parse a DD/MM/YYYY flight-date string to YYYY-MM-DD, or null if absent/invalid
@@ -182,7 +188,23 @@ export async function runUmanFollowups(): Promise<void> {
         if (previousIds.has(lead.itemId)) {
           markSeenInFollowupGroup(lead.itemId, lead.phone); // continuous — keep the clock
         } else {
-          resetFollowupState(lead.itemId, lead.phone); // (re)entry — fresh cycle
+          // (re)entry — fresh cycle. Anchor the clock to the lead's last WhatsApp message
+          // (inbound OR outbound, whichever is newest) so the schedule continues from the
+          // real conversation instead of "now". Empty history (or not allowlisted) → "now".
+          let anchorMs = Date.now();
+          let anchorSource = "entry_now";
+          if (lead.phone && isAllowed(toMsisdn(lead.phone))) {
+            const lastMs = await getLastWaActivityMs(lead.phone);
+            if (lastMs !== null) {
+              anchorMs = lastMs;
+              anchorSource = "wa_history";
+            }
+          }
+          resetFollowupState(lead.itemId, lead.phone, msToSqliteUtc(anchorMs));
+          logger.info(
+            { itemId: lead.itemId, anchorMs, source: anchorSource },
+            "Follow-up clock anchored",
+          );
         }
 
         const state = getWaFollowupState(lead.itemId);

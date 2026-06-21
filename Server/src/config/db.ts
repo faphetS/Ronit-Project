@@ -284,22 +284,26 @@ export function markSeenInFollowupGroup(itemId: string, phone: string | null): v
 // follow-up cycle — the clock restarts now and all halt/sent flags clear, so the
 // 3d → 10d → flight sequence runs again until she replies. Called for leads seen in
 // the group this run that were absent on the previous run (and first-time entries).
-export function resetFollowupState(itemId: string, phone: string | null): void {
+export function resetFollowupState(
+  itemId: string,
+  phone: string | null,
+  firstSeenAt: string,
+): void {
   getDb()
     .prepare(
       `INSERT INTO wa_followup_state
          (monday_item_id, phone, group_first_seen_at, replied_at, sent_3d_at, sent_10d_at, sent_flight_at)
-       VALUES (?, ?, datetime('now'), NULL, NULL, NULL, NULL)
+       VALUES (?, ?, ?, NULL, NULL, NULL, NULL)
        ON CONFLICT(monday_item_id) DO UPDATE SET
          phone = excluded.phone,
-         group_first_seen_at = datetime('now'),
+         group_first_seen_at = excluded.group_first_seen_at,
          replied_at = NULL,
          sent_3d_at = NULL,
          sent_10d_at = NULL,
          sent_flight_at = NULL,
          updated_at = datetime('now')`,
     )
-    .run(itemId, phone);
+    .run(itemId, phone, firstSeenAt);
 }
 
 // A lead's inbound reply: they are engaged now, so the follow-up funnel HALTS —

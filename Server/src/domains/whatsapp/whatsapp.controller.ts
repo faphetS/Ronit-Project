@@ -3,13 +3,7 @@ import type { Request, Response, NextFunction } from "express";
 import { env } from "../../config/env.js";
 import { logger } from "../../config/logger.js";
 import { UnauthorizedError } from "../../lib/errors.js";
-import { checkAndPromptHoliday, broadcastHolidayCampaign } from "./holiday.service.js";
-import { checkAndSendFollowups } from "./followup.service.js";
 import { handleInboundWhatsApp, type InboundWhatsApp } from "./wa-inbound.service.js";
-import type { FollowupTestInjectSchema } from "./whatsapp.validator.js";
-import type { z } from "zod";
-
-type FollowupTestBody = z.infer<typeof FollowupTestInjectSchema>;
 
 // Backwards-compatible secret gate for the inbound webhook. Disabled (open) when
 // WA_WEBHOOK_SECRET is empty. When set, every inbound POST must carry ?token=<secret>
@@ -71,20 +65,4 @@ export async function receiveWebhook(req: Request, res: Response): Promise<void>
   }
 
   res.sendStatus(200);
-}
-
-export async function testHolidayCheck(_req: Request, res: Response): Promise<void> {
-  await checkAndPromptHoliday();
-  res.json({ status: "ok" });
-}
-
-export async function testBroadcast(_req: Request, res: Response): Promise<void> {
-  await broadcastHolidayCampaign();
-  res.json({ status: "ok" });
-}
-
-export async function testFollowup(req: Request, res: Response): Promise<void> {
-  const { daysThreshold } = req.body as FollowupTestBody;
-  await checkAndSendFollowups(daysThreshold);
-  res.json({ status: "ok" });
 }

@@ -12,13 +12,6 @@ vi.mock("../../config/env.js", () => ({ env: ENV }));
 vi.mock("../../config/logger.js", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
-vi.mock("./holiday.service.js", () => ({
-  checkAndPromptHoliday: vi.fn(),
-  broadcastHolidayCampaign: vi.fn(),
-}));
-vi.mock("./followup.service.js", () => ({
-  checkAndSendFollowups: vi.fn(),
-}));
 vi.mock("./wa-inbound.service.js", () => ({
   handleInboundWhatsApp: vi.fn().mockResolvedValue(undefined),
 }));

@@ -27,6 +27,9 @@ vi.mock("./whatsapp.gateway.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./whatsapp.gateway.js")>()),
   sendGatewayMessage: vi.fn().mockResolvedValue(true),
 }));
+vi.mock("./whatsapp.history.js", () => ({
+  getLastWaActivityMs: vi.fn().mockResolvedValue(null),
+}));
 
 import {
   runUmanFollowups,
@@ -39,6 +42,7 @@ import * as db from "../../config/db.js";
 import * as monday from "../monday/monday.service.js";
 import * as welcome from "./uman-welcome.service.js";
 import * as gateway from "./whatsapp.gateway.js";
+import * as history from "./whatsapp.history.js";
 import type { WaFollowupState } from "../../config/db.js";
 
 const sqliteDaysAgo = (n: number): string =>
@@ -73,6 +77,7 @@ beforeEach(() => {
   ENV.WA_FOLLOWUP_ENABLED = true;
   vi.mocked(welcome.isAllowed).mockReturnValue(true);
   vi.mocked(gateway.sendGatewayMessage).mockResolvedValue(true);
+  vi.mocked(history.getLastWaActivityMs).mockResolvedValue(null);
   vi.mocked(monday.getUmanFollowupLeads).mockResolvedValue([lead()]);
   vi.mocked(db.getWaFollowupState).mockReturnValue(state());
   // Default: lead "1" was already in the group last run (continuous member), so the
@@ -160,7 +165,7 @@ describe("runUmanFollowups — reset on (re)entry", () => {
   it("lead absent last run (just dragged in) → state reset, not just 'seen'", async () => {
     vi.mocked(db.getSetting).mockReturnValue("[]"); // previous run had no members
     await runUmanFollowups();
-    expect(db.resetFollowupState).toHaveBeenCalledWith("1", "0521234567");
+    expect(db.resetFollowupState).toHaveBeenCalledWith("1", "0521234567", expect.any(String));
     expect(db.markSeenInFollowupGroup).not.toHaveBeenCalled();
   });
 
@@ -174,6 +179,35 @@ describe("runUmanFollowups — reset on (re)entry", () => {
   it("saves the current membership snapshot for next run", async () => {
     await runUmanFollowups();
     expect(db.setSetting).toHaveBeenCalledWith("uman_followup_group_members", '["1"]');
+  });
+});
+
+// ---- engine: history-anchored (re)entry ---------------------------------------
+
+describe("runUmanFollowups — history-anchored (re)entry", () => {
+  it("anchors the clock to the lead's last WhatsApp message time (wa_history)", async () => {
+    vi.mocked(db.getSetting).mockReturnValue("[]"); // just dragged in → reset branch
+    const lastMs = Date.UTC(2026, 5, 18, 9, 30, 0); // 2026-06-18 09:30:00 UTC
+    vi.mocked(history.getLastWaActivityMs).mockResolvedValue(lastMs);
+    await runUmanFollowups();
+    expect(history.getLastWaActivityMs).toHaveBeenCalledWith("0521234567");
+    expect(db.resetFollowupState).toHaveBeenCalledWith("1", "0521234567", "2026-06-18 09:30:00");
+  });
+
+  it("empty history → anchor falls back to now (reset still called)", async () => {
+    vi.mocked(db.getSetting).mockReturnValue("[]");
+    vi.mocked(history.getLastWaActivityMs).mockResolvedValue(null);
+    await runUmanFollowups();
+    expect(history.getLastWaActivityMs).toHaveBeenCalledWith("0521234567");
+    expect(db.resetFollowupState).toHaveBeenCalledWith("1", "0521234567", expect.any(String));
+  });
+
+  it("not allowlisted → no history call, anchor = now", async () => {
+    vi.mocked(db.getSetting).mockReturnValue("[]");
+    vi.mocked(welcome.isAllowed).mockReturnValue(false);
+    await runUmanFollowups();
+    expect(history.getLastWaActivityMs).not.toHaveBeenCalled();
+    expect(db.resetFollowupState).toHaveBeenCalledWith("1", "0521234567", expect.any(String));
   });
 });
 
@@ -264,7 +298,7 @@ describe("runUmanFollowups — flight reminder (terminal, priority)", () => {
       state({ group_first_seen_at: sqliteDaysAgo(0), sent_flight_at: null }),
     );
     await runUmanFollowups();
-    expect(db.resetFollowupState).toHaveBeenCalledWith("1", "0521234567");
+    expect(db.resetFollowupState).toHaveBeenCalledWith("1", "0521234567", expect.any(String));
     expect(gateway.sendGatewayMessage).toHaveBeenCalledWith("972521234567", `flight ${flight}`);
     expect(db.markFollowupStageSent).toHaveBeenCalledWith("1", "flight");
   });

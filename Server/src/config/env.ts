@@ -168,16 +168,15 @@ const envSchema = z.object({
   // updateLastIgMessage. CRM-board only; known_senders.monday_item_id is CRM-only.
   MONDAY_COL_LAST_IG_MESSAGE_ID: z.string().default("long_text_mm3qd4jt"),
 
-  // GreenAPI / WhatsApp
-  GREENAPI_API_URL: z.string().url().default("https://7107.api.greenapi.com"),
-  GREENAPI_INSTANCE_ID: z.string().min(1).optional(),
-  GREENAPI_API_TOKEN: z.string().min(1).optional(),
-  RONIT_OWNER_WA_NUMBER: z.string().min(10).optional(),
-
   // Custom WhatsApp gateway (Supabase "ronit-send" edge function). Optional so the
   // app still boots if unset — sendGatewayMessage no-ops when URL/token are missing.
   RONIT_WA_SEND_URL: z.string().url().optional(),
   RONIT_WA_SEND_TOKEN: z.string().min(1).optional(),
+  // Read-only chat-history endpoint (Supabase "ronit-history" edge function). Used to anchor
+  // the follow-up clock to a lead's last WhatsApp activity. Optional → getLastWaActivityMs
+  // returns null when unset (the caller falls back to "now").
+  RONIT_WA_HISTORY_URL: z.string().url().optional(),
+  RONIT_WA_HISTORY_TOKEN: z.string().min(1).optional(),
   // Inbound webhook secret. Empty string (default) = open (backwards-compatible).
   // Set to a non-empty value to require an x-webhook-secret header on inbound calls.
   WA_WEBHOOK_SECRET: z.string().default(""),
