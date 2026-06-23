@@ -106,7 +106,7 @@ async function main() {
     }
 
     const result = await gql<CreateWebhookResponse>(
-      `mutation ($boardId: ID!, $url: String!, $config: String!) {
+      `mutation ($boardId: ID!, $url: String!, $config: JSON!) {
         create_webhook(
           board_id: $boardId
           url: $url
