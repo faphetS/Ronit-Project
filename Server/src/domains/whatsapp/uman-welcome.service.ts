@@ -44,6 +44,7 @@ export async function maybeSendUmanWelcome(input: {
   senderId: string;
   service: "uman" | "challah" | null;
   phone: string | null | undefined;
+  mondayItemId?: string;
 }): Promise<void> {
   if (input.service !== "uman" || !input.phone) return;
 
@@ -59,15 +60,21 @@ export async function maybeSendUmanWelcome(input: {
     logger.info({ senderId: input.senderId, to }, "Uman WhatsApp welcome skipped — not allowlisted");
     return;
   }
-  if (isMessageProcessed(DEDUP_SOURCE, input.senderId)) return;
-  if (inFlight.has(input.senderId)) return;
-  inFlight.add(input.senderId);
+
+  // Use the Monday item ID as the dedup key when available. This ensures that
+  // an IG-triggered welcome and a Monday-webhook-triggered welcome for the same
+  // lead both check the same dedup record, preventing a double send.
+  const dedupKey = input.mondayItemId ?? input.senderId;
+
+  if (isMessageProcessed(DEDUP_SOURCE, dedupKey)) return;
+  if (inFlight.has(dedupKey)) return;
+  inFlight.add(dedupKey);
 
   try {
     // Bubble 1 — send at most once. If a prior run already delivered it, skip
     // straight to bubble 2 (no resend, no delay) so a failing bubble 2 can never
     // re-loop bubble 1.
-    if (!isMessageProcessed(B1_DONE_SOURCE, input.senderId)) {
+    if (!isMessageProcessed(B1_DONE_SOURCE, dedupKey)) {
       const ok1 = await sendGatewayMessage(to, env.WA_MSG_UMAN_WELCOME_1.replace(/\\n/g, "\n"));
       if (!ok1) {
         logger.error(
@@ -76,14 +83,14 @@ export async function maybeSendUmanWelcome(input: {
         );
         return;
       }
-      markMessageProcessed(B1_DONE_SOURCE, input.senderId);
+      markMessageProcessed(B1_DONE_SOURCE, dedupKey);
       await sleep(env.WA_WELCOME_BUBBLE_DELAY_MS); // human-like gap, only when we just sent bubble 1
     }
 
     const ok2 = await sendGatewayMessage(to, env.WA_MSG_UMAN_WELCOME_2);
 
     if (ok2) {
-      markMessageProcessed(DEDUP_SOURCE, input.senderId);
+      markMessageProcessed(DEDUP_SOURCE, dedupKey);
       logger.info({ senderId: input.senderId, to }, "Uman WhatsApp welcome sent");
     } else {
       logger.error(
@@ -94,6 +101,6 @@ export async function maybeSendUmanWelcome(input: {
   } catch (err) {
     logger.error({ err, senderId: input.senderId, to }, "Uman WhatsApp welcome threw — not marking");
   } finally {
-    inFlight.delete(input.senderId);
+    inFlight.delete(dedupKey);
   }
 }

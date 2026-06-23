@@ -180,6 +180,8 @@ const envSchema = z.object({
   // Inbound webhook secret. Empty string (default) = open (backwards-compatible).
   // Set to a non-empty value to require an x-webhook-secret header on inbound calls.
   WA_WEBHOOK_SECRET: z.string().default(""),
+  // Monday webhook secret for /api/monday/lead-ready. Empty = open.
+  MONDAY_WEBHOOK_SECRET: z.string().default(""),
   // Outbound safety gate: CSV of allowed recipient msisdns. "all" = no gate
   // (production); "" (default) = send to NOBODY (fail-closed for testing).
   RONIT_WA_ALLOWED_NUMBERS: z.string().default(""),

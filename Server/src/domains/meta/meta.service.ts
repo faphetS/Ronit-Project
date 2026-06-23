@@ -171,6 +171,7 @@ async function processClassifiedMessage(
         // (fire-and-forget; it has its own inter-bubble delay).
         void maybeSendUmanWelcome({
           senderId: input.senderId!,
+          mondayItemId: pending.monday_item_id,
           service: classification.service,
           phone: pending.phone ?? classification.extractedPhone,
         }).catch((err) => logger.error({ err }, "Uman welcome rejected unexpectedly"));
@@ -273,6 +274,7 @@ async function processClassifiedMessage(
       // the stored Monday label.
       void maybeSendUmanWelcome({
         senderId: input.senderId!,
+        mondayItemId,
         service: classification.service ?? mapItemServiceToKey(live.service),
         phone,
       }).catch((err) => logger.error({ err }, "Uman welcome rejected unexpectedly"));
@@ -398,6 +400,7 @@ async function processClassifiedMessage(
     // fire-and-forget, it has its own inter-bubble delay).
     void maybeSendUmanWelcome({
       senderId: input.senderId,
+      mondayItemId: itemId,
       service: classification.service,
       phone,
     }).catch((err) => logger.error({ err }, "Uman welcome rejected unexpectedly"));

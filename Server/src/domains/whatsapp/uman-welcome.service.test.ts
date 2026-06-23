@@ -168,4 +168,51 @@ describe("maybeSendUmanWelcome", () => {
       .mock.calls.filter((c) => c[0] === "wa_uman_welcome");
     expect(fullMarks.length).toBe(1);
   });
+
+  it("mondayItemId as dedup key: same mondayItemId + different senderIds → only ONE send", async () => {
+    const marked = new Set<string>();
+    vi.mocked(dedup.isMessageProcessed).mockImplementation((s: string, id: string) => marked.has(`${s}:${id}`));
+    vi.mocked(dedup.markMessageProcessed).mockImplementation((s: string, id: string) => {
+      marked.add(`${s}:${id}`);
+    });
+
+    const MONDAY_ID = "monday_item_99";
+    const SENDER_A = "ig_sender_A";
+    const SENDER_B = "ig_sender_B";
+
+    // First call (from IG flow) with senderId A + mondayItemId
+    await maybeSendUmanWelcome({
+      senderId: SENDER_A,
+      mondayItemId: MONDAY_ID,
+      service: "uman",
+      phone: PH_ALLOWED,
+    });
+    // Second call (from Monday webhook) with senderId = pulseId, same mondayItemId
+    await maybeSendUmanWelcome({
+      senderId: SENDER_B,
+      mondayItemId: MONDAY_ID,
+      service: "uman",
+      phone: PH_ALLOWED,
+    });
+
+    // Gateway should have been called exactly twice (both bubbles for the first call only)
+    expect(gateway.sendGatewayMessage).toHaveBeenCalledTimes(2);
+    // The full dedup mark should be on the mondayItemId, not on either senderId
+    expect(marked.has(`wa_uman_welcome:${MONDAY_ID}`)).toBe(true);
+    expect(marked.has(`wa_uman_welcome:${SENDER_A}`)).toBe(false);
+    expect(marked.has(`wa_uman_welcome:${SENDER_B}`)).toBe(false);
+  });
+
+  it("no mondayItemId: falls back to senderId as dedup key (backward compat)", async () => {
+    const marked = new Set<string>();
+    vi.mocked(dedup.isMessageProcessed).mockImplementation((s: string, id: string) => marked.has(`${s}:${id}`));
+    vi.mocked(dedup.markMessageProcessed).mockImplementation((s: string, id: string) => {
+      marked.add(`${s}:${id}`);
+    });
+
+    await maybeSendUmanWelcome({ senderId: SENDER, service: "uman", phone: PH_ALLOWED });
+
+    expect(gateway.sendGatewayMessage).toHaveBeenCalledTimes(2);
+    expect(marked.has(`wa_uman_welcome:${SENDER}`)).toBe(true);
+  });
 });

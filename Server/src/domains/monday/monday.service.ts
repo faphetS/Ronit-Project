@@ -1001,6 +1001,56 @@ export async function getItemBoardAndGroup(
   return { boardId: item.board.id, groupId: item.group.id, service };
 }
 
+interface ItemServiceAndPhoneResponse {
+  items: Array<{
+    state: string;
+    column_values: Array<{ id: string; text: string | null; value: string | null }>;
+  }>;
+}
+
+/**
+ * Fetch the service and phone for a single CRM item. Used by the Monday
+ * lead-ready webhook to decide whether to send the Uman WhatsApp welcome.
+ * Returns null when the item doesn't exist or is not active.
+ */
+export async function getItemServiceAndPhone(
+  itemId: string,
+): Promise<{ service: "uman" | "challah" | null; phone: string | null } | null> {
+  const data = await gql<ItemServiceAndPhoneResponse>(
+    `query ($ids: [ID!]!) {
+      items(ids: $ids) {
+        state
+        column_values(ids: ["${env.MONDAY_COL_SERVICE_ID}", "${env.MONDAY_COL_PHONE_ID}"]) {
+          id
+          text
+          value
+        }
+      }
+    }`,
+    { ids: [itemId] },
+  );
+
+  const item = data.items[0];
+  if (!item || item.state !== "active") return null;
+
+  const serviceCol = item.column_values.find((c) => c.id === env.MONDAY_COL_SERVICE_ID);
+  const phoneCol = item.column_values.find((c) => c.id === env.MONDAY_COL_PHONE_ID);
+
+  const service = mapItemServiceToKey(serviceCol?.text?.trim());
+
+  let phone: string | null = null;
+  if (phoneCol?.value) {
+    try {
+      const parsed = JSON.parse(phoneCol.value) as { phone?: string };
+      phone = parsed.phone ?? null;
+    } catch {
+      phone = null;
+    }
+  }
+
+  return { service, phone };
+}
+
 export interface BoardLeadItem {
   id: string;
   name: string;

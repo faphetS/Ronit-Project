@@ -127,6 +127,7 @@ export async function handleFormSubmission(
   // when present, else the phone, so it sends at most once per person.
   void maybeSendUmanWelcome({
     senderId: input.ig_id ?? input.phone ?? "",
+    mondayItemId: itemId,
     service: input.service ?? null,
     phone: input.phone,
   }).catch((err) => logger.error({ err, itemId }, "Website Uman welcome failed"));
