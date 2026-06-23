@@ -257,6 +257,10 @@ const envSchema = z.object({
   // messages so a day's batch trickles out instead of bursting (lowers spam-flag
   // risk on the personal number). Default 10s. Set to 0 in tests so they stay fast.
   WA_FOLLOWUP_PACING_MS: z.coerce.number().int().min(0).default(10000),
+  // Max actual follow-up SENDS per cron run (anti-ban burst limit). Remaining leads
+  // defer to the next run; per-stage marks prevent double-send so the backlog drains
+  // over runs. 0 = unlimited. Default 10 → ~20/day across the twice-daily cron.
+  WA_FOLLOWUP_MAX_PER_RUN: z.coerce.number().int().min(0).default(10),
 
   // Inactivity UNIT (ms) for the 3-step / 10-step clock. Default 1 day → the steps
   // mean 3 days / 10 days. For a fast end-to-end TEST set this to 60000 (1 minute →

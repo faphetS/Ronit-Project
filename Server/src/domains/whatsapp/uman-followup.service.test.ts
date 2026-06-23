@@ -7,6 +7,7 @@ const ENV = vi.hoisted(() => ({
   WA_FOLLOWUP_FLIGHT: "flight {flight_date}",
   WA_FOLLOWUP_PACING_MS: 0,
   WA_FOLLOWUP_UNIT_MS: 86_400_000, // 1 day, so sqliteDaysAgo(n) → n units
+  WA_FOLLOWUP_MAX_PER_RUN: 0, // unlimited by default; override per-test
 }));
 vi.mock("../../config/env.js", () => ({ env: ENV }));
 vi.mock("../../config/logger.js", () => ({
@@ -75,6 +76,7 @@ const lead = (o: Partial<{ itemId: string; name: string; phone: string | null; f
 beforeEach(() => {
   vi.clearAllMocks();
   ENV.WA_FOLLOWUP_ENABLED = true;
+  ENV.WA_FOLLOWUP_MAX_PER_RUN = 0;
   vi.mocked(welcome.isAllowed).mockReturnValue(true);
   vi.mocked(gateway.sendGatewayMessage).mockResolvedValue(true);
   vi.mocked(history.getLastWaActivityMs).mockResolvedValue(null);
@@ -351,5 +353,49 @@ describe("runUmanFollowups — gating + send failures", () => {
     vi.mocked(db.getWaFollowupState).mockReturnValue(state({ group_first_seen_at: sqliteDaysAgo(4) }));
     await runUmanFollowups();
     expect(gateway.sendGatewayMessage).not.toHaveBeenCalled();
+  });
+});
+
+// ---- engine: per-run send cap -------------------------------------------------
+
+describe("runUmanFollowups — per-run cap (WA_FOLLOWUP_MAX_PER_RUN)", () => {
+  it("cap=2 with 3 eligible leads → exactly 2 sends, 3rd lead deferred", async () => {
+    ENV.WA_FOLLOWUP_MAX_PER_RUN = 2;
+
+    const leads = [
+      lead({ itemId: "10", phone: "0521234561", name: "אלה" }),
+      lead({ itemId: "11", phone: "0521234562", name: "בת-שבע" }),
+      lead({ itemId: "12", phone: "0521234563", name: "גאולה" }),
+    ];
+    vi.mocked(monday.getUmanFollowupLeads).mockResolvedValue(leads);
+    // All three are continuous members (skip the reset branch).
+    vi.mocked(db.getSetting).mockReturnValue('["10","11","12"]');
+    // All three are 4 days old → due for the 3d nudge, nothing yet sent.
+    vi.mocked(db.getWaFollowupState).mockReturnValue(
+      state({ group_first_seen_at: sqliteDaysAgo(4) }),
+    );
+
+    await runUmanFollowups();
+
+    expect(gateway.sendGatewayMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it("cap=0 (unlimited) with 3 eligible leads → all 3 sends", async () => {
+    ENV.WA_FOLLOWUP_MAX_PER_RUN = 0;
+
+    const leads = [
+      lead({ itemId: "20", phone: "0521234561", name: "דינה" }),
+      lead({ itemId: "21", phone: "0521234562", name: "הדס" }),
+      lead({ itemId: "22", phone: "0521234563", name: "ורד" }),
+    ];
+    vi.mocked(monday.getUmanFollowupLeads).mockResolvedValue(leads);
+    vi.mocked(db.getSetting).mockReturnValue('["20","21","22"]');
+    vi.mocked(db.getWaFollowupState).mockReturnValue(
+      state({ group_first_seen_at: sqliteDaysAgo(4) }),
+    );
+
+    await runUmanFollowups();
+
+    expect(gateway.sendGatewayMessage).toHaveBeenCalledTimes(3);
   });
 });

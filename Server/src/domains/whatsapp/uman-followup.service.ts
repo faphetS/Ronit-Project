@@ -183,6 +183,13 @@ export async function runUmanFollowups(): Promise<void> {
     let sent = 0;
 
     for (const lead of leads) {
+      if (env.WA_FOLLOWUP_MAX_PER_RUN > 0 && sent >= env.WA_FOLLOWUP_MAX_PER_RUN) {
+        logger.info(
+          { sent, cap: env.WA_FOLLOWUP_MAX_PER_RUN },
+          "Uman follow-up — per-run cap reached; deferring remaining leads to next run",
+        );
+        break;
+      }
       let sentThisLead = false;
       try {
         if (previousIds.has(lead.itemId)) {
