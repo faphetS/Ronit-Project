@@ -91,14 +91,15 @@ async function main() {
 
   for (const columnId of columnIds) {
     const config = JSON.stringify({ columnId });
-    const alreadyExists = existing.webhooks.some((w) => {
-      try {
-        const parsed = JSON.parse(w.config) as { columnId?: string };
-        return w.event === "change_specific_column_value" && parsed.columnId === columnId;
-      } catch {
-        return false;
-      }
-    });
+    // Monday returns config as a Ruby-hash string (e.g. {"columnId" => "phone_x"}),
+    // NOT JSON — so match by substring instead of JSON.parse (which would throw and
+    // wrongly create duplicates).
+    const alreadyExists = existing.webhooks.some(
+      (w) =>
+        w.event === "change_specific_column_value" &&
+        typeof w.config === "string" &&
+        w.config.includes(columnId),
+    );
 
     if (alreadyExists) {
       console.log(`Skipping columnId=${columnId} — webhook already exists`);
@@ -125,18 +126,18 @@ async function main() {
     );
   }
 
-  // create_pulse (item created) — catches FRESH rows (e.g. FB/n8n lead-ad leads
+  // create_item (item created) — catches FRESH rows (e.g. FB/n8n lead-ad leads
   // created atomically with all columns), which never fire a column-change event.
   // Same endpoint; the handler re-fetches + welcomes Uman+phone (deduped). Fires
   // only for items created AFTER this is registered — never touches existing rows.
-  // create_pulse takes NO config (unlike change_specific_column_value).
-  const createPulseExists = existing.webhooks.some((w) => w.event === "create_pulse");
-  if (createPulseExists) {
-    console.log("Skipping create_pulse — webhook already exists");
+  // create_item takes NO config (unlike change_specific_column_value).
+  const createItemExists = existing.webhooks.some((w) => w.event === "create_item");
+  if (createItemExists) {
+    console.log("Skipping create_item — webhook already exists");
   } else {
     const created = await gql<CreateWebhookResponse>(
       `mutation ($boardId: ID!, $url: String!) {
-        create_webhook(board_id: $boardId, url: $url, event: create_pulse) {
+        create_webhook(board_id: $boardId, url: $url, event: create_item) {
           id
           board_id
         }
@@ -144,7 +145,7 @@ async function main() {
       { boardId: BOARD_ID, url: WEBHOOK_URL },
     );
     console.log(
-      `Created create_pulse webhook: id=${created.create_webhook.id} board=${created.create_webhook.board_id}`,
+      `Created create_item webhook: id=${created.create_webhook.id} board=${created.create_webhook.board_id}`,
     );
   }
 
