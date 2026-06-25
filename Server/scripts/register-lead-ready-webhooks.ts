@@ -125,6 +125,29 @@ async function main() {
     );
   }
 
+  // create_pulse (item created) — catches FRESH rows (e.g. FB/n8n lead-ad leads
+  // created atomically with all columns), which never fire a column-change event.
+  // Same endpoint; the handler re-fetches + welcomes Uman+phone (deduped). Fires
+  // only for items created AFTER this is registered — never touches existing rows.
+  // create_pulse takes NO config (unlike change_specific_column_value).
+  const createPulseExists = existing.webhooks.some((w) => w.event === "create_pulse");
+  if (createPulseExists) {
+    console.log("Skipping create_pulse — webhook already exists");
+  } else {
+    const created = await gql<CreateWebhookResponse>(
+      `mutation ($boardId: ID!, $url: String!) {
+        create_webhook(board_id: $boardId, url: $url, event: create_pulse) {
+          id
+          board_id
+        }
+      }`,
+      { boardId: BOARD_ID, url: WEBHOOK_URL },
+    );
+    console.log(
+      `Created create_pulse webhook: id=${created.create_webhook.id} board=${created.create_webhook.board_id}`,
+    );
+  }
+
   console.log("\nDone.");
 }
 
