@@ -20,8 +20,14 @@ vi.mock("./meta.service.js", () => ({
   }),
 }));
 
+// handleIncomingComment spy — comment-event routing.
+vi.mock("./meta.comment.service.js", () => ({
+  handleIncomingComment: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { receiveWebhook } from "./meta.controller.js";
 import * as metaService from "./meta.service.js";
+import * as commentService from "./meta.comment.service.js";
 
 function makeRawBody(payload: unknown): Buffer {
   return Buffer.from(JSON.stringify(payload), "utf8");
@@ -113,5 +119,63 @@ describe("receiveWebhook — Fix 3: mid-absent fallback messageId", () => {
     expect(metaService.handleIncomingMessage).toHaveBeenCalledWith(
       expect.objectContaining({ messageId: undefined }),
     );
+  });
+});
+
+describe("receiveWebhook — comment events", () => {
+  it("routes a 'comments' change to handleIncomingComment", async () => {
+    const payload = {
+      object: "instagram",
+      entry: [
+        {
+          id: "ig-account",
+          time: 1700000000,
+          changes: [
+            {
+              field: "comments",
+              value: {
+                from: { id: "commenter-1", username: "tester" },
+                media: { id: "media-1" },
+                id: "comment-1",
+                text: "אומן",
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    const res = makeRes();
+    await receiveWebhook(makeReq(payload), res);
+
+    expect(commentService.handleIncomingComment).toHaveBeenCalledWith({
+      commentId: "comment-1",
+      commentText: "אומן",
+      commenterId: "commenter-1",
+      commenterUsername: "tester",
+      mediaId: "media-1",
+      recipientId: "ig-account",
+    });
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it("ignores non-comments fields and removed comments", async () => {
+    const payload = {
+      object: "instagram",
+      entry: [
+        { changes: [{ field: "mentions", value: { id: "x", text: "hi", from: { id: "y" } } }] },
+        {
+          changes: [
+            {
+              field: "comments",
+              value: { id: "c2", text: "אומן", from: { id: "z" }, verb: "remove" },
+            },
+          ],
+        },
+      ],
+    };
+
+    await receiveWebhook(makeReq(payload), makeRes());
+    expect(commentService.handleIncomingComment).not.toHaveBeenCalled();
   });
 });

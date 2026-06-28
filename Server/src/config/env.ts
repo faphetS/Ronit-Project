@@ -65,6 +65,18 @@ const envSchema = z.object({
   // enable per-process (e.g. docker exec -e IG_OUTBOUND_DRYRUN=true) for safe E2E.
   IG_OUTBOUND_DRYRUN: z.string().default("false").transform((v) => v === "true"),
 
+  // Master kill-switch for the IG comment → Private-Reply funnel. Default OFF:
+  // when false the comment handler is fully inert (no DM, no Monday row, no
+  // known_sender). Flip to "true" + recreate the container to go live. Because
+  // row creation is coupled to a successful DM send, a comment NEVER produces a
+  // Monday row unless its DM was sent.
+  IG_COMMENT_HANDLER_ENABLED: z.string().default("false").transform((v) => v === "true"),
+
+  // Anti-ban rate cap for comment Private-Reply DMs: at most this many sends per
+  // rolling hour. Overflow comments are parked in ig_comment_queue and drained at
+  // this rate by the meta cron (nothing is dropped). 0 = unlimited. Default 30.
+  IG_COMMENT_REPLY_MAX_PER_HOUR: z.coerce.number().int().min(0).default(30),
+
   // Outbound IG first-contact templates. Literal "\n" escapes get decoded into
   // real newlines at send time; "{form_link}" is replaced with the personalized
   // form URL containing ?ig_id=<senderId>.
@@ -79,6 +91,16 @@ const envSchema = z.object({
     .min(1)
     .default(
       "היי יקירה 🤍\nאצור איתך קשר בהקדם 🙏📞\nובינתיים...\nאת מוזמנת לקבל הצצה מרגשת אל תוך המסע שלנו לרבינו ✨\n{form_link}",
+    ),
+
+  // Private-Reply DM sent to someone who comments "אומן" on a post. Carries the
+  // personalized {form_link} (?ig_id=<commenter>) and asks for the phone number.
+  // Defaults to the IG_MSG_PHONE_MISSING copy so it can be reworded independently.
+  IG_MSG_COMMENT_UMAN: z
+    .string()
+    .min(1)
+    .default(
+      "היי יקירה 🤍\nאשמח שתכתבי לי את מספר הנייד שלך ונחזור אלייך עם כל הפרטים 🙏📞\n\nובינתיים…\nאני מצרפת לך כאן הצצה מרגשת אל תוך המסע לרבינו ✨\n{form_link}",
     ),
 
   // Sent when the lead NAMES a specific service (uman/challah). Neutral wording,

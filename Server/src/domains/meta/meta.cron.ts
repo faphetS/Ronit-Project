@@ -1,6 +1,7 @@
 import cron from "node-cron";
 import { logger } from "../../config/logger.js";
 import { getCurrentIgToken, getIgTokenExpiry, refreshIgToken } from "./meta.token.service.js";
+import { drainCommentQueue } from "./meta.comment.service.js";
 
 const REFRESH_BUFFER_DAYS = 30;
 const REFRESH_BUFFER_MS = REFRESH_BUFFER_DAYS * 24 * 60 * 60 * 1000;
@@ -39,5 +40,16 @@ export function startMetaCrons(): void {
     { timezone: "Asia/Jerusalem" },
   );
 
-  logger.info(`Meta cron jobs scheduled (IG token refresh check daily 03:00 Asia/Jerusalem, refresh when <${REFRESH_BUFFER_DAYS}d remaining)`);
+  // IG comment Private-Reply queue drainer — paces sends to the hourly cap so a
+  // viral post never blasts DMs. No-op when the handler is gated off or the queue
+  // is empty.
+  cron.schedule(
+    "*/1 * * * *",
+    () => {
+      void drainCommentQueue();
+    },
+    { timezone: "Asia/Jerusalem" },
+  );
+
+  logger.info(`Meta cron jobs scheduled (IG token refresh check daily 03:00 Asia/Jerusalem, refresh when <${REFRESH_BUFFER_DAYS}d remaining; comment-queue drain every 1 min)`);
 }

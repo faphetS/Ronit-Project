@@ -4,6 +4,7 @@ import { env } from "../../config/env.js";
 import { logger } from "../../config/logger.js";
 import { AppError, UnauthorizedError } from "../../lib/errors.js";
 import { handleIncomingMessage } from "./meta.service.js";
+import { handleIncomingComment } from "./meta.comment.service.js";
 import {
   MetaWebhookPayloadSchema,
   type TestInjectBody,
@@ -86,7 +87,16 @@ export async function receiveWebhook(
     );
   }
 
-  const parsed = MetaWebhookPayloadSchema.parse(payload);
+  const result = MetaWebhookPayloadSchema.safeParse(payload);
+  if (!result.success) {
+    logger.warn(
+      { errors: result.error.flatten() },
+      "Meta webhook payload did not match schema — returning 200 to prevent retries",
+    );
+    res.status(200).json({ status: "ignored" });
+    return;
+  }
+  const parsed = result.data;
 
   for (const entry of parsed.entry) {
     for (const event of entry.messaging ?? []) {
@@ -133,6 +143,29 @@ export async function receiveWebhook(
           { err, senderId: event.sender.id, messageId },
           "Failed to process Instagram DM — continuing",
         );
+      }
+    }
+
+    // Comment events (field="comments"): a comment containing "אומן" → a
+    // Private-Reply DM + a Uman lead (the handler is master-gated OFF by
+    // default). Only new comments (verb add/unset) carrying text + a commenter
+    // id + a comment id are routed.
+    for (const change of entry.changes ?? []) {
+      if (change.field !== "comments") continue;
+      const v = change.value;
+      if (!v?.text || !v.from?.id || !v.id) continue;
+      if (v.verb && v.verb !== "add") continue;
+      try {
+        await handleIncomingComment({
+          commentId: v.id,
+          commentText: v.text,
+          commenterId: v.from.id,
+          commenterUsername: v.from.username,
+          mediaId: v.media?.id,
+          recipientId: entry.id,
+        });
+      } catch (err) {
+        logger.error({ err, commentId: v.id }, "Failed to process IG comment — continuing");
       }
     }
   }

@@ -111,3 +111,62 @@ export async function sendReplyDM(
 export async function sendServiceQuestion(recipientIgsid: string): Promise<void> {
   await sendIgMessage(recipientIgsid, env.IG_MSG_ASK_SERVICE, "ASK_SERVICE");
 }
+
+/**
+ * Send a Meta "Private Reply" DM to someone who commented on a post. This is the
+ * ONLY sanctioned way to DM a commenter (we cannot cold-DM): the recipient is the
+ * comment_id, allowed within 7 days of the comment, once per comment.
+ *
+ * Returns true ONLY on a confirmed send (mirrors sendGatewayMessage) so the caller
+ * can couple Monday-row creation to a successful DM — a comment never produces a
+ * row unless this returned true. The form link is personalized with the COMMENTER's
+ * IG id (?ig_id=) so a later form submit de-dupes back to the same row.
+ */
+export async function sendCommentPrivateReply(
+  commentId: string,
+  commenterIgsid: string,
+): Promise<boolean> {
+  const formLink = `${FORM_BASE_URL}/?ig_id=${encodeURIComponent(commenterIgsid)}`;
+  const text = env.IG_MSG_COMMENT_UMAN.replace(/\\n/g, "\n").replaceAll("{form_link}", formLink);
+
+  // Testing seam — log the rendered DM and send nothing. Returns false so the
+  // caller skips row creation too (no row without a real message).
+  if (env.IG_OUTBOUND_DRYRUN) {
+    logger.info({ commentId, commenterIgsid, text }, "IG comment Private-Reply DRY-RUN (not sent)");
+    return false;
+  }
+
+  let token: string;
+  try {
+    token = await getCurrentIgToken();
+  } catch (err) {
+    logger.warn({ err, commentId }, "IG comment Private-Reply skipped — token unavailable");
+    return false;
+  }
+
+  const url = `https://graph.instagram.com/v23.0/me/messages?access_token=${encodeURIComponent(token)}`;
+  const body = JSON.stringify({
+    recipient: { comment_id: commentId },
+    message: { text },
+  });
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+    if (!res.ok) {
+      logger.warn(
+        { commentId, commenterIgsid, status: res.status, body: (await res.text()).slice(0, 300) },
+        "IG comment Private-Reply non-2xx",
+      );
+      return false;
+    }
+    logger.info({ commentId, commenterIgsid, textLen: text.length }, "IG comment Private-Reply sent");
+    return true;
+  } catch (err) {
+    logger.warn({ err, commentId, commenterIgsid }, "IG comment Private-Reply fetch error");
+    return false;
+  }
+}

@@ -27,6 +27,31 @@ export const MetaWebhookPayloadSchema = z.object({
           }),
         )
         .optional(),
+      // Field-change events (e.g. post comments). A comment arrives as
+      // field="comments" with the commenter in value.from. We act only on new
+      // comments (verb add/undefined) and ignore "remove"/"edited".
+      changes: z
+        .array(
+          z.object({
+            field: z.string(),
+            value: z
+              .object({
+                from: z
+                  .object({
+                    id: z.string(),
+                    username: z.string().optional(),
+                  })
+                  .optional(),
+                media: z.object({ id: z.string() }).optional(),
+                id: z.string().optional(),
+                text: z.string().optional(),
+                parent_id: z.string().optional(),
+                verb: z.string().optional(),
+              })
+              .optional(),
+          }),
+        )
+        .optional(),
     }),
   ),
 });

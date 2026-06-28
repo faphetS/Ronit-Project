@@ -113,7 +113,23 @@ CREATE TABLE IF NOT EXISTS wa_followup_state (
   updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Overflow buffer for the IG comment → Private-Reply funnel. When the hourly
+-- send cap is reached, comments are parked here and drained at the capped rate
+-- by the meta cron, so a burst on a viral post never blasts DMs and no lead is lost.
+CREATE TABLE IF NOT EXISTS ig_comment_queue (
+  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+  comment_id         TEXT NOT NULL UNIQUE,
+  commenter_id       TEXT NOT NULL,
+  commenter_username TEXT,
+  recipient_id       TEXT,
+  comment_text       TEXT NOT NULL,
+  attempt_count      INTEGER NOT NULL DEFAULT 0,
+  last_error         TEXT,
+  created_at         TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_processed_webhooks_lookup ON processed_webhooks(source, external_id);
+CREATE INDEX IF NOT EXISTS idx_ig_comment_queue_order ON ig_comment_queue(created_at, id);
 CREATE INDEX IF NOT EXISTS idx_pending_clar_lookup ON pending_clarifications(platform, sender_id);
 CREATE INDEX IF NOT EXISTS idx_known_senders_lookup ON known_senders(platform, sender_id);
 CREATE INDEX IF NOT EXISTS idx_followup_log_lookup ON followup_log(monday_item_id, last_call_date);
@@ -333,4 +349,99 @@ export function markFollowupStageSent(itemId: string, stage: "3d" | "10d" | "fli
        ON CONFLICT(monday_item_id) DO UPDATE SET ${col} = datetime('now'), updated_at = datetime('now')`,
     )
     .run(itemId);
+}
+
+// ---------------------------------------------------------------------------
+// IG comment → Private-Reply overflow queue. The hourly send rate is read off
+// the `ig_comment` processed_webhooks marks (one is written per actual send), so
+// there is no separate counter to keep in sync.
+// ---------------------------------------------------------------------------
+
+export interface QueuedComment {
+  id: number;
+  comment_id: string;
+  commenter_id: string;
+  commenter_username: string | null;
+  recipient_id: string | null;
+  comment_text: string;
+  attempt_count: number;
+  created_at: string;
+}
+
+const IG_COMMENT_QUEUE_COLS =
+  "id, comment_id, commenter_id, commenter_username, recipient_id, comment_text, attempt_count, created_at";
+
+export function enqueueComment(input: {
+  commentId: string;
+  commenterId: string;
+  commenterUsername?: string;
+  recipientId?: string;
+  commentText: string;
+}): void {
+  getDb()
+    .prepare(
+      `INSERT OR IGNORE INTO ig_comment_queue
+         (comment_id, commenter_id, commenter_username, recipient_id, comment_text)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    .run(
+      input.commentId,
+      input.commenterId,
+      input.commenterUsername ?? null,
+      input.recipientId ?? null,
+      input.commentText,
+    );
+}
+
+export function isCommentQueued(commentId: string): boolean {
+  const row = getDb()
+    .prepare("SELECT id FROM ig_comment_queue WHERE comment_id = ?")
+    .get(commentId);
+  return row !== undefined;
+}
+
+export function getQueuedComments(limit: number): QueuedComment[] {
+  return getDb()
+    .prepare(
+      `SELECT ${IG_COMMENT_QUEUE_COLS} FROM ig_comment_queue
+       ORDER BY created_at ASC, id ASC LIMIT ?`,
+    )
+    .all(limit) as QueuedComment[];
+}
+
+export function deleteQueuedComment(id: number): void {
+  getDb().prepare("DELETE FROM ig_comment_queue WHERE id = ?").run(id);
+}
+
+export function bumpQueuedComment(id: number, error: string): void {
+  getDb()
+    .prepare(
+      "UPDATE ig_comment_queue SET attempt_count = attempt_count + 1, last_error = ? WHERE id = ?",
+    )
+    .run(error, id);
+}
+
+// Count of comment DMs actually sent in the last hour (one ig_comment mark per
+// send) — the governor for the hourly cap.
+export function countCommentDmsSentLastHour(): number {
+  const row = getDb()
+    .prepare(
+      `SELECT COUNT(*) AS c FROM processed_webhooks
+       WHERE source = 'ig_comment' AND processed_at >= datetime('now','-1 hour')`,
+    )
+    .get() as { c: number };
+  return row.c;
+}
+
+// Drop queued comments older than the ~7-day Private-Reply window (the DM would
+// fail anyway). Returns the comment_ids removed so the caller can log them.
+export function expireOldQueuedComments(): string[] {
+  const db = getDb();
+  const rows = db
+    .prepare("SELECT comment_id FROM ig_comment_queue WHERE created_at < datetime('now','-6 days')")
+    .all() as Array<{ comment_id: string }>;
+  if (rows.length > 0) {
+    db.prepare("DELETE FROM ig_comment_queue WHERE created_at < datetime('now','-6 days')").run();
+  }
+  return rows.map((r) => r.comment_id);
 }
