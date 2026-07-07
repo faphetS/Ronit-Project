@@ -91,10 +91,37 @@ Status of each integration. When a new decision is made, update this section and
 - **Env in use:** `META_APP_SECRET`, `META_VERIFY_TOKEN`, `IG_ACCESS_TOKEN`. IG message templates (all defaulted in `env.ts`): `IG_MSG_PHONE_PRESENT`, `IG_MSG_PHONE_MISSING`, `IG_MSG_SERVICE_PHONE_PRESENT`, `IG_MSG_SERVICE_PHONE_MISSING`.
 - **Env to add later:** `META_APP_ID`, `IG_PROFESSIONAL_ACCOUNT_ID`.
 
-### WhatsApp (Ronit owner channel + optional lead messaging)
-- **Decision:** _TBD_
-- **Notes:** Used for Flow 6 (holiday prompt to Ronit + her reply). Meta Cloud API on a dedicated business number, OR a third party (360dialog, Twilio, GreenAPI). Owner reply is matched back to a `holiday_campaign` row by sender phone.
-- **Env to add when chosen:** `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `RONIT_OWNER_WA_NUMBER`.
+### WhatsApp (custom Supabase edge-function gateway)
+- **Decision:** Custom gateway — a Supabase Edge Function (Deno) bridges WhatsApp ↔ this backend. **Replaces GreenAPI** (GreenAPI is being retired). Lives in a *separate* Supabase project, not this repo.
+- **Outbound — send a message.** POST to the `ronit-send` edge function:
+  ```
+  POST https://gctijcljpjtmpyuzaohm.supabase.co/functions/v1/ronit-send
+  Authorization: Bearer <RONIT_WA_SEND_TOKEN>
+  Content-Type: application/json
+
+  { "to": "<country code + number, NO plus sign>", "text": "<message>" }
+  ```
+  - `to` = digits only, country code prefixed, no `+` (e.g. `+63 960 391 3514` → `"639603913514"`; Israeli `0XXXXXXXXX` → `"972XXXXXXXXX"`).
+  - Success response: `{"ok":true,"gateway":{"status":"sent"}}` with HTTP 200.
+  - The Bearer token is a **secret** — it is NOT stored in this committed file. It lives in the gateway project + Ronit's `.env` on the VPS. When wiring outbound from this backend, add it to `env.ts` as `RONIT_WA_SEND_TOKEN` (+ `RONIT_WA_SEND_URL`) and read via `env`, never hardcode.
+- **Inbound — receive a message.** The gateway POSTs to `POST /api/whatsapp/webhook` on THIS backend (`https://api.ronitbarash.site/api/whatsapp/webhook`).
+  - As of 2026-06-18 the route is a **plain receiver**: no schema validation, accepts ANY JSON body, logs it (`"Inbound webhook received"`), returns 200. GreenAPI parsing/file-upload/owner-text logic was stripped out ([whatsapp.controller.ts](Server/src/domains/whatsapp/whatsapp.controller.ts), [whatsapp.routes.ts](Server/src/domains/whatsapp/whatsapp.routes.ts)). No auth/signature check on it yet.
+  - **Real inbound payload shape** (flat, much simpler than GreenAPI):
+    ```json
+    {
+      "customerId": "ronit-id",
+      "type": "incoming",
+      "chatType": "private",
+      "from": "639603913514",
+      "pushName": "Yul",
+      "message": "hey",
+      "messageType": "text",
+      "timestamp": 1781712601
+    }
+    ```
+  - `from` = sender digits (country code, no `+`). `timestamp` = Unix epoch **seconds** (multiply by 1000 for JS `Date`).
+- **Status:** Both directions verified end-to-end 2026-06-18 (outbound 200 `status:sent`, inbound 200 logged). Handling logic (classify → create/update Monday lead) **not yet rebuilt** — webhook currently only logs. The dormant GreenAPI holiday/follow-up flows, crons, client, env vars, and SQLite tables still exist but are unused and slated for removal.
+- **Env to add when wiring outbound from this backend:** `RONIT_WA_SEND_URL`, `RONIT_WA_SEND_TOKEN`.
 
 ### Monday.com
 - **Decision:** Partially implemented — GraphQL API (version 2025-04)
@@ -114,6 +141,13 @@ Status of each integration. When a new decision is made, update this section and
 - **CRM groups (7 as of 2026-06-11):** לידים חדשים אורגני אינסטגרם (`new_group29179`, lead-creation target), לידים חדשים קמפיין META, פולו אפ טיסות לאומן, פולו אפ הפרשות חלה, נסגרו (`group_mm2n54r9`, close-webhook trigger), לא רלוונטי, ללא מספרי טלפון. Group renames are safe (IDs persist); group deletions can break wiring silently.
 - **Daily group watchdog:** `monday.cron.ts` (`startMondayCrons`, 07:00 Asia/Jerusalem) fetches CRM board groups via `getBoardGroups`, diffs against SQLite `settings` key `crm_groups_snapshot`, logs warn on add/remove/rename, logs error if the new-leads group ID disappears (lead creation would break). All other flows are group-agnostic (updates by item ID).
 - **Returning-lead handling (live, E2E-verified 2026-06-11):** when a known IG sender writes an interested message: (a) live CRM row → moved back to the new-leads group from wherever it drifted; (b) stale `known_senders` mapping (item deleted/archived/off-board — checked via `state === "active"` in `getItemBoardAndGroup`, because trashed items still return from `items(ids)`) → mapping dropped, sender treated as new; (c) before creating the fresh row, if a service was named, the ACTIVE service board (`getCurrentUmanBoardState` / `challah_board_id:<yr>`+`<yr+1>` settings) is searched by phone-variants or IG username (`findLeadOnBoard`) — a hit means already booked → no CRM row. `moveClosedItem` deletes the `known_senders` row after deleting the CRM item. Cross-board duplicates are intended; per-board uniqueness holds because one service board is active at a time.
+- **API rate-limit resilience (built 2026-07-08 — Monday Standard plan = 1,000 API calls/day, resets midnight UTC):** all lead paths are now lossless under 429s (`DAILY_LIMIT_EXCEEDED` / minute cap):
+  - `monday.client.ts` classifies 429s into `MondayRateLimitError` (kind `daily`|`minute` + `retryInSeconds`), does one short inline retry max, and keeps a module-level circuit breaker (`rateLimitedUntilMs`) so webhook handlers fail fast during an outage instead of stacking latency.
+  - **Durable retry queue** — SQLite `monday_lead_queue` (`UNIQUE(platform, sender_id)` upsert-merge, per-row `next_attempt_at` exponential backoff, 7-day expiry with error logging). `drainMondayLeadQueue` (`monday.queue.service.ts`, cron every minute, batch 5) dispatches by platform: `instagram` (dedup + create + known-sender), `website` (replays `submitWebsiteLeadToMonday`), `n8n` (see fallback below). A daily-limit error bumps by `retry_in_seconds + 60` and breaks the whole batch.
+  - **Caching** — Uman board-state TTL cache (`MONDAY_UMAN_STATE_TTL_MS`, 15 min) + `ig_message_mirror` (6h freshness so Ronit's manual Monday edits win) cut read volume roughly in half.
+  - **WA welcome single-fire** — drain-created rows get their welcome via Monday's `create_item` lead-ready webhook (itemId dedup key), never from the drain itself.
+- **n8n FB lead-ad fallback:** `POST /api/monday/lead-fallback` (gated by `verifyMondaySecret`, same `?token=` as lead-ready; body = the n8n *Normalize phone* output validated by `N8nLeadFallbackSchema` — requires `phone972` OR `email`). Enqueues `platform:"n8n"`; `drainN8nRow` dedups by `findLeadByPhone` on CRM then creates with `sourceLabel: env.MONDAY_SOURCE_LABEL_PAID` (ממומן) + the **original** `inquiryDate`. Wired from workflow `IZa9wPTd87J6Ppno` ("Ronit Leads Monday Entry"): `Create Monday item` `onError: continueErrorOutput` → "Send to queue" HTTP node. n8n API access: `N8N_API_KEY`/`N8N_API_URL` in `Server/.env`.
+- **Lead-source tag:** `createLeadRow` stamps מקור ליד (`MONDAY_COL_SOURCE_ID`) with `MONDAY_SOURCE_LABEL_ORGANIC` (אורגני) by default; `sourceLabel`/`inquiryDate` are overridable per call (used only by the n8n drain path).
 
 ### LLM (classification + summarization)
 - **Decision:** Implemented — OpenRouter (default model: `anthropic/claude-haiku-4.5`)
@@ -133,7 +167,8 @@ Status of each integration. When a new decision is made, update this section and
   - Monday.com CRM automation — `findLeadByPhone()` searches CRM board with multi-format normalization (Israeli +972/0-prefix, Philippine +63), `incrementCallsColumn()`, `updateLastCallDate()`, `addNoteToItem()`. **Tested and working via test-inject.** Note: Monday's `items_page_by_column_values` does not match a few stale May-2026 synthetic test rows (indexing quirk); all real leads match fine.
   - Dev test endpoint at `POST /api/calls/test-inject` — takes `{ phone }` to test the Monday.com matching + increment flow directly.
 - **No-filter policy:** We accept every call Salestrail sends — WhatsApp, WhatsApp Business, cellular SIM, answered or not, any duration. No pre-filtering. Natural gates: (a) phone matches a Monday lead, (b) recording exists in Salestrail.
-- **Not yet done:** Salestrail dashboard Push API password has a leading TAB pasted into it — every push since 2026-06-10 was rejected 401. Re-enter the password in Salestrail (Integrations → Apps → Push API) without the tab; username is correct. Then: end-to-end test with real recording on Samsung A56, Gemini Hebrew transcript quality verification.
+- **Salestrail push LIVE (verified 2026-06-14):** the leading-TAB password issue is resolved. Real SIM calls are flowing — 16 call webhooks processed with 0 auth 401s since the 2026-06-11 deploy (first 2026-06-12T01:05Z, e.g. callId b588eb00 +972503366416 SIM 139s answered). Pipeline ingesting end-to-end.
+- **Not yet done:** Gemini Hebrew transcript quality verification on real recordings (calls are arriving; confirm summaries land well on the Monday rows).
 - **Known risk:** Android restricts third-party mic access during VoIP calls. Samsung is more permissive than Xiaomi/MIUI (which blocks completely), but WhatsApp calls may produce one-sided audio. Cellular/SIM calls should work with full two-way audio on Samsung. Samsung is Salestrail's best-supported device family.
 - **Env in use:** `SALESTRAIL_WEBHOOK_USERNAME`, `SALESTRAIL_WEBHOOK_PASSWORD`, `OPENROUTER_AUDIO_MODEL`, `MONDAY_COL_CALLS_ID`.
 - **Research:** See [research/call-recording-comparison.md](research/call-recording-comparison.md) for full market comparison (15+ apps analyzed).
