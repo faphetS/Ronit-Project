@@ -27,20 +27,27 @@ export type TestInjectBody = z.infer<typeof TestInjectBodySchema>;
 // (mondayValues, raw sheet columns, etc.) pass through unvalidated so the
 // backend can log/replay them without the schema drifting every time n8n's
 // upstream shape changes.
+//
+// The Normalize-phone code node ALWAYS includes full_name/phone972/inquiryDate
+// as strings — "" when the source field is missing, never an omitted key or
+// null. Every field here must treat "" as absent, or a blank cosmetic field
+// (e.g. missing created_time) would 400 and lose an otherwise-valid lead.
+const emptyToNull = (v: unknown) => (v === "" ? null : v);
+const blankToUndefined = (v: unknown) =>
+  typeof v === "string" && v.trim() === "" ? undefined : v;
+
 export const N8nLeadFallbackSchema = z
   .object({
-    full_name: z.string().trim().default("ליד חדש"),
-    phone972: z.string().min(1).nullable().optional(),
-    // n8n sometimes sends "" rather than omitting the key; treat that the same
-    // as absent instead of failing email validation on an empty string.
-    email: z.preprocess(
-      (v) => (v === "" ? null : v),
-      z.string().email().nullable().optional(),
+    full_name: z.preprocess(blankToUndefined, z.string().trim().default("ליד חדש")),
+    phone972: z.preprocess(emptyToNull, z.string().min(1).nullable().optional()),
+    email: z.preprocess(emptyToNull, z.string().email().nullable().optional()),
+    inquiryDate: z.preprocess(
+      blankToUndefined,
+      z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, "inquiryDate must be YYYY-MM-DD")
+        .optional(),
     ),
-    inquiryDate: z
-      .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/, "inquiryDate must be YYYY-MM-DD")
-      .optional(),
   })
   .passthrough()
   .refine((data) => Boolean(data.phone972) || Boolean(data.email), {

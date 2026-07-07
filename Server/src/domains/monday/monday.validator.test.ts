@@ -97,4 +97,36 @@ describe("N8nLeadFallbackSchema", () => {
     });
     expect(result.success).toBe(false);
   });
+
+  // n8n's Normalize-phone node NEVER omits keys — missing source data arrives
+  // as "". These three guard the real wire shape against 400-and-lose.
+  it("phone972: '' with a valid email → parses as email-only (phone972 null)", () => {
+    const result = N8nLeadFallbackSchema.parse({
+      full_name: "דנה כהן",
+      phone972: "",
+      email: "dana@example.com",
+    });
+    expect(result.phone972).toBeNull();
+    expect(result.email).toBe("dana@example.com");
+  });
+
+  it("inquiryDate: '' with a valid phone → parses, inquiryDate absent (drain falls back to today)", () => {
+    const result = N8nLeadFallbackSchema.parse({
+      full_name: "דנה כהן",
+      phone972: "972501234567",
+      inquiryDate: "",
+    });
+    expect(result.inquiryDate).toBeUndefined();
+    expect(result.phone972).toBe("972501234567");
+  });
+
+  it("full_name: '' or whitespace → falls back to the 'ליד חדש' default", () => {
+    for (const blank of ["", "   "]) {
+      const result = N8nLeadFallbackSchema.parse({
+        full_name: blank,
+        phone972: "972501234567",
+      });
+      expect(result.full_name).toBe("ליד חדש");
+    }
+  });
 });
