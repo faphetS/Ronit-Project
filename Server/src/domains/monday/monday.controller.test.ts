@@ -15,11 +15,13 @@ vi.mock("./monday.service.js", () => ({ getItemServiceAndPhone: vi.fn() }));
 vi.mock("../whatsapp/uman-welcome.service.js", () => ({
   maybeSendUmanWelcome: vi.fn().mockResolvedValue(undefined),
 }));
+vi.mock("../../config/db.js", () => ({ enqueueMondayLead: vi.fn() }));
 
-import { handleLeadReady, verifyMondaySecret } from "./monday.controller.js";
+import { handleLeadReady, handleLeadFallback, verifyMondaySecret } from "./monday.controller.js";
 import { UnauthorizedError } from "../../lib/errors.js";
 import * as mondayService from "./monday.service.js";
 import * as umanWelcome from "../whatsapp/uman-welcome.service.js";
+import * as db from "../../config/db.js";
 
 const mockReq = (body: unknown, query: Record<string, string> = {}): Request =>
   ({ body, query, ip: "127.0.0.1" }) as unknown as Request;
@@ -177,5 +179,66 @@ describe("handleLeadReady", () => {
     expect(umanWelcome.maybeSendUmanWelcome).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith({ status: "ok" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleLeadFallback
+// ---------------------------------------------------------------------------
+
+describe("handleLeadFallback", () => {
+  it("phone lead → enqueues an n8n queue row keyed on the phone, returns 200 queued", async () => {
+    const body = {
+      full_name: "פני אלקסלסי",
+      phone972: "972523730451",
+      email: "fanielkas77@gmail.com",
+      inquiryDate: "2026-07-06",
+      mondayValues: { some: "passthrough" },
+    };
+
+    const res = mockRes();
+    await handleLeadFallback(
+      mockReq(body) as Parameters<typeof handleLeadFallback>[0],
+      res as unknown as Response,
+    );
+
+    expect(db.enqueueMondayLead).toHaveBeenCalledOnce();
+    expect(db.enqueueMondayLead).toHaveBeenCalledWith({
+      platform: "n8n",
+      senderId: "n8n:972523730451",
+      displayName: "פני אלקסלסי",
+      phone: "972523730451",
+      service: "uman",
+      messageText: "FB lead-ad fallback (n8n direct create failed)",
+      source: "n8n",
+      payload: JSON.stringify(body),
+    });
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({ status: "queued" });
+  });
+
+  it("email-only lead (phone972 null) → senderId keyed on the email, phone null", async () => {
+    const body = {
+      full_name: "ליד חדש",
+      phone972: null,
+      email: "lead@example.com",
+    };
+
+    const res = mockRes();
+    await handleLeadFallback(
+      mockReq(body) as Parameters<typeof handleLeadFallback>[0],
+      res as unknown as Response,
+    );
+
+    expect(db.enqueueMondayLead).toHaveBeenCalledWith(
+      expect.objectContaining({
+        platform: "n8n",
+        senderId: "n8n:lead@example.com",
+        phone: null,
+        payload: JSON.stringify(body),
+      }),
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({ status: "queued" });
   });
 });

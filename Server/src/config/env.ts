@@ -53,6 +53,16 @@ const envSchema = z.object({
   // close flow reads it to decide if the current Uman board is still active.
   MONDAY_UMAN_COL_DATE_ID: z.string().default("date_mm3s6dh6"),
 
+  // Monday GraphQL client (monday.client.ts) — retry/backoff tuning for 429s.
+  // Total attempts = 1 + MONDAY_GQL_MAX_RETRIES. MONDAY_INLINE_RETRY_MAX_WAIT_MS
+  // caps how long a single minute-level rate limit is worth sleeping inline
+  // before the meta controller's webhook response; anything longer throws
+  // MondayRateLimitError so the caller can durably queue instead.
+  MONDAY_GQL_MAX_RETRIES: z.coerce.number().int().min(0).default(2),
+  MONDAY_INLINE_RETRY_MAX_WAIT_MS: z.coerce.number().int().min(0).default(5_000),
+  // TTL for the cached Uman board-state read (getActiveServiceBoardIds hot path).
+  MONDAY_UMAN_STATE_TTL_MS: z.coerce.number().int().min(0).default(900_000),
+
   // Meta / Instagram
   META_APP_ID: z.string().min(1).optional(),
   META_APP_SECRET: z.string().min(1).optional(),
@@ -185,6 +195,15 @@ const envSchema = z.object({
   // Also drives Challah year-board routing on close (close flow reads this and
   // picks/creates "הפרשות חלה NN" + the matching month group).
   MONDAY_COL_INQUIRY_DATE_ID: z.string().default("date_mm2psbnf"),
+
+  // Monday.com — Status column "מקור ליד". createLeadRow writes the organic label on
+  // every backend-created lead; the external n8n Meta flow writes the paid label (ממומן).
+  MONDAY_COL_SOURCE_ID: z.string().default("color_mm4tm9wn"),
+  MONDAY_SOURCE_LABEL_ORGANIC: z.string().default("אורגני"),
+  // Paid-lead label for the n8n FB lead-ads fallback path (drainN8nRow). n8n's
+  // own direct-create mutation hardcodes this Hebrew text; kept here as a
+  // matching default so the fallback-created row is visually identical.
+  MONDAY_SOURCE_LABEL_PAID: z.string().default("ממומן"),
 
   // Monday.com — long_text column populated by every incoming IG message via
   // updateLastIgMessage. CRM-board only; known_senders.monday_item_id is CRM-only.

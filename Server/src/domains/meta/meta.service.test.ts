@@ -30,7 +30,6 @@ vi.mock("../monday/monday.service.js", () => ({
   updateLastIgMessage: vi.fn().mockResolvedValue(undefined),
   getItemBoardAndGroup: vi.fn(),
   moveItemToGroup: vi.fn().mockResolvedValue(undefined),
-  findLeadOnBoard: vi.fn().mockResolvedValue(null),
   // Real two-branch logic so phone-routing assertions work without stubbing every case.
   leadGroupForPhone: vi.fn((phone: string | null | undefined) =>
     phone ? "new_group29179" : "group_mm469wrf",
@@ -41,7 +40,12 @@ vi.mock("../monday/monday.service.js", () => ({
 }));
 
 vi.mock("../monday/monday.webhook.service.js", () => ({
-  getActiveServiceBoardIds: vi.fn().mockResolvedValue([]),
+  findLeadOnActiveServiceBoards: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock("../../config/db.js", () => ({
+  enqueueMondayLead: vi.fn(),
+  findQueuedLeadBySender: vi.fn().mockReturnValue(null),
 }));
 
 vi.mock("../whatsapp/uman-welcome.service.js", () => ({
@@ -66,6 +70,9 @@ import * as mondayService from "../monday/monday.service.js";
 import * as mondayWebhookService from "../monday/monday.webhook.service.js";
 import * as outbound from "./meta.outbound.service.js";
 import * as umanWelcome from "../whatsapp/uman-welcome.service.js";
+import * as profileService from "./meta.profile.service.js";
+import * as db from "../../config/db.js";
+import { MondayRateLimitError } from "../monday/monday.client.js";
 
 
 const SENDER_ID = "ig_sender_001";
@@ -112,11 +119,12 @@ beforeEach(() => {
   vi.mocked(classify.classifyLead).mockResolvedValue(interestedClassification);
   vi.mocked(mondayService.createLeadRow).mockResolvedValue({ itemId: "new-item-123" });
   vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue(null);
-  vi.mocked(mondayService.findLeadOnBoard).mockResolvedValue(null);
   vi.mocked(mondayService.updateItemService).mockResolvedValue(undefined);
-  vi.mocked(mondayWebhookService.getActiveServiceBoardIds).mockResolvedValue([]);
+  vi.mocked(mondayWebhookService.findLeadOnActiveServiceBoards).mockResolvedValue(null);
   vi.mocked(outbound.sendReplyDM).mockResolvedValue(undefined);
   vi.mocked(outbound.sendServiceQuestion).mockResolvedValue(undefined);
+  vi.mocked(db.findQueuedLeadBySender).mockReturnValue(null);
+  vi.mocked(profileService.fetchIgProfile).mockResolvedValue({ id: "profile-id", username: "test_user" });
 });
 
 describe("handleIncomingMessage — live row in another group + interested", () => {
@@ -198,7 +206,7 @@ describe("handleIncomingMessage — stale mapping (getItemBoardAndGroup → null
       phone: "0509999999",
     });
     vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue(null);
-    vi.mocked(mondayWebhookService.getActiveServiceBoardIds).mockResolvedValue([]);
+    vi.mocked(mondayWebhookService.findLeadOnActiveServiceBoards).mockResolvedValue(null);
 
     const result = await handleIncomingMessage({
       messageText: "מעוניינת לטוס",
@@ -224,11 +232,9 @@ describe("handleIncomingMessage — stale mapping + interested + findLeadOnBoard
       phone: "0509999999",
     });
     vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue(null);
-    vi.mocked(mondayWebhookService.getActiveServiceBoardIds).mockResolvedValue([
-      "service-board-111",
-    ]);
-    vi.mocked(mondayService.findLeadOnBoard).mockResolvedValue({
+    vi.mocked(mondayWebhookService.findLeadOnActiveServiceBoards).mockResolvedValue({
       itemId: "service-item-222",
+      boardId: "service-board-111",
     });
 
     const result = await handleIncomingMessage({
@@ -273,7 +279,7 @@ describe("handleIncomingMessage — stale where item lives on NON-CRM board", ()
       groupId: "group-a",
       service: null,
     });
-    vi.mocked(mondayWebhookService.getActiveServiceBoardIds).mockResolvedValue([]);
+    vi.mocked(mondayWebhookService.findLeadOnActiveServiceBoards).mockResolvedValue(null);
 
     await handleIncomingMessage({
       messageText: "מעוניינת",
@@ -845,5 +851,234 @@ describe("handleIncomingMessage — DM send failure is non-fatal", () => {
     expect(mondayService.createLeadRow).toHaveBeenCalled();
     expect(result.itemId).toBe("new-item-123");
     expect(dedup.unmarkMessageProcessed).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// monday_lead_queue — 429 resilience (Phase 2)
+// ---------------------------------------------------------------------------
+
+describe("handleIncomingMessage — createLeadRow rate-limited (daily)", () => {
+  it("enqueues the lead, still sends the first-contact DM, resolves itemId:null without throwing", async () => {
+    vi.mocked(mondayService.createLeadRow).mockRejectedValue(
+      new MondayRateLimitError("daily", 9000, "daily cap"),
+    );
+
+    const result = await handleIncomingMessage({
+      messageText: "אני רוצה טיסה לאומן 0501234567",
+      senderId: SENDER_ID,
+      messageId: "ratelimit-1",
+    });
+
+    expect(result.itemId).toBeNull();
+    expect(db.enqueueMondayLead).toHaveBeenCalledWith(
+      expect.objectContaining({
+        platform: "instagram",
+        senderId: SENDER_ID,
+        phone: "0501234567",
+        service: "uman",
+      }),
+    );
+    expect(outbound.sendReplyDM).toHaveBeenCalledWith(SENDER_ID, {
+      service: "uman",
+      hasPhone: true,
+      answered: false,
+    });
+    // F3: no mondayItemId exists yet on this path, so the welcome must NOT
+    // fire here at all — Monday's own create_item lead-ready webhook fires it
+    // once the queue eventually creates the row (single dedup key).
+    expect(umanWelcome.maybeSendUmanWelcome).not.toHaveBeenCalled();
+    expect(dedup.unmarkMessageProcessed).not.toHaveBeenCalled();
+  });
+});
+
+describe("handleIncomingMessage — sender already queued", () => {
+  it("second message merges into monday_lead_queue; no DM, no fetchIgProfile/create", async () => {
+    vi.mocked(db.findQueuedLeadBySender).mockReturnValue({
+      id: 1,
+      platform: "instagram",
+      sender_id: SENDER_ID,
+      sender_username: null,
+      display_name: "Queued Lead",
+      phone: null,
+      service: null,
+      message_text: "first msg",
+      source: "instagram",
+      payload: null,
+      open_clarification: 0,
+      attempt_count: 1,
+      last_error: "rate limited",
+      next_attempt_at: "2026-01-01 00:00:00",
+      created_at: "2026-01-01 00:00:00",
+    });
+
+    const result = await handleIncomingMessage({
+      messageText: "עוד הודעה",
+      senderId: SENDER_ID,
+      messageId: "queued-merge-1",
+    });
+
+    expect(result.itemId).toBeNull();
+    expect(db.enqueueMondayLead).toHaveBeenCalledWith(
+      expect.objectContaining({ senderId: SENDER_ID, messageText: "עוד הודעה" }),
+    );
+    expect(profileService.fetchIgProfile).not.toHaveBeenCalled();
+    expect(mondayService.createLeadRow).not.toHaveBeenCalled();
+    expect(outbound.sendReplyDM).not.toHaveBeenCalled();
+    expect(outbound.sendServiceQuestion).not.toHaveBeenCalled();
+  });
+});
+
+describe("handleIncomingMessage — sender already queued, message classifies NOT interested (F2)", () => {
+  it("still merges the phone into the queue — the guard runs before the not-interested return", async () => {
+    vi.mocked(db.findQueuedLeadBySender).mockReturnValue({
+      id: 2,
+      platform: "instagram",
+      sender_id: SENDER_ID,
+      sender_username: null,
+      display_name: "Queued Lead",
+      phone: null,
+      service: null,
+      message_text: "first msg",
+      source: "instagram",
+      payload: null,
+      open_clarification: 0,
+      attempt_count: 0,
+      last_error: null,
+      next_attempt_at: "2026-01-01 00:00:00",
+      created_at: "2026-01-01 00:00:00",
+    });
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      interested: false,
+      service: null,
+      extractedName: null,
+      extractedPhone: "0501234567",
+      confidence: 0.2,
+      rawResponse: "",
+    });
+
+    const result = await handleIncomingMessage({
+      messageText: "0501234567",
+      senderId: SENDER_ID,
+      messageId: "f2-notinterested-1",
+    });
+
+    expect(result.itemId).toBeNull();
+    expect(db.enqueueMondayLead).toHaveBeenCalledWith(
+      expect.objectContaining({ senderId: SENDER_ID, phone: "0501234567" }),
+    );
+    expect(outbound.sendReplyDM).not.toHaveBeenCalled();
+    expect(outbound.sendServiceQuestion).not.toHaveBeenCalled();
+  });
+});
+
+describe("handleIncomingMessage — known-sender update rate-limited", () => {
+  it("no phone/service datum on this message → resolves with the existing itemId, no enqueue", async () => {
+    vi.mocked(dedup.findKnownSender).mockReturnValue({ monday_item_id: ITEM_ID, phone: "0501234567" });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+      boardId: CRM_BOARD,
+      groupId: NEW_LEADS_GROUP,
+      service: null,
+    });
+    vi.mocked(classify.classifyLead).mockResolvedValue(notInterestedClassification);
+    vi.mocked(mondayService.updateLastIgMessage).mockRejectedValue(
+      new MondayRateLimitError("minute", 90, "minute cap"),
+    );
+
+    const result = await handleIncomingMessage({
+      messageText: "תודה",
+      senderId: SENDER_ID,
+      messageId: "known-ratelimit-1",
+    });
+
+    expect(result.itemId).toBe(ITEM_ID);
+    expect(db.enqueueMondayLead).not.toHaveBeenCalled();
+  });
+
+  it("message carried a new phone → resolves with the existing itemId AND durably retries via the queue (F5)", async () => {
+    vi.mocked(dedup.findKnownSender).mockReturnValue({ monday_item_id: ITEM_ID, phone: null });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+      boardId: CRM_BOARD,
+      groupId: NEW_LEADS_GROUP,
+      service: null,
+    });
+    vi.mocked(mondayService.updateLastIgMessage).mockRejectedValue(
+      new MondayRateLimitError("minute", 90, "minute cap"),
+    );
+
+    const result = await handleIncomingMessage({
+      messageText: "עוד הודעה 0501234567",
+      senderId: SENDER_ID,
+      messageId: "known-ratelimit-2",
+    });
+
+    expect(result.itemId).toBe(ITEM_ID);
+    // The phone is persisted locally BEFORE the rate limit is even hit.
+    expect(dedup.updateSenderPhone).toHaveBeenCalledWith("instagram", SENDER_ID, "0501234567");
+    expect(db.enqueueMondayLead).toHaveBeenCalledWith(
+      expect.objectContaining({ senderId: SENDER_ID, phone: "0501234567", service: "uman" }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F5(a) — the phone is persisted locally BEFORE the first Monday await in the
+// branch, so it survives even when THAT first call is the one that rate-limits.
+// ---------------------------------------------------------------------------
+
+describe("handleIncomingMessage — phone survives even when the very first Monday call rate-limits", () => {
+  it("known-sender branch: getItemBoardAndGroup itself rejects → phone already persisted locally, before that call", async () => {
+    vi.mocked(dedup.findKnownSender).mockReturnValue({ monday_item_id: ITEM_ID, phone: null });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockRejectedValue(
+      new MondayRateLimitError("minute", 45, "minute cap"),
+    );
+
+    const result = await handleIncomingMessage({
+      messageText: "המספר שלי 0501234567",
+      senderId: SENDER_ID,
+      messageId: "f5a-known-1",
+    });
+
+    const phoneOrder = vi.mocked(dedup.updateSenderPhone).mock.invocationCallOrder[0];
+    const getBoardOrder = vi.mocked(mondayService.getItemBoardAndGroup).mock.invocationCallOrder[0];
+    expect(phoneOrder).toBeLessThan(getBoardOrder);
+
+    expect(dedup.updateSenderPhone).toHaveBeenCalledWith("instagram", SENDER_ID, "0501234567");
+    expect(db.enqueueMondayLead).toHaveBeenCalledWith(
+      expect.objectContaining({ senderId: SENDER_ID, phone: "0501234567" }),
+    );
+    expect(result.itemId).toBe(ITEM_ID);
+  });
+
+  it("pending-clarification branch: getItemBoardAndGroup itself rejects → phone already persisted locally, before that call", async () => {
+    vi.mocked(conversation.getPendingClarification).mockReturnValue({
+      monday_item_id: ITEM_ID,
+      phone: null,
+      reask_count: 0,
+    });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockRejectedValue(
+      new MondayRateLimitError("minute", 45, "minute cap"),
+    );
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      ...interestedClassification,
+      service: null,
+      extractedPhone: "0501234567",
+    });
+
+    const result = await handleIncomingMessage({
+      messageText: "0501234567",
+      senderId: SENDER_ID,
+      messageId: "f5a-pending-1",
+    });
+
+    const phoneOrder = vi.mocked(dedup.updateSenderPhone).mock.invocationCallOrder[0];
+    const getBoardOrder = vi.mocked(mondayService.getItemBoardAndGroup).mock.invocationCallOrder[0];
+    expect(phoneOrder).toBeLessThan(getBoardOrder);
+
+    expect(dedup.updateSenderPhone).toHaveBeenCalledWith("instagram", SENDER_ID, "0501234567");
+    expect(db.enqueueMondayLead).toHaveBeenCalledWith(
+      expect.objectContaining({ senderId: SENDER_ID, phone: "0501234567" }),
+    );
+    expect(result.itemId).toBe(ITEM_ID);
   });
 });

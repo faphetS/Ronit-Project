@@ -15,12 +15,14 @@ import {
   bumpQueuedComment,
   countCommentDmsSentLastHour,
   expireOldQueuedComments,
+  enqueueMondayLead,
 } from "../../config/db.js";
 import {
   createLeadRow,
   updateLastIgMessage,
   getItemBoardAndGroup,
 } from "../monday/monday.service.js";
+import { MondayRateLimitError } from "../monday/monday.client.js";
 import { sendCommentPrivateReply } from "./meta.outbound.service.js";
 
 const DEDUP_SOURCE = "ig_comment";
@@ -125,9 +127,9 @@ async function processQueuedComment(input: {
   // ② Mark sent — drives the hourly counter + dedup (a redelivered webhook won't re-DM).
   markMessageProcessed(DEDUP_SOURCE, commentId);
 
-  // ③ Create the Uman lead (no phone yet → no-phone group). A failure here AFTER the
-  //    DM is logged for manual recovery — one orphan DM beats a double DM, so we
-  //    still treat the item as done ("sent") and drop it from the queue.
+  // ③ Create the Uman lead (no phone yet → no-phone group). A failure here AFTER
+  //    the DM is deferred to monday_lead_queue — one orphan DM beats a double DM,
+  //    so we still treat the item as done ("sent") and drop it from this queue.
   let itemId: string;
   try {
     const created = await createLeadRow({
@@ -138,6 +140,24 @@ async function processQueuedComment(input: {
     });
     itemId = created.itemId;
   } catch (err) {
+    if (err instanceof MondayRateLimitError) {
+      enqueueMondayLead({
+        platform: "instagram",
+        senderId: commenterId,
+        senderUsername: commenterUsername,
+        displayName: commenterUsername ?? "IG commenter",
+        phone: null,
+        service: "uman",
+        messageText: commentText,
+        source: "instagram",
+        openClarification: false,
+      });
+      logger.warn(
+        { err, commentId, commenterId, commenterUsername },
+        "IG comment DM sent but Monday row creation rate-limited — deferred to monday_lead_queue",
+      );
+      return "sent";
+    }
     logger.error(
       { err, commentId, commenterId, commenterUsername },
       "IG comment DM sent but Monday row creation failed — manual recovery needed",
@@ -201,16 +221,24 @@ export async function drainCommentQueue(): Promise<void> {
         deleteQueuedComment(item.id); // already handled elsewhere
         continue;
       }
-      const result = await processQueuedComment({
-        commentId: item.comment_id,
-        commentText: item.comment_text,
-        commenterId: item.commenter_id,
-        commenterUsername: item.commenter_username ?? undefined,
-      });
-      if (result === "failed") {
-        bumpQueuedComment(item.id, "Private-Reply DM not sent");
-      } else {
-        deleteQueuedComment(item.id);
+      try {
+        const result = await processQueuedComment({
+          commentId: item.comment_id,
+          commentText: item.comment_text,
+          commenterId: item.commenter_id,
+          commenterUsername: item.commenter_username ?? undefined,
+        });
+        if (result === "failed") {
+          bumpQueuedComment(item.id, "Private-Reply DM not sent");
+        } else {
+          deleteQueuedComment(item.id);
+        }
+      } catch (err) {
+        // A Monday error escaping here (e.g. getItemBoardAndGroup) must not abort
+        // the whole drain tick — bump this item and keep draining the rest.
+        const message = err instanceof Error ? err.message : String(err);
+        logger.warn({ err, commentId: item.comment_id }, "IG comment drain — unexpected error, bumped for retry");
+        bumpQueuedComment(item.id, message);
       }
     }
   } finally {

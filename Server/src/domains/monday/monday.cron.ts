@@ -3,6 +3,7 @@ import { logger } from "../../config/logger.js";
 import { getSetting, setSetting } from "../../config/db.js";
 import { env } from "../../config/env.js";
 import { getBoardGroups, type BoardGroup } from "./monday.service.js";
+import { drainMondayLeadQueue } from "./monday.queue.service.js";
 
 export type { BoardGroup };
 
@@ -80,5 +81,21 @@ export function startMondayCrons(): void {
     { timezone: "Asia/Jerusalem" },
   );
 
-  logger.info("Monday cron jobs scheduled (CRM groups check daily 07:00 Asia/Jerusalem)");
+  // monday_lead_queue drain — retries leads that hit a 429 during creation,
+  // so nothing is permanently lost to a Monday rate limit.
+  cron.schedule(
+    "*/1 * * * *",
+    async () => {
+      try {
+        await drainMondayLeadQueue();
+      } catch (err) {
+        logger.error({ err }, "Cron: monday_lead_queue drain failed");
+      }
+    },
+    { timezone: "Asia/Jerusalem" },
+  );
+
+  logger.info(
+    "Monday cron jobs scheduled (CRM groups check daily 07:00 Asia/Jerusalem; lead-queue drain every 1 min)",
+  );
 }

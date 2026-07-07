@@ -1,6 +1,7 @@
 import { env } from "../../config/env.js";
 import { logger } from "../../config/logger.js";
 import { AppError } from "../../lib/errors.js";
+import { getIgMessageMirror, setIgMessageMirror } from "../../config/db.js";
 import { gql } from "./monday.client.js";
 
 const SERVICE_TO_LABEL_ID: Record<"uman" | "challah", number> = {
@@ -45,7 +46,15 @@ export interface CreateLeadInput extends FormFields {
   name: string;
   phone: string | null;
   service: "uman" | "challah" | null;
-  source: "instagram" | "whatsapp" | "website";
+  source: "instagram" | "whatsapp" | "website" | "n8n";
+  /** Overrides the inquiry-date column (default: today, Asia/Jerusalem). Used by
+   *  the n8n FB-lead fallback so a delayed drain-create still carries the lead's
+   *  original arrival date, not the drain time. */
+  inquiryDate?: string;
+  /** Overrides the lead-source column (default: env.MONDAY_SOURCE_LABEL_ORGANIC).
+   *  Used by the n8n FB-lead fallback to tag the row ממומן (paid), matching what
+   *  n8n's own direct-create path would have written. */
+  sourceLabel?: string;
 }
 
 export interface UpdateLeadInput extends FormFields {
@@ -123,10 +132,19 @@ export async function createLeadRow(
 ): Promise<{ itemId: string }> {
   const columnValues = buildColumnValues(input);
 
-  // Inquiry date — when this lead first appeared in our system. Set once on
-  // creation and never touched by updateLeadRow.
+  // Inquiry date — when this lead first appeared in our system. Defaults to
+  // today but the n8n FB-lead fallback passes the original arrival date through
+  // so a delayed drain-create doesn't misdate the lead. Set once on creation
+  // and never touched by updateLeadRow.
   const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Jerusalem" });
-  columnValues[env.MONDAY_COL_INQUIRY_DATE_ID] = { date: today };
+  columnValues[env.MONDAY_COL_INQUIRY_DATE_ID] = { date: input.inquiryDate ?? today };
+
+  // Lead source — every row created by this backend directly (IG DM, WhatsApp,
+  // website form) is organic. n8n's direct-create path also writes ממומן itself
+  // via its own hardcoded mutation; the ONLY caller here that passes sourceLabel
+  // is the n8n fallback endpoint, which needs createLeadRow to reproduce that
+  // paid tag when it creates the row on n8n's behalf.
+  columnValues[env.MONDAY_COL_SOURCE_ID] = { label: input.sourceLabel ?? env.MONDAY_SOURCE_LABEL_ORGANIC };
 
   const mutation = /* GraphQL */ `
     mutation (
@@ -140,6 +158,7 @@ export async function createLeadRow(
         group_id: $groupId
         item_name: $itemName
         column_values: $columnValues
+        create_labels_if_missing: true
       ) {
         id
       }
@@ -162,6 +181,10 @@ export async function createLeadRow(
     },
     "Monday CRM lead row created",
   );
+
+  // Seed the IG-message mirror — a brand-new item's column is empty, so the
+  // first updateLastIgMessage call on it can skip its read too.
+  setIgMessageMirror(data.create_item.id, "");
 
   return { itemId: data.create_item.id };
 }
@@ -236,18 +259,25 @@ export async function updateLastIgMessage(
   itemId: string,
   messageText: string,
 ): Promise<void> {
-  const current = await gql<{
-    items: Array<{ column_values: Array<{ id: string; text: string }> }>;
-  }>(
-    `query ($ids: [ID!]!) {
-      items(ids: $ids) {
-        column_values(ids: ["${env.MONDAY_COL_LAST_IG_MESSAGE_ID}"]) { id text }
-      }
-    }`,
-    { ids: [itemId] },
-  );
+  // Mirror-first: this column is bot-owned (only this function writes it), so a
+  // mirror hit skips the read-before-write gql entirely. A miss (mirror not yet
+  // seeded, e.g. a pre-existing item) falls back to the one-time read.
+  let existing = getIgMessageMirror(itemId);
 
-  const existing = current.items[0]?.column_values[0]?.text ?? "";
+  if (existing === null) {
+    const current = await gql<{
+      items: Array<{ column_values: Array<{ id: string; text: string }> }>;
+    }>(
+      `query ($ids: [ID!]!) {
+        items(ids: $ids) {
+          column_values(ids: ["${env.MONDAY_COL_LAST_IG_MESSAGE_ID}"]) { id text }
+        }
+      }`,
+      { ids: [itemId] },
+    );
+    existing = current.items[0]?.column_values[0]?.text ?? "";
+  }
+
   const previousMessages = parseIgMessages(existing);
   const updated = formatIgMessages([messageText, ...previousMessages]);
 
@@ -265,6 +295,9 @@ export async function updateLastIgMessage(
       columnValues: JSON.stringify(columnValues),
     },
   );
+
+  // Only mirror a write that Monday actually accepted.
+  setIgMessageMirror(itemId, updated);
 
   logger.info(
     { itemId, msgCount: Math.min(previousMessages.length + 1, MAX_IG_MESSAGES) },

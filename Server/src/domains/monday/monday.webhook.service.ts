@@ -1,10 +1,10 @@
 import { env } from "../../config/env.js";
 import { logger } from "../../config/logger.js";
-import { getSetting, setSetting } from "../../config/db.js";
+import { getSetting, setSetting, deleteIgMessageMirror } from "../../config/db.js";
 import { AppError } from "../../lib/errors.js";
 import { deleteKnownSenderByItemId } from "../../lib/dedup.js";
 import { gql } from "./monday.client.js";
-import { deleteItem, getBoardGroups } from "./monday.service.js";
+import { deleteItem, getBoardGroups, findLeadOnBoard } from "./monday.service.js";
 
 const SERVICE_LABEL_UMAN = 1;
 const SERVICE_LABEL_CHALLAH = 3;
@@ -212,6 +212,7 @@ export async function moveClosedItem(
 
   await deleteItem(String(itemId));
   deleteKnownSenderByItemId(String(itemId));
+  deleteIgMessageMirror(String(itemId));
 
   logger.info(
     {
@@ -403,11 +404,33 @@ interface ItemDatesResponse {
   }>;
 }
 
-export async function getCurrentUmanBoardState(): Promise<{
+export interface UmanBoardState {
   boardId: string;
   isActive: boolean;
   groupId: string | null;
-}> {
+}
+
+// TTL cache for the Uman board-state read — the hot path (getActiveServiceBoardIds,
+// one call per service-named lead) doesn't need a fresh full-board scan every time.
+// The close flow (getActiveUmanBoard, rare — one roll-over decision per flight)
+// always bypasses it and explicitly invalidates after a roll-over write.
+let umanStateCache: { value: UmanBoardState; fetchedAt: number } | null = null;
+
+export function invalidateUmanStateCache(): void {
+  umanStateCache = null;
+}
+
+export async function getCurrentUmanBoardState(
+  options: { bypassCache?: boolean } = {},
+): Promise<UmanBoardState> {
+  if (
+    !options.bypassCache &&
+    umanStateCache &&
+    Date.now() - umanStateCache.fetchedAt < env.MONDAY_UMAN_STATE_TTL_MS
+  ) {
+    return umanStateCache.value;
+  }
+
   const boardId = getSetting(UMAN_BOARD_SETTING_KEY) ?? env.MONDAY_BOARD_UMAN_ID;
 
   const data = await gql<ItemDatesResponse>(
@@ -438,11 +461,13 @@ export async function getCurrentUmanBoardState(): Promise<{
     today < [...dates].sort().slice(-1)[0]!;
 
   const groupId = board.groups[0]?.id ?? null;
-  return { boardId, isActive, groupId };
+  const result: UmanBoardState = { boardId, isActive, groupId };
+  umanStateCache = { value: result, fetchedAt: Date.now() };
+  return result;
 }
 
 async function getActiveUmanBoard(): Promise<{ boardId: string; groupId: string }> {
-  const state = await getCurrentUmanBoardState();
+  const state = await getCurrentUmanBoardState({ bypassCache: true });
 
   if (state.isActive) {
     if (!state.groupId) {
@@ -490,6 +515,7 @@ async function getActiveUmanBoard(): Promise<{ boardId: string; groupId: string 
   );
 
   setSetting(UMAN_BOARD_SETTING_KEY, newBoardId);
+  invalidateUmanStateCache();
   logger.info(
     { previousBoardId: state.boardId, newBoardId, newName },
     "Uman flight rolled over — new active board created",
@@ -516,4 +542,23 @@ export async function getActiveServiceBoardIds(
     if (id) ids.push(id);
   }
   return ids;
+}
+
+// Single home for the "is this lead already booked on an active service
+// board?" dedup policy — shared by meta.service.ts (new-sender create path)
+// and monday.queue.service.ts (drainIgRow), so the policy can't drift between
+// the inline path and the queued-retry path.
+export async function findLeadOnActiveServiceBoards(
+  service: "uman" | "challah",
+  phones: string[],
+  searchName: string | null,
+): Promise<{ itemId: string; boardId: string } | null> {
+  if (phones.length === 0 && searchName === null) return null;
+
+  const boardIds = await getActiveServiceBoardIds(service);
+  for (const boardId of boardIds) {
+    const hit = await findLeadOnBoard(boardId, phones, searchName);
+    if (hit) return { itemId: hit.itemId, boardId };
+  }
+  return null;
 }

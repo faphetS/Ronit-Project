@@ -24,11 +24,12 @@ import {
   updateLastIgMessage,
   getItemBoardAndGroup,
   moveItemToGroup,
-  findLeadOnBoard,
   leadGroupForPhone,
   mapItemServiceToKey,
 } from "../monday/monday.service.js";
-import { getActiveServiceBoardIds } from "../monday/monday.webhook.service.js";
+import { findLeadOnActiveServiceBoards } from "../monday/monday.webhook.service.js";
+import { MondayRateLimitError } from "../monday/monday.client.js";
+import { enqueueMondayLead, findQueuedLeadBySender } from "../../config/db.js";
 import { maybeSendUmanWelcome } from "../whatsapp/uman-welcome.service.js";
 import { sendReplyDM, sendServiceQuestion } from "./meta.outbound.service.js";
 import { fetchIgProfile } from "./meta.profile.service.js";
@@ -74,6 +75,74 @@ async function safeSendServiceQuestion(senderId: string): Promise<void> {
   }
 }
 
+// First-contact DM/question. Shared by the happy-path create and the
+// rate-limited-create catch below. The Uman WhatsApp welcome only fires when
+// a `mondayItemId` is supplied (the normal create path) — a deferred create
+// has no item yet, and Monday's own create_item "lead-ready" webhook
+// (monday.controller handleLeadReady) fires the welcome once the queue
+// eventually creates the row, so there is exactly one dedup key (the item
+// id) across both paths instead of one keyed on `senderId` racing another
+// keyed on `mondayItemId`.
+async function sendFirstContactSequence(
+  senderId: string,
+  service: "uman" | "challah" | null,
+  phone: string | null,
+  mondayItemId?: string,
+): Promise<void> {
+  if (service !== null) {
+    await safeSendReplyDM(senderId, { service, hasPhone: !!phone, answered: false });
+  } else {
+    await safeSendServiceQuestion(senderId);
+  }
+
+  if (!mondayItemId) return;
+
+  void maybeSendUmanWelcome({
+    senderId,
+    mondayItemId,
+    service,
+    phone,
+  }).catch((err) => logger.error({ err }, "Uman welcome rejected unexpectedly"));
+}
+
+// Shared log-and-skip for a rate limit hit on an UPDATE to an already-existing
+// Monday row (pending-clarification or known-sender branches). The row stays
+// where it is; if this message carried a phone or service answer that Monday
+// never received, durably retry just that write via the queue (merge-safe —
+// the upsert coalesces onto any row already queued for this sender).
+function handleUpdatePathRateLimit(
+  input: { senderId?: string; senderUsername?: string; messageText: string },
+  classification: Classification,
+  mondayItemId: string,
+  currentPhone: string | null,
+  err: MondayRateLimitError,
+): { itemId: string | null; classification: Classification } {
+  logger.warn(
+    {
+      err,
+      senderId: input.senderId,
+      mondayItemId,
+      extractedPhone: classification.extractedPhone,
+    },
+    "Monday rate-limited on known-sender/pending update — log-and-skip (row already exists)",
+  );
+
+  if (input.senderId && (classification.extractedPhone || classification.service !== null)) {
+    enqueueMondayLead({
+      platform: "instagram",
+      senderId: input.senderId,
+      senderUsername: input.senderUsername,
+      displayName: input.senderUsername ?? "Unknown IG lead",
+      phone: classification.extractedPhone ?? currentPhone,
+      service: classification.service,
+      messageText: input.messageText,
+      source: "instagram",
+    });
+  }
+
+  return { itemId: mondayItemId, classification };
+}
+
 async function processClassifiedMessage(
   input: {
     messageText: string;
@@ -93,126 +162,144 @@ async function processClassifiedMessage(
     : null;
 
   if (pending) {
-    const live = await getItemBoardAndGroup(pending.monday_item_id);
+    // Persist a newly-offered phone to SQLite BEFORE the first Monday await in
+    // this branch, so it survives even if every Monday call below fails.
+    const capturedPhone =
+      classification.extractedPhone && !pending.phone ? classification.extractedPhone : null;
+    if (capturedPhone) {
+      updateSenderPhone("instagram", input.senderId!, capturedPhone);
+    }
 
-    if (live === null || live.boardId !== env.MONDAY_BOARD_CRM_ID) {
-      logger.warn(
-        {
-          senderId: input.senderId,
-          mondayItemId: pending.monday_item_id,
-          liveBoardId: live?.boardId ?? null,
-        },
-        "Stale pending clarification — treating sender as new",
-      );
-      deletePendingByItemId(pending.monday_item_id);
-      deleteKnownSenderByItemId(pending.monday_item_id);
-      stalePhone = pending.phone;
-      // fall through to the new-sender path below.
-    } else {
-      await updateLastIgMessage(pending.monday_item_id, input.messageText);
+    try {
+      const live = await getItemBoardAndGroup(pending.monday_item_id);
 
-      // She explicitly declined mid-clarification → end it and stay silent.
-      // Clearing the pending row stops further re-asks and avoids a stale row.
-      if (!classification.interested) {
-        // A phone handed over even while declining still moves a tracked lead
-        // back to new-leads — phone presence is the sole gate. With no phone we
-        // leave her where she sits (don't disturb placement on a decline).
-        if (classification.extractedPhone && !pending.phone) {
-          await updateItemPhone(pending.monday_item_id, classification.extractedPhone);
-          updateSenderPhone("instagram", input.senderId!, classification.extractedPhone);
-        }
-        const declinePhone = classification.extractedPhone ?? pending.phone;
-        if (declinePhone) {
-          const declineTarget = leadGroupForPhone(declinePhone);
-          if (live.groupId !== declineTarget) {
-            await moveItemToGroup(pending.monday_item_id, declineTarget);
-          }
-        }
-        clearPendingClarification("instagram", input.senderId!);
-        logger.info(
-          { senderId: input.senderId, mondayItemId: pending.monday_item_id },
-          "Pending lead not interested — clarification cleared, staying silent",
-        );
-        return { itemId: pending.monday_item_id, classification };
-      }
-
-      // (a) She named a service → finalize with the post-question reply.
-      if (classification.interested && classification.service !== null) {
-        await safeUpdateService(pending.monday_item_id, classification.service);
-
-        if (classification.extractedPhone && !pending.phone) {
-          await updateItemPhone(pending.monday_item_id, classification.extractedPhone);
-          updateSenderPhone("instagram", input.senderId!, classification.extractedPhone);
-        }
-
-        const target = leadGroupForPhone(pending.phone ?? classification.extractedPhone);
-        if (live.groupId !== target) {
-          await moveItemToGroup(pending.monday_item_id, target);
-        }
-
-        const hasPhone = !!(pending.phone || classification.extractedPhone);
-        await safeSendReplyDM(input.senderId!, {
-          service: classification.service,
-          hasPhone,
-          answered: true,
-        });
-
-        clearPendingClarification("instagram", input.senderId!);
-        logger.info(
+      if (live === null || live.boardId !== env.MONDAY_BOARD_CRM_ID) {
+        logger.warn(
           {
             senderId: input.senderId,
+            mondayItemId: pending.monday_item_id,
+            liveBoardId: live?.boardId ?? null,
+          },
+          "Stale pending clarification — treating sender as new",
+        );
+        deletePendingByItemId(pending.monday_item_id);
+        deleteKnownSenderByItemId(pending.monday_item_id);
+        stalePhone = pending.phone;
+        // fall through to the new-sender path below.
+      } else {
+        await updateLastIgMessage(pending.monday_item_id, input.messageText);
+
+        // She explicitly declined mid-clarification → end it and stay silent.
+        // Clearing the pending row stops further re-asks and avoids a stale row.
+        if (!classification.interested) {
+          // A phone handed over even while declining still moves a tracked lead
+          // back to new-leads — phone presence is the sole gate. With no phone we
+          // leave her where she sits (don't disturb placement on a decline).
+          if (capturedPhone) {
+            await updateItemPhone(pending.monday_item_id, capturedPhone);
+          }
+          const declinePhone = classification.extractedPhone ?? pending.phone;
+          if (declinePhone) {
+            const declineTarget = leadGroupForPhone(declinePhone);
+            if (live.groupId !== declineTarget) {
+              await moveItemToGroup(pending.monday_item_id, declineTarget);
+            }
+          }
+          clearPendingClarification("instagram", input.senderId!);
+          logger.info(
+            { senderId: input.senderId, mondayItemId: pending.monday_item_id },
+            "Pending lead not interested — clarification cleared, staying silent",
+          );
+          return { itemId: pending.monday_item_id, classification };
+        }
+
+        // (a) She named a service → finalize with the post-question reply.
+        if (classification.interested && classification.service !== null) {
+          await safeUpdateService(pending.monday_item_id, classification.service);
+
+          if (capturedPhone) {
+            await updateItemPhone(pending.monday_item_id, capturedPhone);
+          }
+
+          const target = leadGroupForPhone(pending.phone ?? classification.extractedPhone);
+          if (live.groupId !== target) {
+            await moveItemToGroup(pending.monday_item_id, target);
+          }
+
+          const hasPhone = !!(pending.phone || classification.extractedPhone);
+          await safeSendReplyDM(input.senderId!, {
+            service: classification.service,
+            hasPhone,
+            answered: true,
+          });
+
+          clearPendingClarification("instagram", input.senderId!);
+          logger.info(
+            {
+              senderId: input.senderId,
+              mondayItemId: pending.monday_item_id,
+              service: classification.service,
+            },
+            "Pending clarification resolved — service answered",
+          );
+
+          // Service just confirmed → if uman + phone, send the WhatsApp welcome
+          // (fire-and-forget; it has its own inter-bubble delay).
+          void maybeSendUmanWelcome({
+            senderId: input.senderId!,
             mondayItemId: pending.monday_item_id,
             service: classification.service,
-          },
-          "Pending clarification resolved — service answered",
-        );
+            phone: pending.phone ?? classification.extractedPhone,
+          }).catch((err) => logger.error({ err }, "Uman welcome rejected unexpectedly"));
 
-        // Service just confirmed → if uman + phone, send the WhatsApp welcome
-        // (fire-and-forget; it has its own inter-bubble delay).
-        void maybeSendUmanWelcome({
-          senderId: input.senderId!,
-          mondayItemId: pending.monday_item_id,
-          service: classification.service,
-          phone: pending.phone ?? classification.extractedPhone,
-        }).catch((err) => logger.error({ err }, "Uman welcome rejected unexpectedly"));
+          return { itemId: pending.monday_item_id, classification };
+        }
 
+        // (b) Still no service. Capture a phone if she offered one, then re-ask
+        // (under the cap). If she ghosts we never get here — no proactive sends.
+        if (classification.interested && capturedPhone) {
+          await updateItemPhone(pending.monday_item_id, capturedPhone);
+          upsertPendingClarification({
+            platform: "instagram",
+            senderId: input.senderId!,
+            mondayItemId: pending.monday_item_id,
+            phone: capturedPhone,
+          });
+          if (live.groupId !== env.MONDAY_GROUP_NEW_LEADS_ID) {
+            await moveItemToGroup(pending.monday_item_id, env.MONDAY_GROUP_NEW_LEADS_ID);
+          }
+        }
+
+        if (pending.reask_count < MAX_REASKS) {
+          await safeSendServiceQuestion(input.senderId!);
+          incrementReaskCount("instagram", input.senderId!);
+          logger.info(
+            {
+              senderId: input.senderId,
+              mondayItemId: pending.monday_item_id,
+              reaskCount: pending.reask_count + 1,
+            },
+            "Pending clarification — re-asked service question",
+          );
+        } else {
+          logger.info(
+            { senderId: input.senderId, mondayItemId: pending.monday_item_id },
+            "Pending clarification re-ask cap reached — staying silent",
+          );
+        }
         return { itemId: pending.monday_item_id, classification };
       }
-
-      // (b) Still no service. Capture a phone if she offered one, then re-ask
-      // (under the cap). If she ghosts we never get here — no proactive sends.
-      if (classification.interested && classification.extractedPhone && !pending.phone) {
-        await updateItemPhone(pending.monday_item_id, classification.extractedPhone);
-        updateSenderPhone("instagram", input.senderId!, classification.extractedPhone);
-        upsertPendingClarification({
-          platform: "instagram",
-          senderId: input.senderId!,
-          mondayItemId: pending.monday_item_id,
-          phone: classification.extractedPhone,
-        });
-        if (live.groupId !== env.MONDAY_GROUP_NEW_LEADS_ID) {
-          await moveItemToGroup(pending.monday_item_id, env.MONDAY_GROUP_NEW_LEADS_ID);
-        }
-      }
-
-      if (pending.reask_count < MAX_REASKS) {
-        await safeSendServiceQuestion(input.senderId!);
-        incrementReaskCount("instagram", input.senderId!);
-        logger.info(
-          {
-            senderId: input.senderId,
-            mondayItemId: pending.monday_item_id,
-            reaskCount: pending.reask_count + 1,
-          },
-          "Pending clarification — re-asked service question",
-        );
-      } else {
-        logger.info(
-          { senderId: input.senderId, mondayItemId: pending.monday_item_id },
-          "Pending clarification re-ask cap reached — staying silent",
+    } catch (err) {
+      if (err instanceof MondayRateLimitError) {
+        return handleUpdatePathRateLimit(
+          input,
+          classification,
+          pending.monday_item_id,
+          pending.phone,
+          err,
         );
       }
-      return { itemId: pending.monday_item_id, classification };
+      throw err;
     }
   }
 
@@ -222,81 +309,125 @@ async function processClassifiedMessage(
 
   if (existing) {
     const mondayItemId = existing.monday_item_id;
-    const live = await getItemBoardAndGroup(mondayItemId);
 
-    if (live === null || live.boardId !== env.MONDAY_BOARD_CRM_ID) {
-      logger.warn(
-        { senderId: input.senderId, mondayItemId, liveBoardId: live?.boardId ?? null },
-        "Stale known_senders mapping — treating sender as new",
-      );
-      deleteKnownSenderByItemId(mondayItemId);
-      deletePendingByItemId(mondayItemId);
-      stalePhone = existing.phone;
-    } else {
-      // Live row on CRM — update last IG message on every message.
-      await updateLastIgMessage(mondayItemId, input.messageText);
+    // Persist a newly-offered phone to SQLite BEFORE the first Monday await in
+    // this branch, so it survives even if every Monday call below fails.
+    const capturedPhone =
+      classification.extractedPhone && !existing.phone ? classification.extractedPhone : null;
+    if (capturedPhone) {
+      updateSenderPhone("instagram", input.senderId!, capturedPhone);
+    }
 
-      // Phone capture + re-file run on EVERY message, even a not-interested one:
-      // a tracked lead handing over a number should always move back to new-leads,
-      // regardless of how that single message happens to classify.
-      if (classification.extractedPhone && !existing.phone) {
-        await updateItemPhone(mondayItemId, classification.extractedPhone);
-        updateSenderPhone("instagram", input.senderId!, classification.extractedPhone);
-        logger.info(
-          { senderId: input.senderId, mondayItemId },
-          "Updated phone on existing lead instead of creating duplicate",
+    try {
+      const live = await getItemBoardAndGroup(mondayItemId);
+
+      if (live === null || live.boardId !== env.MONDAY_BOARD_CRM_ID) {
+        logger.warn(
+          { senderId: input.senderId, mondayItemId, liveBoardId: live?.boardId ?? null },
+          "Stale known_senders mapping — treating sender as new",
         );
-      }
+        deleteKnownSenderByItemId(mondayItemId);
+        deletePendingByItemId(mondayItemId);
+        stalePhone = existing.phone;
+      } else {
+        // Live row on CRM — update last IG message on every message.
+        await updateLastIgMessage(mondayItemId, input.messageText);
 
-      // Re-file by phone presence. A phone always pulls a tracked lead back to
-      // new-leads — even on a not-interested message (phone presence is the sole
-      // gate). With no phone, only an *interested* message re-files (into the
-      // no-phone group); a not-interested message never disturbs the lead's
-      // current placement (e.g. a follow-up group).
-      const phone = classification.extractedPhone ?? existing.phone;
-      if (phone || classification.interested) {
-        const target = leadGroupForPhone(phone);
-        if (live.groupId !== target) {
-          await moveItemToGroup(mondayItemId, target);
+        // Phone capture + re-file run on EVERY message, even a not-interested one:
+        // a tracked lead handing over a number should always move back to new-leads,
+        // regardless of how that single message happens to classify.
+        if (capturedPhone) {
+          await updateItemPhone(mondayItemId, capturedPhone);
           logger.info(
-            { senderId: input.senderId, mondayItemId, fromGroupId: live.groupId, target },
-            "Returning lead re-filed by phone presence",
+            { senderId: input.senderId, mondayItemId },
+            "Updated phone on existing lead instead of creating duplicate",
           );
         }
-      }
 
-      // An existing CRM lead who hands over a phone gets the Uman welcome no
-      // matter how THIS message classifies — they were already classified
-      // interested when the row was created, so we never re-require it. Runs
-      // ABOVE the not-interested gate (a bare-number reply often classifies
-      // not-interested). Fire-and-forget — it has its own inter-bubble delay, so
-      // we don't hold the Meta webhook open. Service comes from this message or
-      // the stored Monday label.
-      void maybeSendUmanWelcome({
-        senderId: input.senderId!,
-        mondayItemId,
-        service: classification.service ?? mapItemServiceToKey(live.service),
-        phone,
-      }).catch((err) => logger.error({ err }, "Uman welcome rejected unexpectedly"));
+        // Re-file by phone presence. A phone always pulls a tracked lead back to
+        // new-leads — even on a not-interested message (phone presence is the sole
+        // gate). With no phone, only an *interested* message re-files (into the
+        // no-phone group); a not-interested message never disturbs the lead's
+        // current placement (e.g. a follow-up group).
+        const phone = classification.extractedPhone ?? existing.phone;
+        if (phone || classification.interested) {
+          const target = leadGroupForPhone(phone);
+          if (live.groupId !== target) {
+            await moveItemToGroup(mondayItemId, target);
+            logger.info(
+              { senderId: input.senderId, mondayItemId, fromGroupId: live.groupId, target },
+              "Returning lead re-filed by phone presence",
+            );
+          }
+        }
 
-      if (!classification.interested) {
-        logger.info(
-          {
-            senderUsername: input.senderUsername,
-            confidence: classification.confidence,
-          },
-          "Lead classified as not interested — phone/move/welcome applied, skipping service update",
-        );
+        // An existing CRM lead who hands over a phone gets the Uman welcome no
+        // matter how THIS message classifies — they were already classified
+        // interested when the row was created, so we never re-require it. Runs
+        // ABOVE the not-interested gate (a bare-number reply often classifies
+        // not-interested). Fire-and-forget — it has its own inter-bubble delay, so
+        // we don't hold the Meta webhook open. Service comes from this message or
+        // the stored Monday label.
+        void maybeSendUmanWelcome({
+          senderId: input.senderId!,
+          mondayItemId,
+          service: classification.service ?? mapItemServiceToKey(live.service),
+          phone,
+        }).catch((err) => logger.error({ err }, "Uman welcome rejected unexpectedly"));
+
+        if (!classification.interested) {
+          logger.info(
+            {
+              senderUsername: input.senderUsername,
+              confidence: classification.confidence,
+            },
+            "Lead classified as not interested — phone/move/welcome applied, skipping service update",
+          );
+          return { itemId: mondayItemId, classification };
+        }
+
+        // Fill the service column only if it is currently empty — never overwrite
+        // a confirmed service from a casual (possibly misclassified) mention.
+        if (classification.service !== null && live.service === null) {
+          await safeUpdateService(mondayItemId, classification.service);
+        }
+
         return { itemId: mondayItemId, classification };
       }
-
-      // Fill the service column only if it is currently empty — never overwrite
-      // a confirmed service from a casual (possibly misclassified) mention.
-      if (classification.service !== null && live.service === null) {
-        await safeUpdateService(mondayItemId, classification.service);
+    } catch (err) {
+      if (err instanceof MondayRateLimitError) {
+        return handleUpdatePathRateLimit(input, classification, mondayItemId, existing.phone, err);
       }
+      throw err;
+    }
+  }
 
-      return { itemId: mondayItemId, classification };
+  // Queue-aware guard — this sender already has a create durably deferred in
+  // monday_lead_queue (awaiting a rate-limit reset). Merge this message into
+  // that row and stay silent, REGARDLESS of this message's interested flag —
+  // a bare phone number often classifies not-interested, and that phone is
+  // exactly the datum this guard must not drop. Firing another first-contact
+  // DM here would duplicate it (no known_senders row exists yet to dedup on),
+  // and creating directly would race the drain into a duplicate CRM row once
+  // it succeeds.
+  if (input.senderId) {
+    const queued = findQueuedLeadBySender("instagram", input.senderId);
+    if (queued) {
+      enqueueMondayLead({
+        platform: "instagram",
+        senderId: input.senderId,
+        senderUsername: input.senderUsername,
+        displayName: queued.display_name,
+        phone: classification.extractedPhone ?? stalePhone,
+        service: classification.service,
+        messageText: input.messageText,
+        source: "instagram",
+      });
+      logger.info(
+        { senderId: input.senderId },
+        "Message from an already-queued sender — merged into monday_lead_queue, no DM sent",
+      );
+      return { itemId: null, classification };
     }
   }
 
@@ -322,91 +453,95 @@ async function processClassifiedMessage(
     }
   }
 
-  // Before creating a CRM row, check whether this lead is already on an active
-  // service board (applies when classification named a specific service).
-  if (classification.service !== null) {
-    const phones = [classification.extractedPhone, stalePhone].filter(
-      (p): p is string => !!p,
-    );
-    const searchName = igUsername ?? input.senderUsername ?? null;
-
-    if (phones.length > 0 || searchName !== null) {
-      const boardIds = await getActiveServiceBoardIds(classification.service);
-      for (const boardId of boardIds) {
-        const hit = await findLeadOnBoard(boardId, phones, searchName);
-        if (hit) {
-          logger.info(
-            {
-              senderId: input.senderId,
-              boardId,
-              serviceItemId: hit.itemId,
-              service: classification.service,
-            },
-            "Lead already on active service board — skipping CRM row creation",
-          );
-          return { itemId: null, classification };
-        }
-      }
-    }
-  }
-
   const phone = classification.extractedPhone ?? stalePhone;
 
-  const { itemId } = await createLeadRow({
-    name: displayName,
-    phone,
-    service: classification.service,
-    source: "instagram",
-  });
+  try {
+    // Before creating a CRM row, check whether this lead is already on an active
+    // service board (applies when classification named a specific service).
+    if (classification.service !== null) {
+      const phones = [classification.extractedPhone, stalePhone].filter(
+        (p): p is string => !!p,
+      );
+      const searchName = igUsername ?? input.senderUsername ?? null;
 
-  if (input.senderId) {
-    upsertKnownSender({
-      platform: "instagram",
-      senderId: input.senderId,
-      senderUsername: igUsername ?? input.senderUsername,
-      mondayItemId: itemId,
+      const hit = await findLeadOnActiveServiceBoards(classification.service, phones, searchName);
+      if (hit) {
+        logger.info(
+          {
+            senderId: input.senderId,
+            boardId: hit.boardId,
+            serviceItemId: hit.itemId,
+            service: classification.service,
+          },
+          "Lead already on active service board — skipping CRM row creation",
+        );
+        return { itemId: null, classification };
+      }
+    }
+
+    const { itemId } = await createLeadRow({
+      name: displayName,
       phone,
+      service: classification.service,
+      source: "instagram",
     });
 
-    // Entry B step 1 — vague lead (no service named). Open a clarification right
-    // after the row + mapping (both synchronous below) and before any further
-    // await, to shrink the window where a fast second message misses it.
-    if (classification.service === null) {
-      upsertPendingClarification({
+    if (input.senderId) {
+      upsertKnownSender({
         platform: "instagram",
         senderId: input.senderId,
+        senderUsername: igUsername ?? input.senderUsername,
         mondayItemId: itemId,
         phone,
       });
+
+      // Entry B step 1 — vague lead (no service named). Open a clarification right
+      // after the row + mapping (both synchronous below) and before any further
+      // await, to shrink the window where a fast second message misses it.
+      if (classification.service === null) {
+        upsertPendingClarification({
+          platform: "instagram",
+          senderId: input.senderId,
+          mondayItemId: itemId,
+          phone,
+        });
+      }
     }
-  }
 
-  await updateLastIgMessage(itemId, input.messageText);
+    await updateLastIgMessage(itemId, input.messageText);
 
-  if (input.senderId) {
-    if (classification.service !== null) {
-      // Entry A — service named upfront.
-      await safeSendReplyDM(input.senderId, {
+    if (input.senderId) {
+      await sendFirstContactSequence(input.senderId, classification.service, phone, itemId);
+    }
+
+    return { itemId, classification };
+  } catch (err) {
+    if (err instanceof MondayRateLimitError && input.senderId) {
+      enqueueMondayLead({
+        platform: "instagram",
+        senderId: input.senderId,
+        senderUsername: igUsername ?? input.senderUsername,
+        displayName,
+        phone,
         service: classification.service,
-        hasPhone: !!phone,
-        answered: false,
+        messageText: input.messageText,
+        source: "instagram",
+        openClarification: classification.service === null,
       });
-    } else {
-      // Entry B step 1 — ask which service.
-      await safeSendServiceQuestion(input.senderId);
+
+      logger.warn(
+        { err, senderId: input.senderId },
+        "Monday rate-limited on new lead creation — deferred to monday_lead_queue",
+      );
+
+      // No mondayItemId yet, so this skips the welcome (see sendFirstContactSequence) —
+      // Monday's own create_item lead-ready webhook fires it once the queue creates the row.
+      await sendFirstContactSequence(input.senderId, classification.service, phone);
+
+      return { itemId: null, classification };
     }
-
-    // Uman lead created with a phone → send the WhatsApp welcome (gated + once;
-    // fire-and-forget, it has its own inter-bubble delay).
-    void maybeSendUmanWelcome({
-      senderId: input.senderId,
-      mondayItemId: itemId,
-      service: classification.service,
-      phone,
-    }).catch((err) => logger.error({ err }, "Uman welcome rejected unexpectedly"));
+    throw err;
   }
-
-  return { itemId, classification };
 }
 
 export async function handleIncomingMessage(input: {

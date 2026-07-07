@@ -1,22 +1,27 @@
 import { env } from "../../config/env.js";
 import { logger } from "../../config/logger.js";
 import { findKnownSender, upsertKnownSender } from "../../lib/dedup.js";
+import { enqueueMondayLead } from "../../config/db.js";
 import {
   createLeadRow,
   findLeadByPhoneAllBoards,
   updateLeadRow,
 } from "../monday/monday.service.js";
+import { MondayRateLimitError } from "../monday/monday.client.js";
 import { maybeSendUmanWelcome } from "../whatsapp/uman-welcome.service.js";
 import type { WebsiteLead } from "./website.validator.js";
 
 export interface SubmissionResult {
   itemId: string;
-  action: "updated_ig_lead" | "updated_by_phone" | "created_new";
+  action: "updated_ig_lead" | "updated_by_phone" | "created_new" | "queued_retry";
   boardId: string;
 }
 
 /**
- * Orchestrates form submissions from the website:
+ * Core Monday.com orchestration for a website form submission — dedup +
+ * create/update + known-sender link + Uman WhatsApp welcome. Exported so the
+ * monday_lead_queue drain can replay it verbatim on a queued row; it re-runs
+ * its own phone dedup, so a delayed retry carries no duplicate-row risk.
  *
  *   1. If ig_id is present and matches a row in our known_senders table,
  *      update the existing Monday lead (no duplicate).
@@ -28,7 +33,7 @@ export interface SubmissionResult {
  * always belongs to one IG user), phone second because phone is the
  * universal identifier shared across channels.
  */
-export async function handleFormSubmission(
+export async function submitWebsiteLeadToMonday(
   input: WebsiteLead,
 ): Promise<SubmissionResult> {
   // Priority 1: IG-aware dedup
@@ -144,4 +149,39 @@ export async function handleFormSubmission(
   }
 
   return { itemId, action: "created_new", boardId: env.MONDAY_BOARD_CRM_ID };
+}
+
+/**
+ * Controller entry point. Delegates to submitWebsiteLeadToMonday; on a Monday
+ * rate limit, defers the whole submission to monday_lead_queue and reports
+ * success to the site (the form user must never see an error). The queue
+ * drain later replays the exact same payload through submitWebsiteLeadToMonday.
+ */
+export async function handleFormSubmission(
+  input: WebsiteLead,
+): Promise<SubmissionResult> {
+  try {
+    return await submitWebsiteLeadToMonday(input);
+  } catch (err) {
+    if (err instanceof MondayRateLimitError) {
+      const senderId = input.ig_id ? `ig:${input.ig_id}` : `phone:${input.phone}`;
+      enqueueMondayLead({
+        platform: "website",
+        senderId,
+        senderUsername: input.ig_id ?? undefined,
+        displayName: input.name,
+        phone: input.phone,
+        service: input.service ?? null,
+        messageText: `Website form submission (utm_source=${input.utm_source})`,
+        source: "website",
+        payload: JSON.stringify(input),
+      });
+      logger.warn(
+        { err, senderId, utm_source: input.utm_source },
+        "Website form: Monday rate-limited — deferred to monday_lead_queue",
+      );
+      return { itemId: "", action: "queued_retry", boardId: env.MONDAY_BOARD_CRM_ID };
+    }
+    throw err;
+  }
 }

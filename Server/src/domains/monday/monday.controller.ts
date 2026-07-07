@@ -3,10 +3,12 @@ import type { Request, Response, NextFunction } from "express";
 import { env } from "../../config/env.js";
 import { logger } from "../../config/logger.js";
 import { UnauthorizedError } from "../../lib/errors.js";
+import { enqueueMondayLead } from "../../config/db.js";
 import {
   MondayChallengeSchema,
   MondayWebhookEventSchema,
   type TestInjectBody,
+  type N8nLeadFallback,
 } from "./monday.validator.js";
 import { moveClosedItem } from "./monday.webhook.service.js";
 import { getItemServiceAndPhone } from "./monday.service.js";
@@ -108,4 +110,30 @@ export async function handleLeadReady(req: Request, res: Response): Promise<void
   }
 
   res.status(200).json({ status: "ok" });
+}
+
+export async function handleLeadFallback(
+  req: Request<unknown, unknown, N8nLeadFallback>,
+  res: Response,
+): Promise<void> {
+  const { full_name, phone972, email } = req.body;
+  const senderId = `n8n:${phone972 ?? email}`;
+
+  enqueueMondayLead({
+    platform: "n8n",
+    senderId,
+    displayName: full_name,
+    phone: phone972 ?? null,
+    service: "uman",
+    messageText: "FB lead-ad fallback (n8n direct create failed)",
+    source: "n8n",
+    payload: JSON.stringify(req.body),
+  });
+
+  logger.info(
+    { phone: phone972, email, name: full_name },
+    "n8n lead-fallback: queued for Monday create",
+  );
+
+  res.status(200).json({ status: "queued" });
 }

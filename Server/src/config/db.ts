@@ -128,6 +128,41 @@ CREATE TABLE IF NOT EXISTS ig_comment_queue (
   created_at         TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Durable retry queue for Monday lead creation that hit a 429 (daily or minute
+-- rate limit). Queues the business intent (sender/name/phone/service/message),
+-- not raw gql payloads — the drain must redo dedup, create, upsertKnownSender,
+-- pending-clarification, and updateLastIgMessage from scratch. UNIQUE(platform,
+-- sender_id) means a second message from the same sender mid-outage MERGES into
+-- the existing row instead of creating a second queue entry.
+CREATE TABLE IF NOT EXISTS monday_lead_queue (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  platform TEXT NOT NULL DEFAULT 'instagram',
+  sender_id TEXT NOT NULL,
+  sender_username TEXT,
+  display_name TEXT NOT NULL,
+  phone TEXT,
+  service TEXT,
+  message_text TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'instagram',
+  payload TEXT,
+  open_clarification INTEGER NOT NULL DEFAULT 0,
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
+  next_attempt_at TEXT NOT NULL DEFAULT (datetime('now')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(platform, sender_id)
+);
+
+-- Bot-owned mirror of the rendered "הודעה אחרונה באינסטגרם" column text, keyed
+-- by Monday item id. Lets updateLastIgMessage skip the read-before-write gql
+-- call on a cache hit (only this function ever writes that column).
+CREATE TABLE IF NOT EXISTS ig_message_mirror (
+  monday_item_id TEXT PRIMARY KEY,
+  messages TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_processed_webhooks_lookup ON processed_webhooks(source, external_id);
 CREATE INDEX IF NOT EXISTS idx_ig_comment_queue_order ON ig_comment_queue(created_at, id);
 CREATE INDEX IF NOT EXISTS idx_pending_clar_lookup ON pending_clarifications(platform, sender_id);
@@ -135,6 +170,7 @@ CREATE INDEX IF NOT EXISTS idx_known_senders_lookup ON known_senders(platform, s
 CREATE INDEX IF NOT EXISTS idx_followup_log_lookup ON followup_log(monday_item_id, last_call_date);
 CREATE INDEX IF NOT EXISTS idx_holiday_campaigns_form_token ON holiday_campaigns(form_token);
 CREATE INDEX IF NOT EXISTS idx_holiday_campaigns_send_date ON holiday_campaigns(send_date);
+CREATE INDEX IF NOT EXISTS idx_monday_lead_queue_due ON monday_lead_queue(next_attempt_at, created_at);
 `;
 
 export function getDb(): Database.Database {
@@ -444,4 +480,152 @@ export function expireOldQueuedComments(): string[] {
     db.prepare("DELETE FROM ig_comment_queue WHERE created_at < datetime('now','-6 days')").run();
   }
   return rows.map((r) => r.comment_id);
+}
+
+// ---------------------------------------------------------------------------
+// Monday lead retry queue — never lose a lead to a 429. See monday.queue.service.ts.
+// ---------------------------------------------------------------------------
+
+export interface QueuedLead {
+  id: number;
+  platform: string;
+  sender_id: string;
+  sender_username: string | null;
+  display_name: string;
+  phone: string | null;
+  service: "uman" | "challah" | null;
+  message_text: string;
+  source: string;
+  payload: string | null;
+  open_clarification: number;
+  attempt_count: number;
+  last_error: string | null;
+  next_attempt_at: string;
+  created_at: string;
+}
+
+const MONDAY_LEAD_QUEUE_COLS =
+  "id, platform, sender_id, sender_username, display_name, phone, service, message_text, source, payload, open_clarification, attempt_count, last_error, next_attempt_at, created_at";
+
+export interface EnqueueMondayLeadInput {
+  platform: string;
+  senderId: string;
+  senderUsername?: string | null;
+  displayName: string;
+  phone?: string | null;
+  service?: "uman" | "challah" | null;
+  messageText: string;
+  source?: string;
+  payload?: string | null;
+  openClarification?: boolean;
+}
+
+// Upsert on (platform, sender_id): a second message from an already-queued
+// sender merges its phone/service into the row via COALESCE and refreshes
+// message_text — it must NOT touch next_attempt_at/attempt_count, since a
+// merged message is no reason to poll a still-exhausted rate limit sooner.
+export function enqueueMondayLead(input: EnqueueMondayLeadInput): void {
+  getDb()
+    .prepare(
+      `INSERT INTO monday_lead_queue
+         (platform, sender_id, sender_username, display_name, phone, service, message_text, source, payload, open_clarification)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(platform, sender_id) DO UPDATE SET
+         sender_username = COALESCE(excluded.sender_username, monday_lead_queue.sender_username),
+         phone = COALESCE(excluded.phone, monday_lead_queue.phone),
+         service = COALESCE(excluded.service, monday_lead_queue.service),
+         message_text = excluded.message_text,
+         payload = COALESCE(excluded.payload, monday_lead_queue.payload),
+         updated_at = datetime('now')`,
+    )
+    .run(
+      input.platform,
+      input.senderId,
+      input.senderUsername ?? null,
+      input.displayName,
+      input.phone ?? null,
+      input.service ?? null,
+      input.messageText,
+      input.source ?? "instagram",
+      input.payload ?? null,
+      input.openClarification ? 1 : 0,
+    );
+}
+
+export function findQueuedLeadBySender(platform: string, senderId: string): QueuedLead | null {
+  const row = getDb()
+    .prepare(
+      `SELECT ${MONDAY_LEAD_QUEUE_COLS} FROM monday_lead_queue WHERE platform = ? AND sender_id = ?`,
+    )
+    .get(platform, senderId) as QueuedLead | undefined;
+  return row ?? null;
+}
+
+export function getDueQueuedLeads(limit: number): QueuedLead[] {
+  return getDb()
+    .prepare(
+      `SELECT ${MONDAY_LEAD_QUEUE_COLS} FROM monday_lead_queue
+       WHERE next_attempt_at <= datetime('now')
+       ORDER BY created_at ASC LIMIT ?`,
+    )
+    .all(limit) as QueuedLead[];
+}
+
+export function deleteQueuedLead(id: number): void {
+  getDb().prepare("DELETE FROM monday_lead_queue WHERE id = ?").run(id);
+}
+
+export function bumpQueuedLead(id: number, error: string, delaySeconds: number): void {
+  getDb()
+    .prepare(
+      `UPDATE monday_lead_queue
+       SET attempt_count = attempt_count + 1,
+           last_error = ?,
+           next_attempt_at = datetime('now', '+' || ? || ' seconds'),
+           updated_at = datetime('now')
+       WHERE id = ?`,
+    )
+    .run(error, delaySeconds, id);
+}
+
+// Final give-up: rows older than 7 days. Returns the full rows removed so the
+// caller can log each permanently-abandoned lead (sender/phone/service) at error level.
+export function expireOldQueuedLeads(): QueuedLead[] {
+  return getDb()
+    .prepare(
+      `DELETE FROM monday_lead_queue WHERE created_at < datetime('now','-7 days')
+       RETURNING ${MONDAY_LEAD_QUEUE_COLS}`,
+    )
+    .all() as QueuedLead[];
+}
+
+// ---------------------------------------------------------------------------
+// IG message mirror — bot-owned copy of the rendered last-IG-message column
+// text, so updateLastIgMessage can skip the read-before-write gql on a hit.
+// ---------------------------------------------------------------------------
+
+// Monday is the client's UI — cells are human-editable, so a mirror older than
+// 6h is treated as a miss (forces a fresh read) rather than trusted forever;
+// this bounds how long a manual edit on the board can be silently clobbered.
+export function getIgMessageMirror(itemId: string): string | null {
+  const row = getDb()
+    .prepare(
+      `SELECT messages FROM ig_message_mirror
+       WHERE monday_item_id = ? AND updated_at > datetime('now','-6 hours')`,
+    )
+    .get(itemId) as { messages: string } | undefined;
+  return row?.messages ?? null;
+}
+
+export function setIgMessageMirror(itemId: string, messages: string): void {
+  getDb()
+    .prepare(
+      `INSERT INTO ig_message_mirror (monday_item_id, messages, updated_at) VALUES (?, ?, datetime('now'))
+       ON CONFLICT(monday_item_id) DO UPDATE SET messages = excluded.messages, updated_at = datetime('now')`,
+    )
+    .run(itemId, messages);
+}
+
+export function deleteIgMessageMirror(itemId: string): void {
+  getDb().prepare("DELETE FROM ig_message_mirror WHERE monday_item_id = ?").run(itemId);
 }

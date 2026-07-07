@@ -27,6 +27,7 @@ vi.mock("../../config/db.js", () => ({
   bumpQueuedComment: vi.fn(),
   countCommentDmsSentLastHour: vi.fn().mockReturnValue(0),
   expireOldQueuedComments: vi.fn().mockReturnValue([]),
+  enqueueMondayLead: vi.fn(),
 }));
 
 vi.mock("../monday/monday.service.js", () => ({
@@ -44,6 +45,7 @@ import * as outbound from "./meta.outbound.service.js";
 import * as monday from "../monday/monday.service.js";
 import * as dedup from "../../lib/dedup.js";
 import * as db from "../../config/db.js";
+import { MondayRateLimitError } from "../monday/monday.client.js";
 
 function comment(overrides: Record<string, unknown> = {}) {
   return {
@@ -205,12 +207,51 @@ describe("drainCommentQueue — paced send", () => {
     expect(db.expireOldQueuedComments).toHaveBeenCalled();
   });
 
-  it("row creation fails after DM sent → still dequeued, sender not registered", async () => {
+  it("row creation rate-limited after DM sent → enqueued to monday_lead_queue, still dequeued, sender not registered (F6)", async () => {
+    vi.mocked(db.getQueuedComments).mockReturnValue([queued()]);
+    vi.mocked(monday.createLeadRow).mockRejectedValue(
+      new MondayRateLimitError("daily", 9000, "daily cap"),
+    );
+    await drainCommentQueue();
+    expect(dedup.markMessageProcessed).toHaveBeenCalledWith("ig_comment", "c-1"); // marked after send
+    expect(db.enqueueMondayLead).toHaveBeenCalledWith(
+      expect.objectContaining({
+        platform: "instagram",
+        senderId: "commenter-1",
+        service: "uman",
+        phone: null,
+      }),
+    );
+    expect(dedup.upsertKnownSender).not.toHaveBeenCalled();
+    expect(db.deleteQueuedComment).toHaveBeenCalledWith(1);
+  });
+
+  it("row creation fails with a NON-rate-limit error → manual recovery logged, NOT enqueued, still dequeued (F6)", async () => {
     vi.mocked(db.getQueuedComments).mockReturnValue([queued()]);
     vi.mocked(monday.createLeadRow).mockRejectedValue(new Error("monday down"));
     await drainCommentQueue();
-    expect(dedup.markMessageProcessed).toHaveBeenCalledWith("ig_comment", "c-1"); // marked after send
+    expect(dedup.markMessageProcessed).toHaveBeenCalledWith("ig_comment", "c-1");
+    expect(db.enqueueMondayLead).not.toHaveBeenCalled();
     expect(dedup.upsertKnownSender).not.toHaveBeenCalled();
     expect(db.deleteQueuedComment).toHaveBeenCalledWith(1);
+  });
+
+  it("processQueuedComment throws unexpectedly (e.g. getItemBoardAndGroup rejects) → bumped, loop continues to the next item", async () => {
+    vi.mocked(db.getQueuedComments).mockReturnValue([
+      queued({ id: 1, comment_id: "c-1", commenter_id: "commenter-1" }),
+      queued({ id: 2, comment_id: "c-2", commenter_id: "commenter-2" }),
+    ]);
+    vi.mocked(dedup.findKnownSender)
+      .mockReturnValueOnce({ monday_item_id: "existing-item", phone: null })
+      .mockReturnValueOnce(null);
+    vi.mocked(monday.getItemBoardAndGroup).mockRejectedValueOnce(new Error("monday down"));
+
+    await drainCommentQueue();
+
+    expect(db.bumpQueuedComment).toHaveBeenCalledWith(1, expect.any(String));
+    expect(db.deleteQueuedComment).not.toHaveBeenCalledWith(1);
+    // second item is unaffected by the first item's throw
+    expect(outbound.sendCommentPrivateReply).toHaveBeenCalledWith("c-2", "commenter-2");
+    expect(db.deleteQueuedComment).toHaveBeenCalledWith(2);
   });
 });
