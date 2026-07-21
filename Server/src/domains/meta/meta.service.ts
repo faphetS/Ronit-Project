@@ -31,7 +31,7 @@ import { findLeadOnActiveServiceBoards } from "../monday/monday.webhook.service.
 import { MondayRateLimitError } from "../monday/monday.client.js";
 import { enqueueMondayLead, findQueuedLeadBySender } from "../../config/db.js";
 import { maybeSendUmanWelcome } from "../whatsapp/uman-welcome.service.js";
-import { sendReplyDM, sendServiceQuestion } from "./meta.outbound.service.js";
+import { sendReplyDM, sendServiceQuestion, sendPhoneThanks } from "./meta.outbound.service.js";
 import { fetchIgProfile } from "./meta.profile.service.js";
 
 // Cap on how many times we re-ask "challah or uman?" when she keeps replying
@@ -72,6 +72,14 @@ async function safeSendServiceQuestion(senderId: string): Promise<void> {
     await sendServiceQuestion(senderId);
   } catch (err) {
     logger.warn({ err, senderId }, "sendServiceQuestion failed — continuing (non-fatal)");
+  }
+}
+
+async function safeSendPhoneThanks(senderId: string): Promise<void> {
+  try {
+    await sendPhoneThanks(senderId);
+  } catch (err) {
+    logger.warn({ err, senderId }, "sendPhoneThanks failed — continuing (non-fatal)");
   }
 }
 
@@ -342,6 +350,13 @@ async function processClassifiedMessage(
             { senderId: input.senderId, mondayItemId },
             "Updated phone on existing lead instead of creating duplicate",
           );
+          // Uman-only thank-you for handing over the phone after being asked.
+          // capturedPhone is set only the first time a phone arrives (stored
+          // phone empties the condition), so this can never re-fire.
+          const serviceKey = classification.service ?? mapItemServiceToKey(live.service);
+          if (serviceKey === "uman") {
+            await safeSendPhoneThanks(input.senderId!);
+          }
         }
 
         // Re-file by phone presence. A phone always pulls a tracked lead back to

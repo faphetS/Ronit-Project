@@ -89,23 +89,22 @@ const envSchema = z.object({
 
   // Outbound IG first-contact templates. Literal "\n" escapes get decoded into
   // real newlines at send time; "{form_link}" is replaced with the personalized
-  // form URL containing ?ig_id=<senderId>.
+  // form URL containing ?ig_id=<senderId>. As of the 2026-07 copy update the
+  // openers dropped the teaser + link — only IG_MSG_UMAN_ANSWER_PHONE_MISSING
+  // and IG_MSG_COMMENT_UMAN still carry {form_link}.
   IG_MSG_PHONE_MISSING: z
     .string()
     .min(1)
-    .default(
-      "היי יקירה 🤍\nאשמח שתכתבי לי את מספר הנייד שלך ונחזור אלייך עם כל הפרטים 🙏📞\n\nובינתיים…\nאני מצרפת לך כאן הצצה מרגשת אל תוך המסע לרבינו ✨\n{form_link}",
-    ),
+    .default("היי יקירה 🤍\nאשמח שתכתבי לי את מספר הנייד שלך ונחזור אלייך עם כל הפרטים 🙏📞"),
   IG_MSG_PHONE_PRESENT: z
     .string()
     .min(1)
-    .default(
-      "היי יקירה 🤍\nאצור איתך קשר בהקדם 🙏📞\nובינתיים...\nאת מוזמנת לקבל הצצה מרגשת אל תוך המסע שלנו לרבינו ✨\n{form_link}",
-    ),
+    .default("היי יקירה 🤍\nאצור איתך קשר בהקדם 🙏📞"),
 
   // Private-Reply DM sent to someone who comments "אומן" on a post. Carries the
   // personalized {form_link} (?ig_id=<commenter>) and asks for the phone number.
-  // Defaults to the IG_MSG_PHONE_MISSING copy so it can be reworded independently.
+  // Deliberately keeps the long teaser copy the DM openers dropped — the comment
+  // funnel has no conversation yet, so the link does the selling.
   IG_MSG_COMMENT_UMAN: z
     .string()
     .min(1)
@@ -129,9 +128,9 @@ const envSchema = z.object({
 
   // Multi-turn clarification. When an interested lead names NO service, the bot
   // asks IG_MSG_ASK_SERVICE and waits; her next message is treated as the answer
-  // and routed to the *_ANSWER_* templates below. These carry distinct wording
-  // from the first-contact templates above (uman keeps {form_link}; challah is
-  // plain). uman + no-phone after the question reuses IG_MSG_PHONE_MISSING.
+  // and routed to the *_ANSWER_* templates below. uman + no-phone is the ONLY
+  // conversational reply still carrying the teaser + {form_link}; every other
+  // answer template is plain.
   IG_MSG_ASK_SERVICE: z
     .string()
     .min(1)
@@ -139,8 +138,12 @@ const envSchema = z.object({
   IG_MSG_UMAN_ANSWER_PHONE_PRESENT: z
     .string()
     .min(1)
+    .default("נחזור אלייך עם כל הפרטים בהקדם 🙏📞"),
+  IG_MSG_UMAN_ANSWER_PHONE_MISSING: z
+    .string()
+    .min(1)
     .default(
-      "נחזור אלייך עם כל הפרטים בהקדם 🙏📞\n\nובינתיים… אני מצרפת לך כאן הצצה מרגשת אל תוך המסע לרבינו ✨\n\n{form_link}",
+      "היי יקירה 🤍\nאשמח שתכתבי לי את מספר הנייד שלך ונחזור אלייך עם כל הפרטים 🙏📞\n\n\nובינתיים…\nאני מצרפת לך כאן הצצה מרגשת אל תוך המסע לרבינו ✨\n{form_link}",
     ),
   IG_MSG_CHALLAH_ANSWER_PHONE_MISSING: z
     .string()
@@ -152,6 +155,13 @@ const envSchema = z.object({
     .string()
     .min(1)
     .default("היי יקירה 🤍, אחזור אלייך עם כל הפרטים בהקדם 🙏📞"),
+
+  // One-time thank-you when a uman lead who was asked for her phone sends it.
+  // Fires only on the first captured phone (known-sender branch), uman only.
+  IG_MSG_PHONE_THANKS: z
+    .string()
+    .min(1)
+    .default("תודה , ניצור קשר בהקדם💕"),
 
   // IG token auto-refresh — JSON file on a Docker volume holds the live token.
   // Container path; the host bind-mount is /opt/ronit-data → /data in compose.

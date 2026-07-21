@@ -9,6 +9,7 @@ import {
   pickReplyTemplate,
   sendReplyDM,
   sendServiceQuestion,
+  sendPhoneThanks,
 } from "./meta.outbound.service.js";
 import { env } from "../../config/env.js";
 
@@ -53,9 +54,9 @@ describe("pickReplyTemplate — service × phone × path routing", () => {
     expect(pickReplyTemplate({ service: "uman", hasPhone: false, answered: false }).template)
       .toBe(env.IG_MSG_PHONE_MISSING);
   });
-  it("uman + no phone, after question → reuses PHONE_MISSING (identical)", () => {
+  it("uman + no phone, after question → UMAN_ANSWER_PHONE_MISSING (distinct, keeps link)", () => {
     expect(pickReplyTemplate({ service: "uman", hasPhone: false, answered: true }).template)
-      .toBe(env.IG_MSG_PHONE_MISSING);
+      .toBe(env.IG_MSG_UMAN_ANSWER_PHONE_MISSING);
   });
   it("uman + phone, after question → UMAN_ANSWER_PHONE_PRESENT (distinct)", () => {
     expect(pickReplyTemplate({ service: "uman", hasPhone: true, answered: true }).template)
@@ -80,18 +81,26 @@ describe("sendReplyDM — sends the resolved template", () => {
     expect(text).not.toContain(FORM_LINK);
   });
 
-  it("uman first-contact: carries the personalized link + 'רבינו'", async () => {
+  it("uman first-contact: short copy, no teaser, no link", async () => {
     await sendReplyDM(RID, { service: "uman", hasPhone: false, answered: false });
     const text = sentText();
     expect(text).toBe(render(env.IG_MSG_PHONE_MISSING));
-    expect(text).toContain("רבינו");
-    expect(text).toContain(FORM_LINK);
+    expect(text).not.toContain("רבינו");
+    expect(text).not.toContain(FORM_LINK);
   });
 
-  it("uman + phone after question → distinct answer copy, with link", async () => {
+  it("uman + phone after question → distinct answer copy, no link", async () => {
     await sendReplyDM(RID, { service: "uman", hasPhone: true, answered: true });
     const text = sentText();
     expect(text).toBe(render(env.IG_MSG_UMAN_ANSWER_PHONE_PRESENT));
+    expect(text).not.toContain(FORM_LINK);
+  });
+
+  it("uman + no phone after question → the only conversational reply with the link", async () => {
+    await sendReplyDM(RID, { service: "uman", hasPhone: false, answered: true });
+    const text = sentText();
+    expect(text).toBe(render(env.IG_MSG_UMAN_ANSWER_PHONE_MISSING));
+    expect(text).toContain("רבינו");
     expect(text).toContain(FORM_LINK);
   });
 
@@ -121,6 +130,15 @@ describe("sendServiceQuestion", () => {
     expect(text).toBe(render(env.IG_MSG_ASK_SERVICE));
     expect(text).toContain("הפרשת חלה");
     expect(text).toContain("טיסה לאומן");
+    expect(text).not.toContain(FORM_LINK);
+  });
+});
+
+describe("sendPhoneThanks", () => {
+  it("sends exactly IG_MSG_PHONE_THANKS, no link", async () => {
+    await sendPhoneThanks(RID);
+    const text = sentText();
+    expect(text).toBe(render(env.IG_MSG_PHONE_THANKS));
     expect(text).not.toContain(FORM_LINK);
   });
 });

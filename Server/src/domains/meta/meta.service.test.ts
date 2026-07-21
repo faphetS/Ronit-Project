@@ -55,6 +55,7 @@ vi.mock("../whatsapp/uman-welcome.service.js", () => ({
 vi.mock("./meta.outbound.service.js", () => ({
   sendReplyDM: vi.fn().mockResolvedValue(undefined),
   sendServiceQuestion: vi.fn().mockResolvedValue(undefined),
+  sendPhoneThanks: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("./meta.profile.service.js", () => ({
@@ -123,6 +124,7 @@ beforeEach(() => {
   vi.mocked(mondayWebhookService.findLeadOnActiveServiceBoards).mockResolvedValue(null);
   vi.mocked(outbound.sendReplyDM).mockResolvedValue(undefined);
   vi.mocked(outbound.sendServiceQuestion).mockResolvedValue(undefined);
+  vi.mocked(outbound.sendPhoneThanks).mockResolvedValue(undefined);
   vi.mocked(db.findQueuedLeadBySender).mockReturnValue(null);
   vi.mocked(profileService.fetchIgProfile).mockResolvedValue({ id: "profile-id", username: "test_user" });
 });
@@ -1080,5 +1082,130 @@ describe("handleIncomingMessage — phone survives even when the very first Mond
       expect.objectContaining({ senderId: SENDER_ID, phone: "0501234567" }),
     );
     expect(result.itemId).toBe(ITEM_ID);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phone thank-you ack — fires once, uman only, known-sender branch only.
+// ---------------------------------------------------------------------------
+
+describe("handleIncomingMessage — phone thank-you ack (uman only)", () => {
+  beforeEach(() => {
+    // Earlier rate-limit suites leave rejecting implementations on these mocks
+    // (vi.clearAllMocks clears calls, not implementations) — restore happy path.
+    vi.mocked(mondayService.updateLastIgMessage).mockResolvedValue(undefined);
+    vi.mocked(mondayService.updateItemPhone).mockResolvedValue(undefined);
+    vi.mocked(mondayService.moveItemToGroup).mockResolvedValue(undefined);
+  });
+
+  it("known uman lead (stored Monday label) sends her phone → thank-you DM, even on a not-interested bare number", async () => {
+    vi.mocked(dedup.findKnownSender).mockReturnValue({ monday_item_id: ITEM_ID, phone: null });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+      boardId: CRM_BOARD,
+      groupId: NEW_LEADS_GROUP,
+      service: "טיסה לאומן",
+    });
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      ...notInterestedClassification,
+      extractedPhone: "0501234567",
+    });
+
+    await handleIncomingMessage({
+      messageText: "0501234567",
+      senderId: SENDER_ID,
+      messageId: "thanks-1",
+    });
+
+    expect(outbound.sendPhoneThanks).toHaveBeenCalledTimes(1);
+    expect(outbound.sendPhoneThanks).toHaveBeenCalledWith(SENDER_ID);
+  });
+
+  it("row has no service label yet but THIS message names uman → thank-you DM", async () => {
+    vi.mocked(dedup.findKnownSender).mockReturnValue({ monday_item_id: ITEM_ID, phone: null });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+      boardId: CRM_BOARD,
+      groupId: NEW_LEADS_GROUP,
+      service: null,
+    });
+    vi.mocked(classify.classifyLead).mockResolvedValue(interestedClassification);
+
+    await handleIncomingMessage({
+      messageText: "אומן 0501234567",
+      senderId: SENDER_ID,
+      messageId: "thanks-2",
+    });
+
+    expect(outbound.sendPhoneThanks).toHaveBeenCalledWith(SENDER_ID);
+  });
+
+  it("known challah lead sends her phone → stays silent", async () => {
+    vi.mocked(dedup.findKnownSender).mockReturnValue({ monday_item_id: ITEM_ID, phone: null });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+      boardId: CRM_BOARD,
+      groupId: NEW_LEADS_GROUP,
+      service: "הפרשת חלה",
+    });
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      ...notInterestedClassification,
+      extractedPhone: "0501234567",
+    });
+
+    await handleIncomingMessage({
+      messageText: "0501234567",
+      senderId: SENDER_ID,
+      messageId: "thanks-3",
+    });
+
+    expect(outbound.sendPhoneThanks).not.toHaveBeenCalled();
+  });
+
+  it("phone already stored → no re-fire on a second phone message", async () => {
+    vi.mocked(dedup.findKnownSender).mockReturnValue({
+      monday_item_id: ITEM_ID,
+      phone: "0501234567",
+    });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+      boardId: CRM_BOARD,
+      groupId: NEW_LEADS_GROUP,
+      service: "טיסה לאומן",
+    });
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      ...notInterestedClassification,
+      extractedPhone: "0501234567",
+    });
+
+    await handleIncomingMessage({
+      messageText: "שוב המספר 0501234567",
+      senderId: SENDER_ID,
+      messageId: "thanks-4",
+    });
+
+    expect(outbound.sendPhoneThanks).not.toHaveBeenCalled();
+  });
+
+  it("pending-clarification phone-only reply → re-ask, no thank-you", async () => {
+    vi.mocked(conversation.getPendingClarification).mockReturnValue({
+      monday_item_id: ITEM_ID,
+      phone: null,
+      reask_count: 0,
+    });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+      boardId: CRM_BOARD,
+      groupId: NEW_LEADS_GROUP,
+      service: null,
+    });
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      ...vagueClassification,
+      extractedPhone: "0501234567",
+    });
+
+    await handleIncomingMessage({
+      messageText: "0501234567",
+      senderId: SENDER_ID,
+      messageId: "thanks-5",
+    });
+
+    expect(outbound.sendServiceQuestion).toHaveBeenCalledWith(SENDER_ID);
+    expect(outbound.sendPhoneThanks).not.toHaveBeenCalled();
   });
 });

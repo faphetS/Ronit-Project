@@ -9,11 +9,11 @@ type Service = "uman" | "challah";
 /**
  * Resolve the reply template + log label for a (service, phone, path) combo.
  *
- * The routing axis is the *service*: challah → plain templates (no link),
- * uman → the "journey to Rabbeinu" templates (with {form_link}). `answered`
- * distinguishes the first-contact reply from the reply sent after the bot asked
- * "challah or uman?"; only three combos differ between the two paths
- * (uman + no-phone is identical, so it reuses IG_MSG_PHONE_MISSING).
+ * The routing axis is the *service*; `answered` distinguishes the first-contact
+ * reply from the reply sent after the bot asked "challah or uman?". Each of the
+ * eight combos has its own template. Only uman + answered + no-phone still
+ * carries the "journey to Rabbeinu" teaser + {form_link}; everything else is
+ * short and link-free.
  */
 export function pickReplyTemplate(args: {
   service: Service;
@@ -34,8 +34,10 @@ export function pickReplyTemplate(args: {
   }
 
   // uman
-  if (answered && hasPhone) {
-    return { template: env.IG_MSG_UMAN_ANSWER_PHONE_PRESENT, label: "UMAN_ANSWER_PHONE_PRESENT" };
+  if (answered) {
+    return hasPhone
+      ? { template: env.IG_MSG_UMAN_ANSWER_PHONE_PRESENT, label: "UMAN_ANSWER_PHONE_PRESENT" }
+      : { template: env.IG_MSG_UMAN_ANSWER_PHONE_MISSING, label: "UMAN_ANSWER_PHONE_MISSING" };
   }
   return hasPhone
     ? { template: env.IG_MSG_PHONE_PRESENT, label: "UMAN_PHONE_PRESENT" }
@@ -110,6 +112,11 @@ export async function sendReplyDM(
 /** Ask a vague lead which service she wants (Entry B step 1 + re-asks). */
 export async function sendServiceQuestion(recipientIgsid: string): Promise<void> {
   await sendIgMessage(recipientIgsid, env.IG_MSG_ASK_SERVICE, "ASK_SERVICE");
+}
+
+/** Thank a uman lead for handing over her phone after being asked for it. */
+export async function sendPhoneThanks(recipientIgsid: string): Promise<void> {
+  await sendIgMessage(recipientIgsid, env.IG_MSG_PHONE_THANKS, "PHONE_THANKS");
 }
 
 /**
