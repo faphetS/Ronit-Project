@@ -83,12 +83,14 @@ Status of each integration. When a new decision is made, update this section and
 
 ### Instagram DMs (inbound + outbound)
 - **Decision:** Implemented — Meta Cloud API
-- **What's done:** Webhook ingest at `POST /api/meta/webhook` with HMAC-SHA256 signature verification (timing-safe). GET handshake at same path echoes `hub.challenge`. Dev-only `POST /api/meta/test-inject` for end-to-end testing. Incoming messages are classified via OpenRouter and routed to Monday.com CRM. **First-contact auto-reply** (`sendFirstContactDM` in `meta.outbound.service.ts`) fires once per new interested sender (dedup via `known_senders`) and selects one of **four** templates by (did the lead name a specific service?) × (was a phone number in the message?):
-  - **service named** (`classification.service !== null`, uman/challah) → neutral templates `IG_MSG_SERVICE_PHONE_PRESENT` / `IG_MSG_SERVICE_PHONE_MISSING` (no `{form_link}`).
-  - **no service named** (`service === null`, interested-but-vague) → Uman-teaser fallback templates `IG_MSG_PHONE_PRESENT` / `IG_MSG_PHONE_MISSING` (carry the personalized `{form_link}`).
-  - Within each pair, a missing phone selects the variant that asks for the phone number. Not-interested senders and already-known senders get no DM.
-- **Not yet done:** Ongoing/conversational outbound replies (beyond the single first-contact DM), 24-hour window enforcement, business verification (long-pole, 3–10 business days).
-- **Env in use:** `META_APP_SECRET`, `META_VERIFY_TOKEN`, `IG_ACCESS_TOKEN`. IG message templates (all defaulted in `env.ts`): `IG_MSG_PHONE_PRESENT`, `IG_MSG_PHONE_MISSING`, `IG_MSG_SERVICE_PHONE_PRESENT`, `IG_MSG_SERVICE_PHONE_MISSING`.
+- **What's done:** Webhook ingest at `POST /api/meta/webhook` with HMAC-SHA256 signature verification (timing-safe). GET handshake at same path echoes `hub.challenge`. Dev-only `POST /api/meta/test-inject` for end-to-end testing. Incoming messages are classified via OpenRouter and routed to Monday.com CRM. **Auto-reply templates (2026-07 copy update — short, link-free except where noted).** Routing in `pickReplyTemplate` (`meta.outbound.service.ts`) is (service) × (phone?) × (first contact vs. answer to the service question):
+  - **uman opener** → `IG_MSG_PHONE_PRESENT` / `IG_MSG_PHONE_MISSING` (short, no teaser/link).
+  - **challah opener** → `IG_MSG_SERVICE_PHONE_PRESENT` / `IG_MSG_SERVICE_PHONE_MISSING`.
+  - **vague opener** (interested, no service named) → `IG_MSG_ASK_SERVICE` ("challah or uman?"), re-asked up to 3× via `pending_clarification`; her answer routes to `IG_MSG_UMAN_ANSWER_PHONE_PRESENT` / `IG_MSG_UMAN_ANSWER_PHONE_MISSING` (the ONLY conversational reply still carrying the teaser + `{form_link}`) / `IG_MSG_CHALLAH_ANSWER_PHONE_PRESENT` / `IG_MSG_CHALLAH_ANSWER_PHONE_MISSING`.
+  - **Phone thank-you** — `IG_MSG_PHONE_THANKS` (תודה , ניצור קשר בהקדם💕) fires ONCE when a known **uman** lead without a stored phone hands one over (known-sender branch only; works even when the bare number classifies not-interested; challah stays silent; pending branch re-asks instead). Best-effort: skipped permanently if Monday 429s that exact message.
+  - A missing phone always selects the ask-for-phone variant. Not-interested and already-known senders get no opener DM.
+- **Not yet done:** 24-hour window enforcement, business verification (long-pole, 3–10 business days).
+- **Env in use:** `META_APP_SECRET`, `META_VERIFY_TOKEN`, `IG_ACCESS_TOKEN`. IG message templates (all defaulted in `env.ts`, overridable per var): the 9 `IG_MSG_*` templates listed above.
 - **Env to add later:** `META_APP_ID`, `IG_PROFESSIONAL_ACCOUNT_ID`.
 
 ### WhatsApp (custom Supabase edge-function gateway)

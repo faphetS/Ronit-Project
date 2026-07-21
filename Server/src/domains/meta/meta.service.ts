@@ -352,7 +352,10 @@ async function processClassifiedMessage(
           );
           // Uman-only thank-you for handing over the phone after being asked.
           // capturedPhone is set only the first time a phone arrives (stored
-          // phone empties the condition), so this can never re-fire.
+          // phone empties the condition), so this can never re-fire. Best-effort
+          // by design: if a Monday 429 aborts this branch first, the phone is
+          // already safe (SQLite + queue drain) but the thanks is skipped for
+          // good — same silence the lead got before this feature existed.
           const serviceKey = classification.service ?? mapItemServiceToKey(live.service);
           if (serviceKey === "uman") {
             await safeSendPhoneThanks(input.senderId!);
