@@ -14,6 +14,7 @@ ENV NODE_ENV=production
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=builder /app/dist ./dist
+COPY public ./public
 EXPOSE 3000
 USER node
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \

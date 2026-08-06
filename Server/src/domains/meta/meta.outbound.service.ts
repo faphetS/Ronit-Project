@@ -4,6 +4,19 @@ import { getCurrentIgToken } from "./meta.token.service.js";
 
 const FORM_BASE_URL = "https://www.orhazadik.online";
 
+// Seasonal Uman-hilula campaign flyer (27–30/9 trip, see CLAUDE.md "Uman hilula
+// campaign copy — EXPIRES 30/9"). Deliberately hardcoded, not an env var.
+const FLYER_IMAGE_URL = "https://api.ronitbarash.site/static/file.jpg";
+
+// The only pickReplyTemplate labels that get the flyer as a second bubble —
+// the two uman openers and the two uman answers-after-question.
+const FLYER_TEMPLATE_LABELS = new Set([
+  "UMAN_PHONE_PRESENT",
+  "UMAN_PHONE_MISSING",
+  "UMAN_ANSWER_PHONE_PRESENT",
+  "UMAN_ANSWER_PHONE_MISSING",
+]);
+
 type Service = "uman" | "challah";
 
 /**
@@ -44,19 +57,23 @@ export function pickReplyTemplate(args: {
     : { template: env.IG_MSG_PHONE_MISSING, label: "UMAN_PHONE_MISSING" };
 }
 
-/** Decode literal "\n" → newline, substitute {form_link}, POST to IG Graph API. */
+/**
+ * Decode literal "\n" → newline, substitute {form_link}, POST to IG Graph API.
+ * Returns whether the send actually succeeded (dry-run counts as success) so
+ * callers can gate follow-on sends — e.g. the flyer bubble — on it.
+ */
 async function sendIgMessage(
   recipientIgsid: string,
   template: string,
   label: string,
-): Promise<void> {
+): Promise<boolean> {
   const formLink = `${FORM_BASE_URL}/?ig_id=${encodeURIComponent(recipientIgsid)}`;
   const text = template.replace(/\\n/g, "\n").replaceAll("{form_link}", formLink);
 
   // Testing seam — log the exact rendered message and send nothing.
   if (env.IG_OUTBOUND_DRYRUN) {
     logger.info({ recipientIgsid, template: label, text }, "IG DM DRY-RUN (not sent)");
-    return;
+    return true;
   }
 
   let token: string;
@@ -64,7 +81,7 @@ async function sendIgMessage(
     token = await getCurrentIgToken();
   } catch (err) {
     logger.warn({ err, recipientIgsid }, "IG outbound skipped — token unavailable");
-    return;
+    return false;
   }
 
   const url = `https://graph.instagram.com/v23.0/me/messages?access_token=${encodeURIComponent(token)}`;
@@ -89,14 +106,75 @@ async function sendIgMessage(
         },
         "IG outbound non-2xx",
       );
-      return;
+      return false;
     }
     logger.info(
       { recipientIgsid, textLen: text.length, template: label },
       "IG DM sent",
     );
+    return true;
   } catch (err) {
     logger.warn({ err, recipientIgsid }, "IG outbound fetch error");
+    return false;
+  }
+}
+
+/** POST the flyer image as a message attachment (same shape as a text send). */
+async function postFlyerImage(recipientIgsid: string): Promise<boolean> {
+  let token: string;
+  try {
+    token = await getCurrentIgToken();
+  } catch (err) {
+    logger.warn({ err, recipientIgsid }, "IG flyer outbound skipped — token unavailable");
+    return false;
+  }
+
+  const url = `https://graph.instagram.com/v23.0/me/messages?access_token=${encodeURIComponent(token)}`;
+  const body = JSON.stringify({
+    recipient: { id: recipientIgsid },
+    message: { attachment: { type: "image", payload: { url: FLYER_IMAGE_URL } } },
+  });
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+    if (!res.ok) {
+      logger.warn(
+        { recipientIgsid, status: res.status, body: (await res.text()).slice(0, 300) },
+        "IG flyer outbound non-2xx",
+      );
+      return false;
+    }
+    logger.info({ recipientIgsid, url: FLYER_IMAGE_URL }, "IG flyer image sent");
+    return true;
+  } catch (err) {
+    logger.warn({ err, recipientIgsid }, "IG flyer outbound fetch error");
+    return false;
+  }
+}
+
+/**
+ * Second chat bubble — the seasonal campaign flyer — sent after certain uman
+ * text replies (see FLYER_TEMPLATE_LABELS). Best-effort: never throws, retries
+ * exactly once after ~1s on failure, and must never block the webhook's 200 to
+ * Meta or the text reply that precedes it.
+ */
+export async function sendFlyerImage(recipientIgsid: string): Promise<void> {
+  // Testing seam — mirror sendIgMessage's dry-run behavior exactly.
+  if (env.IG_OUTBOUND_DRYRUN) {
+    logger.info({ recipientIgsid, url: FLYER_IMAGE_URL }, "IG flyer image DRY-RUN (not sent)");
+    return;
+  }
+
+  if (await postFlyerImage(recipientIgsid)) return;
+
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+
+  if (!(await postFlyerImage(recipientIgsid))) {
+    logger.error({ recipientIgsid }, "IG flyer image failed after retry — giving up");
   }
 }
 
@@ -106,7 +184,10 @@ export async function sendReplyDM(
   args: { service: Service; hasPhone: boolean; answered: boolean },
 ): Promise<void> {
   const { template, label } = pickReplyTemplate(args);
-  await sendIgMessage(recipientIgsid, template, label);
+  const sent = await sendIgMessage(recipientIgsid, template, label);
+  if (sent && FLYER_TEMPLATE_LABELS.has(label)) {
+    await sendFlyerImage(recipientIgsid);
+  }
 }
 
 /** Ask a vague lead which service she wants (Entry B step 1 + re-asks). */

@@ -4,6 +4,8 @@ import express, { type Request, type Response } from "express";
 import helmet from "helmet";
 import hpp from "hpp";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { Options, HttpLogger } from "pino-http";
 import pinoHttpImport from "pino-http";
 const pinoHttp = pinoHttpImport as unknown as (opts?: Options) => HttpLogger<IncomingMessage, ServerResponse>;
@@ -17,6 +19,11 @@ import { startWhatsAppCrons } from "./domains/whatsapp/cron.js";
 import { startMetaCrons } from "./domains/meta/meta.cron.js";
 import { startMondayCrons } from "./domains/monday/monday.cron.js";
 import { startCallsCrons } from "./domains/calls/calls.cron.js";
+
+// Resolved relative to this module, not process.cwd(), so it points at
+// Server/public under tsx dev (src/server.ts) and at the sibling ./public
+// the Dockerfile copies next to dist/ under compiled prod (dist/server.js).
+const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "public");
 
 const app = express();
 
@@ -62,6 +69,10 @@ app.use(
     autoLogging: { ignore: (req) => req.url === "/health" },
   }),
 );
+
+// 4b. Static asset serving (campaign flyer image etc.) — plain file serving,
+// no HMAC/body-parsing concerns, safe to mount ahead of the /api rate limiter.
+app.use("/static", express.static(PUBLIC_DIR));
 
 // 5a. Raw body for webhook HMAC verification — MUST run before express.json()
 // so controllers can compute sha256 over the exact bytes the provider signed.
