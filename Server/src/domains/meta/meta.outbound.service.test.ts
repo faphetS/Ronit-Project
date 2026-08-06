@@ -155,10 +155,10 @@ describe("sendReplyDM — flyer second bubble (uman only)", () => {
     env.IG_OUTBOUND_DRYRUN = false;
   });
 
-  function callBody(index: number): { message: { text?: string; attachment?: { type: string; payload: { url: string } } } } {
+  function callBody(index: number): { message: { text?: string; attachments?: Array<{ type: string; payload: { url: string } }> } } {
     const init = fetchMock.mock.calls[index]?.[1] as { body: string };
     return JSON.parse(init.body) as {
-      message: { text?: string; attachment?: { type: string; payload: { url: string } } };
+      message: { text?: string; attachments?: Array<{ type: string; payload: { url: string } }> };
     };
   }
 
@@ -166,28 +166,28 @@ describe("sendReplyDM — flyer second bubble (uman only)", () => {
     await sendReplyDM(RID, { service: "uman", hasPhone: true, answered: false });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(callBody(0).message.text).toBeTruthy();
-    expect(callBody(1).message.attachment).toEqual({ type: "image", payload: { url: FLYER_URL } });
+    expect(callBody(1).message.attachments).toEqual([{ type: "image", payload: { url: FLYER_URL } }]);
   });
 
   it("uman opener, phone missing → flyer sent as a second bubble after the text", async () => {
     await sendReplyDM(RID, { service: "uman", hasPhone: false, answered: false });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(callBody(0).message.text).toBeTruthy();
-    expect(callBody(1).message.attachment).toEqual({ type: "image", payload: { url: FLYER_URL } });
+    expect(callBody(1).message.attachments).toEqual([{ type: "image", payload: { url: FLYER_URL } }]);
   });
 
   it("uman answer (after ask-service), phone present → flyer sent as a second bubble after the text", async () => {
     await sendReplyDM(RID, { service: "uman", hasPhone: true, answered: true });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(callBody(0).message.text).toBeTruthy();
-    expect(callBody(1).message.attachment).toEqual({ type: "image", payload: { url: FLYER_URL } });
+    expect(callBody(1).message.attachments).toEqual([{ type: "image", payload: { url: FLYER_URL } }]);
   });
 
   it("uman answer, phone missing → flyer sent as a second bubble after the text", async () => {
     await sendReplyDM(RID, { service: "uman", hasPhone: false, answered: true });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(callBody(0).message.text).toBeTruthy();
-    expect(callBody(1).message.attachment).toEqual({ type: "image", payload: { url: FLYER_URL } });
+    expect(callBody(1).message.attachments).toEqual([{ type: "image", payload: { url: FLYER_URL } }]);
   });
 
   it("challah opener, phone present → no flyer", async () => {

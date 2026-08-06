@@ -130,9 +130,11 @@ async function postFlyerImage(recipientIgsid: string): Promise<boolean> {
   }
 
   const url = `https://graph.instagram.com/v23.0/me/messages?access_token=${encodeURIComponent(token)}`;
+  // graph.instagram.com (Instagram-login flavor) documents `attachments` as an
+  // ARRAY — not Messenger's singular `attachment` object.
   const body = JSON.stringify({
     recipient: { id: recipientIgsid },
-    message: { attachment: { type: "image", payload: { url: FLYER_IMAGE_URL } } },
+    message: { attachments: [{ type: "image", payload: { url: FLYER_IMAGE_URL } }] },
   });
 
   try {
