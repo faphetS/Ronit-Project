@@ -34,7 +34,9 @@ const envSchema = z.object({
 
   // Monday board / group / column IDs — defaults match scripts/output/monday-snapshot.json.
   // Override via .env only if the CRM board structure changes.
-  MONDAY_BOARD_CRM_ID: z.string().default("5094895163"),
+  // 2026-08-09 board migration: new "רונית - CRM" board; old 5094895163 renamed
+  // "רונית -CRM ישן" (ID-identical duplicate, so group/column IDs are unchanged).
+  MONDAY_BOARD_CRM_ID: z.string().default("5101856136"),
   MONDAY_GROUP_NEW_LEADS_ID: z.string().default("new_group29179"),
   MONDAY_GROUP_NO_PHONE_ID: z.string().default("group_mm469wrf"),
   MONDAY_COL_PHONE_ID: z.string().default("phone_mm2pf4nm"),
