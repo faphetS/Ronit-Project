@@ -180,10 +180,14 @@ const envSchema = z.object({
 
   // Salestrail — webhook auth (Push API) uses one set of credentials,
   // Pull API (recording download) uses a separate generated key pair.
+  // Both Salestrail orgs point their Push API at our one webhook with the same
+  // credentials, but each org gets its own Pull API key pair — hence the _2 set.
   SALESTRAIL_WEBHOOK_USERNAME: z.string().min(1).optional(),
   SALESTRAIL_WEBHOOK_PASSWORD: z.string().min(1).optional(),
   SALESTRAIL_API_USERNAME: z.string().min(1).optional(),
   SALESTRAIL_API_PASSWORD: z.string().min(1).optional(),
+  SALESTRAIL_API_USERNAME_2: z.string().min(1).optional(),
+  SALESTRAIL_API_PASSWORD_2: z.string().min(1).optional(),
   OPENROUTER_AUDIO_MODEL: z.string().default("google/gemini-2.5-flash"),
 
   // Monday.com — CRM group/column IDs for call tracking

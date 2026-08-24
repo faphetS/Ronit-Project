@@ -19,7 +19,7 @@ vi.mock("../../config/db.js", () => ({
 
 vi.mock("./salestrail.client.js", () => ({
   salestrailClient: {
-    tryDownloadOnce: vi.fn().mockResolvedValue({ status: "ok", buffer: Buffer.from("audio") }),
+    tryDownloadOnce: vi.fn().mockResolvedValue({ status: "ok", buffer: Buffer.from("audio"), org: "org1" }),
   },
 }));
 vi.mock("../../lib/transcribe.js", () => ({
@@ -80,6 +80,21 @@ describe("latest-call-wins ordering guard", () => {
   });
 });
 
+describe("user label prefix (multi-org)", () => {
+  it("prefixes the summary with משתמש N based on which org's key served the download", async () => {
+    await processRecordingJob(job("callOrg1", "item6", "2026-06-17T10:00:00Z"));
+    expect(vi.mocked(addNoteToItem)).toHaveBeenCalledWith("item6", "משתמש 1:\nסיכום שיחה");
+
+    vi.mocked(salestrailClient.tryDownloadOnce).mockResolvedValueOnce({
+      status: "ok",
+      buffer: Buffer.from("audio"),
+      org: "org2",
+    });
+    await processRecordingJob(job("callOrg2", "item7", "2026-06-17T10:00:00Z"));
+    expect(vi.mocked(addNoteToItem)).toHaveBeenCalledWith("item7", "משתמש 2:\nסיכום שיחה");
+  });
+});
+
 describe("uncertain timestamp fallback", () => {
   it("a job with an unparseable call_time still writes the summary (Date.now fallback + < guard)", async () => {
     // Seed a prior marker so the < guard is exercised; Date.now() >> any reasonable shownMs
@@ -109,7 +124,7 @@ describe("older call does not overwrite a newer summary (latest-call-wins)", () 
     const newerMs = Date.parse("2026-06-17T12:00:00Z");
     settings.set("last_summary_call_time:item1", String(newerMs));
 
-    vi.mocked(salestrailClient.tryDownloadOnce).mockResolvedValueOnce({ status: "ok", buffer: Buffer.from("audio") });
+    vi.mocked(salestrailClient.tryDownloadOnce).mockResolvedValueOnce({ status: "ok", buffer: Buffer.from("audio"), org: "org2" });
     vi.mocked(transcribeAudio).mockResolvedValueOnce({
       summary: "old call summary",
     });

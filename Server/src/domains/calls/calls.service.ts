@@ -90,6 +90,13 @@ export async function handleSalestrailCall(
 // double note write.
 const inFlight = new Set<string>();
 
+// Which Salestrail org's Pull API key served the recording → the "משתמש N"
+// header on the Monday summary, so Ronit can tell whose phone made the call.
+const ORG_USER_LABELS: Record<string, string> = {
+  org1: "משתמש 1",
+  org2: "משתמש 2",
+};
+
 /**
  * Background job (called by the fast/catch-up crons and the dev test endpoint).
  * Tries a single recording download; on success transcribes and writes the
@@ -129,7 +136,11 @@ async function runRecordingJob(job: PendingRecording): Promise<void> {
     }
 
     try {
-      summary = (await transcribeAudio(result.buffer)).summary;
+      const transcript = (await transcribeAudio(result.buffer)).summary;
+      // Prefixed before caching so Monday-write retries keep the label without
+      // needing to re-resolve which org's Pull API key owned the recording.
+      const userLabel = ORG_USER_LABELS[result.org];
+      summary = userLabel ? `${userLabel}:\n${transcript}` : transcript;
     } catch (err) {
       bumpPendingRecording(job.id, (err as Error).message);
       logger.warn(
