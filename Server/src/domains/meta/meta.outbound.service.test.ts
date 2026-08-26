@@ -260,6 +260,22 @@ describe("sendReplyDM — flyer second bubble (uman only)", () => {
     errorSpy.mockRestore();
   });
 
+  it("sendCommentPrivateReply kind knife → renders IG_MSG_COMMENT_KNIFE verbatim (real newlines, no {form_link})", async () => {
+    const sent = await sendCommentPrivateReply("c-1", RID, "knife");
+    expect(sent).toBe(true);
+    const text = sentText();
+    expect(text).toBe(env.IG_MSG_COMMENT_KNIFE.replace(/\\n/g, "\n"));
+    expect(text).not.toContain("{form_link}");
+    expect(text).not.toContain(FORM_LINK);
+  });
+
+  it("sendCommentPrivateReply kind knife, dry-run → no fetch, returns false", async () => {
+    env.IG_OUTBOUND_DRYRUN = true;
+    const sent = await sendCommentPrivateReply("c-1", RID, "knife");
+    expect(sent).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("dry-run mode → no network call, distinctive log", async () => {
     const infoSpy = vi.spyOn(logger, "info");
     env.IG_OUTBOUND_DRYRUN = true;

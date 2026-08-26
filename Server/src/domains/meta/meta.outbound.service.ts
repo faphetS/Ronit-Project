@@ -207,22 +207,32 @@ export async function sendPhoneThanks(recipientIgsid: string): Promise<void> {
  * ONLY sanctioned way to DM a commenter (we cannot cold-DM): the recipient is the
  * comment_id, allowed within 7 days of the comment, once per comment.
  *
+ * `kind` selects the template: "uman" (default) is the lead-capture funnel DM with
+ * {form_link}; "knife" is the direct knife-sale pitch (IG_MSG_COMMENT_KNIFE), which
+ * carries no form link and never produces a Monday row.
+ *
  * Returns true ONLY on a confirmed send (mirrors sendGatewayMessage) so the caller
  * can couple Monday-row creation to a successful DM — a comment never produces a
- * row unless this returned true. The form link is personalized with the COMMENTER's
- * IG id (?ig_id=) so a later form submit de-dupes back to the same row.
+ * row unless this returned true. The form link (uman only) is personalized with the
+ * COMMENTER's IG id (?ig_id=) so a later form submit de-dupes back to the same row.
  */
 export async function sendCommentPrivateReply(
   commentId: string,
   commenterIgsid: string,
+  kind: "uman" | "knife" = "uman",
 ): Promise<boolean> {
-  const formLink = `${FORM_BASE_URL}/?ig_id=${encodeURIComponent(commenterIgsid)}`;
-  const text = env.IG_MSG_COMMENT_UMAN.replace(/\\n/g, "\n").replaceAll("{form_link}", formLink);
+  const text =
+    kind === "knife"
+      ? env.IG_MSG_COMMENT_KNIFE.replace(/\\n/g, "\n")
+      : env.IG_MSG_COMMENT_UMAN.replace(/\\n/g, "\n").replaceAll(
+          "{form_link}",
+          `${FORM_BASE_URL}/?ig_id=${encodeURIComponent(commenterIgsid)}`,
+        );
 
   // Testing seam — log the rendered DM and send nothing. Returns false so the
   // caller skips row creation too (no row without a real message).
   if (env.IG_OUTBOUND_DRYRUN) {
-    logger.info({ commentId, commenterIgsid, text }, "IG comment Private-Reply DRY-RUN (not sent)");
+    logger.info({ commentId, commenterIgsid, kind, text }, "IG comment Private-Reply DRY-RUN (not sent)");
     return false;
   }
 
@@ -230,7 +240,7 @@ export async function sendCommentPrivateReply(
   try {
     token = await getCurrentIgToken();
   } catch (err) {
-    logger.warn({ err, commentId }, "IG comment Private-Reply skipped — token unavailable");
+    logger.warn({ err, commentId, kind }, "IG comment Private-Reply skipped — token unavailable");
     return false;
   }
 
@@ -248,15 +258,15 @@ export async function sendCommentPrivateReply(
     });
     if (!res.ok) {
       logger.warn(
-        { commentId, commenterIgsid, status: res.status, body: (await res.text()).slice(0, 300) },
+        { commentId, commenterIgsid, kind, status: res.status, body: (await res.text()).slice(0, 300) },
         "IG comment Private-Reply non-2xx",
       );
       return false;
     }
-    logger.info({ commentId, commenterIgsid, textLen: text.length }, "IG comment Private-Reply sent");
+    logger.info({ commentId, commenterIgsid, kind, textLen: text.length }, "IG comment Private-Reply sent");
     return true;
   } catch (err) {
-    logger.warn({ err, commentId, commenterIgsid }, "IG comment Private-Reply fetch error");
+    logger.warn({ err, commentId, commenterIgsid, kind }, "IG comment Private-Reply fetch error");
     return false;
   }
 }

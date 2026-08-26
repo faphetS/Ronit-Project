@@ -89,6 +89,21 @@ const envSchema = z.object({
   // this rate by the meta cron (nothing is dropped). 0 = unlimited. Default 30.
   IG_COMMENT_REPLY_MAX_PER_HOUR: z.coerce.number().int().min(0).default(30),
 
+  // IG media id of the knife-sale reel — the "פרנסה" comment keyword only fires on
+  // THIS post (unlike "אומן", which fires on any post). Empty string disables the
+  // knife comment flow entirely.
+  IG_COMMENT_KNIFE_MEDIA_ID: z.string().default("18109858310601054"),
+
+  // Private-Reply DM sent to someone who comments "פרנסה" on the knife-sale reel.
+  // No {form_link} — this is a direct product pitch, not a lead-capture funnel, so
+  // no Monday row is created for it either (see meta.comment.service.ts).
+  IG_MSG_COMMENT_KNIFE: z
+    .string()
+    .min(1)
+    .default(
+      "היי אהובה 🤍\nעלות סכין סגולה לפרנסה – 148 ₪, כולל חריטה אישית של שם המשפחה על הסכין ✨\n🚚 משלוח עד הבית – 50 ₪\n📍 איסוף מדימונה / באר שבע – ללא עלות\nלשריון הסכין יש לשלוח שם משפחה לחריטה 🤍\nבשורות טובות ופרנסה בשפע 🙏🏻\n\nhttps://wa.me/message/KKU65Y3VRQAUB1\n054-5423112",
+    ),
+
   // Outbound IG first-contact templates. Literal "\n" escapes get decoded into
   // real newlines at send time; "{form_link}" is replaced with the personalized
   // form URL containing ?ig_id=<senderId>. As of the 2026-07 copy update the

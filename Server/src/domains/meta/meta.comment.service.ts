@@ -26,9 +26,14 @@ import { MondayRateLimitError } from "../monday/monday.client.js";
 import { sendCommentPrivateReply } from "./meta.outbound.service.js";
 
 const DEDUP_SOURCE = "ig_comment";
+const KNIFE_DM_SOURCE = "ig_knife_recipient";
 
 // Only Uman for now: the post CTA is "הגיבי אומן". Challah is deferred.
 const UMAN_KEYWORD = /אומן/;
+
+// The knife-sale keyword only fires on the one dedicated reel (IG_COMMENT_KNIFE_MEDIA_ID) —
+// unlike UMAN_KEYWORD, which fires on any post.
+const KNIFE_KEYWORD = /פרנסה/;
 
 // Max comment DMs drained per cron tick. The hourly cap is the real governor;
 // this just stops a single tick from emptying a large backlog in one burst.
@@ -74,7 +79,26 @@ export async function handleIncomingComment(input: IncomingComment): Promise<voi
     return;
   }
 
-  // Keyword gate — only "אומן" for now.
+  // Keyword gate — "פרנסה" wins on the knife media (even if the text also mentions
+  // "אומן"); otherwise fall back to the "אומן" gate on any post.
+  const isKnifeComment =
+    !!env.IG_COMMENT_KNIFE_MEDIA_ID &&
+    input.mediaId === env.IG_COMMENT_KNIFE_MEDIA_ID &&
+    KNIFE_KEYWORD.test(commentText);
+
+  if (isKnifeComment) {
+    enqueueComment({
+      commentId,
+      commenterId,
+      commenterUsername: input.commenterUsername,
+      recipientId: input.recipientId,
+      commentText,
+      kind: "knife",
+    });
+    logger.info({ commentId, commenterId }, "IG comment 'פרנסה' queued for paced DM (knife sale)");
+    return;
+  }
+
   if (!UMAN_KEYWORD.test(commentText)) return;
 
   enqueueComment({
@@ -83,6 +107,7 @@ export async function handleIncomingComment(input: IncomingComment): Promise<voi
     commenterUsername: input.commenterUsername,
     recipientId: input.recipientId,
     commentText,
+    kind: "uman",
   });
   logger.info({ commentId, commenterId }, "IG comment 'אומן' queued for paced DM");
 }
@@ -102,8 +127,25 @@ async function processQueuedComment(input: {
   commentText: string;
   commenterId: string;
   commenterUsername?: string;
+  kind: "uman" | "knife";
 }): Promise<ProcessResult> {
-  const { commentId, commentText, commenterId, commenterUsername } = input;
+  const { commentId, commentText, commenterId, commenterUsername, kind } = input;
+
+  if (kind === "knife") {
+    // No known-sender/Monday-liveness check by design — an existing CRM lead may
+    // still want to buy a knife, so we always DM. No Monday row is ever created.
+    const sent = await sendCommentPrivateReply(commentId, commenterId, "knife");
+    if (!sent) return "failed";
+
+    markMessageProcessed(DEDUP_SOURCE, commentId);
+    markMessageProcessed(KNIFE_DM_SOURCE, commenterId);
+
+    logger.info(
+      { commentId, commenterId, commenterUsername },
+      "IG comment 'פרנסה' → knife DM sent (no Monday row by design)",
+    );
+    return "sent";
+  }
 
   // Duplicate-lead guard: already a live CRM lead → no dup row / no re-DM. A stale
   // mapping (item deleted/archived) is cleaned up and the commenter treated as new.
@@ -121,7 +163,7 @@ async function processQueuedComment(input: {
   }
 
   // ① Send the Private-Reply DM FIRST. No Monday row unless this is a confirmed send.
-  const sent = await sendCommentPrivateReply(commentId, commenterId);
+  const sent = await sendCommentPrivateReply(commentId, commenterId, "uman");
   if (!sent) return "failed";
 
   // ② Mark sent — drives the hourly counter + dedup (a redelivered webhook won't re-DM).
@@ -227,6 +269,7 @@ export async function drainCommentQueue(): Promise<void> {
           commentText: item.comment_text,
           commenterId: item.commenter_id,
           commenterUsername: item.commenter_username ?? undefined,
+          kind: item.kind,
         });
         if (result === "failed") {
           bumpQueuedComment(item.id, "Private-Reply DM not sent");

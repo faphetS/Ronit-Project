@@ -123,6 +123,7 @@ CREATE TABLE IF NOT EXISTS ig_comment_queue (
   commenter_username TEXT,
   recipient_id       TEXT,
   comment_text       TEXT NOT NULL,
+  kind               TEXT NOT NULL DEFAULT 'uman',
   attempt_count      INTEGER NOT NULL DEFAULT 0,
   last_error         TEXT,
   created_at         TEXT NOT NULL DEFAULT (datetime('now'))
@@ -182,6 +183,10 @@ export function getDb(): Database.Database {
   const pendingCols = db.prepare("PRAGMA table_info(pending_recordings)").all() as Array<{ name: string }>;
   if (!pendingCols.some((c) => c.name === "summary")) {
     db.exec("ALTER TABLE pending_recordings ADD COLUMN summary TEXT");
+  }
+  const commentQueueCols = db.prepare("PRAGMA table_info(ig_comment_queue)").all() as Array<{ name: string }>;
+  if (!commentQueueCols.some((c) => c.name === "kind")) {
+    db.exec("ALTER TABLE ig_comment_queue ADD COLUMN kind TEXT NOT NULL DEFAULT 'uman'");
   }
   logger.info({ path: env.DB_FILE_PATH }, "SQLite DB opened and schema applied");
   return db;
@@ -400,12 +405,13 @@ export interface QueuedComment {
   commenter_username: string | null;
   recipient_id: string | null;
   comment_text: string;
+  kind: "uman" | "knife";
   attempt_count: number;
   created_at: string;
 }
 
 const IG_COMMENT_QUEUE_COLS =
-  "id, comment_id, commenter_id, commenter_username, recipient_id, comment_text, attempt_count, created_at";
+  "id, comment_id, commenter_id, commenter_username, recipient_id, comment_text, kind, attempt_count, created_at";
 
 export function enqueueComment(input: {
   commentId: string;
@@ -413,12 +419,13 @@ export function enqueueComment(input: {
   commenterUsername?: string;
   recipientId?: string;
   commentText: string;
+  kind?: "uman" | "knife";
 }): void {
   getDb()
     .prepare(
       `INSERT OR IGNORE INTO ig_comment_queue
-         (comment_id, commenter_id, commenter_username, recipient_id, comment_text)
-       VALUES (?, ?, ?, ?, ?)`,
+         (comment_id, commenter_id, commenter_username, recipient_id, comment_text, kind)
+       VALUES (?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.commentId,
@@ -426,6 +433,7 @@ export function enqueueComment(input: {
       input.commenterUsername ?? null,
       input.recipientId ?? null,
       input.commentText,
+      input.kind ?? "uman",
     );
 }
 
@@ -467,6 +475,20 @@ export function countCommentDmsSentLastHour(): number {
     )
     .get() as { c: number };
   return row.c;
+}
+
+// Suppresses the vague-lead "challah or uman?" ask-service question for someone
+// who was just DMed the knife-sale pitch — a vague follow-up right after that DM
+// is far more likely to be about the knife order than a fresh service inquiry.
+export function wasKnifeDmSentRecently(commenterId: string): boolean {
+  const row = getDb()
+    .prepare(
+      `SELECT id FROM processed_webhooks
+       WHERE source = 'ig_knife_recipient' AND external_id = ?
+         AND processed_at >= datetime('now','-14 days')`,
+    )
+    .get(commenterId);
+  return row !== undefined;
 }
 
 // Drop queued comments older than the ~7-day Private-Reply window (the DM would

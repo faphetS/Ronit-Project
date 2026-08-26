@@ -4,6 +4,7 @@ const ENV = vi.hoisted(() => ({
   IG_COMMENT_HANDLER_ENABLED: true,
   IG_PROFESSIONAL_ACCOUNT_ID: "ownerself",
   IG_COMMENT_REPLY_MAX_PER_HOUR: 30,
+  IG_COMMENT_KNIFE_MEDIA_ID: "knife-media-1",
 }));
 vi.mock("../../config/env.js", () => ({ env: ENV }));
 
@@ -67,6 +68,7 @@ function queued(overrides: Record<string, unknown> = {}) {
     commenter_username: "tester",
     recipient_id: "ig-account",
     comment_text: "אומן",
+    kind: "uman" as const,
     attempt_count: 0,
     created_at: "2026-06-28 10:00:00",
     ...overrides,
@@ -78,6 +80,7 @@ beforeEach(() => {
   ENV.IG_COMMENT_HANDLER_ENABLED = true;
   ENV.IG_PROFESSIONAL_ACCOUNT_ID = "ownerself";
   ENV.IG_COMMENT_REPLY_MAX_PER_HOUR = 30;
+  ENV.IG_COMMENT_KNIFE_MEDIA_ID = "knife-media-1";
   vi.mocked(dedup.isMessageProcessed).mockReturnValue(false);
   vi.mocked(dedup.findKnownSender).mockReturnValue(null);
   vi.mocked(db.isCommentQueued).mockReturnValue(false);
@@ -140,6 +143,48 @@ describe("handleIncomingComment — ingest/enqueue", () => {
   });
 });
 
+describe("handleIncomingComment — 'פרנסה' knife-sale keyword", () => {
+  it("'פרנסה' on the knife media → enqueued kind knife", async () => {
+    await handleIncomingComment(
+      comment({ commentText: "מעוניינת בסכין לפרנסה", mediaId: "knife-media-1" }),
+    );
+    expect(db.enqueueComment).toHaveBeenCalledWith(
+      expect.objectContaining({ commentId: "c-1", commenterId: "commenter-1", kind: "knife" }),
+    );
+  });
+
+  it("'פרנסה' on a DIFFERENT (non-knife) media → not enqueued", async () => {
+    await handleIncomingComment(
+      comment({ commentText: "מעוניינת בסכין לפרנסה", mediaId: "some-other-post" }),
+    );
+    expect(db.enqueueComment).not.toHaveBeenCalled();
+  });
+
+  it("'פרנסה' on the knife media, but IG_COMMENT_KNIFE_MEDIA_ID is empty → flow disabled, not enqueued", async () => {
+    ENV.IG_COMMENT_KNIFE_MEDIA_ID = "";
+    await handleIncomingComment(
+      comment({ commentText: "מעוניינת בסכין לפרנסה", mediaId: "knife-media-1" }),
+    );
+    expect(db.enqueueComment).not.toHaveBeenCalled();
+  });
+
+  it("'אומן' (no 'פרנסה') on the knife media → enqueued kind uman", async () => {
+    await handleIncomingComment(comment({ commentText: "אומן", mediaId: "knife-media-1" }));
+    expect(db.enqueueComment).toHaveBeenCalledWith(
+      expect.objectContaining({ commentId: "c-1", commenterId: "commenter-1", kind: "uman" }),
+    );
+  });
+
+  it("text with both 'אומן' and 'פרנסה' on the knife media → knife wins", async () => {
+    await handleIncomingComment(
+      comment({ commentText: "רוצה לטוס לאומן וגם סכין לפרנסה", mediaId: "knife-media-1" }),
+    );
+    expect(db.enqueueComment).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "knife" }),
+    );
+  });
+});
+
 describe("drainCommentQueue — paced send", () => {
   it("gate off → no-op", async () => {
     ENV.IG_COMMENT_HANDLER_ENABLED = false;
@@ -152,7 +197,7 @@ describe("drainCommentQueue — paced send", () => {
     vi.mocked(db.getQueuedComments).mockReturnValue([queued()]);
     await drainCommentQueue();
 
-    expect(outbound.sendCommentPrivateReply).toHaveBeenCalledWith("c-1", "commenter-1");
+    expect(outbound.sendCommentPrivateReply).toHaveBeenCalledWith("c-1", "commenter-1", "uman");
     expect(monday.createLeadRow).toHaveBeenCalledWith(
       expect.objectContaining({ name: "tester", phone: null, service: "uman", source: "instagram" }),
     );
@@ -251,7 +296,32 @@ describe("drainCommentQueue — paced send", () => {
     expect(db.bumpQueuedComment).toHaveBeenCalledWith(1, expect.any(String));
     expect(db.deleteQueuedComment).not.toHaveBeenCalledWith(1);
     // second item is unaffected by the first item's throw
-    expect(outbound.sendCommentPrivateReply).toHaveBeenCalledWith("c-2", "commenter-2");
+    expect(outbound.sendCommentPrivateReply).toHaveBeenCalledWith("c-2", "commenter-2", "uman");
     expect(db.deleteQueuedComment).toHaveBeenCalledWith(2);
+  });
+});
+
+describe("drainCommentQueue — knife kind", () => {
+  it("DM sent with kind knife → no Monday calls, both processed marks written, dequeued", async () => {
+    vi.mocked(db.getQueuedComments).mockReturnValue([queued({ kind: "knife" })]);
+    await drainCommentQueue();
+
+    expect(outbound.sendCommentPrivateReply).toHaveBeenCalledWith("c-1", "commenter-1", "knife");
+    expect(monday.createLeadRow).not.toHaveBeenCalled();
+    expect(dedup.upsertKnownSender).not.toHaveBeenCalled();
+    expect(monday.getItemBoardAndGroup).not.toHaveBeenCalled();
+    expect(dedup.markMessageProcessed).toHaveBeenCalledWith("ig_comment", "c-1");
+    expect(dedup.markMessageProcessed).toHaveBeenCalledWith("ig_knife_recipient", "commenter-1");
+    expect(db.deleteQueuedComment).toHaveBeenCalledWith(1);
+  });
+
+  it("knife DM not sent → bumped, kept in queue, no marks", async () => {
+    vi.mocked(db.getQueuedComments).mockReturnValue([queued({ kind: "knife" })]);
+    vi.mocked(outbound.sendCommentPrivateReply).mockResolvedValue(false);
+    await drainCommentQueue();
+
+    expect(db.bumpQueuedComment).toHaveBeenCalledWith(1, expect.any(String));
+    expect(db.deleteQueuedComment).not.toHaveBeenCalled();
+    expect(dedup.markMessageProcessed).not.toHaveBeenCalled();
   });
 });

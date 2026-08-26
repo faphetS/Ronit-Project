@@ -46,6 +46,7 @@ vi.mock("../monday/monday.webhook.service.js", () => ({
 vi.mock("../../config/db.js", () => ({
   enqueueMondayLead: vi.fn(),
   findQueuedLeadBySender: vi.fn().mockReturnValue(null),
+  wasKnifeDmSentRecently: vi.fn().mockReturnValue(false),
 }));
 
 vi.mock("../whatsapp/uman-welcome.service.js", () => ({
@@ -126,6 +127,7 @@ beforeEach(() => {
   vi.mocked(outbound.sendServiceQuestion).mockResolvedValue(undefined);
   vi.mocked(outbound.sendPhoneThanks).mockResolvedValue(undefined);
   vi.mocked(db.findQueuedLeadBySender).mockReturnValue(null);
+  vi.mocked(db.wasKnifeDmSentRecently).mockReturnValue(false);
   vi.mocked(profileService.fetchIgProfile).mockResolvedValue({ id: "profile-id", username: "test_user" });
 });
 
@@ -338,6 +340,62 @@ describe("handleIncomingMessage — new vague lead (Entry B step 1)", () => {
     );
     expect(outbound.sendServiceQuestion).toHaveBeenCalledWith(SENDER_ID);
     expect(outbound.sendReplyDM).not.toHaveBeenCalled();
+    expect(result.itemId).toBe("new-item-123");
+  });
+});
+
+describe("handleIncomingMessage — knife-DM recipient suppression", () => {
+  it("vague-interested new sender WITH a recent knife-DM mark → no ask-service, no row created", async () => {
+    vi.mocked(classify.classifyLead).mockResolvedValue(vagueClassification);
+    vi.mocked(db.wasKnifeDmSentRecently).mockReturnValue(true);
+
+    const result = await handleIncomingMessage({
+      messageText: "היי מה קורה",
+      senderId: SENDER_ID,
+      messageId: "knife-suppress-1",
+    });
+
+    expect(outbound.sendServiceQuestion).not.toHaveBeenCalled();
+    expect(conversation.upsertPendingClarification).not.toHaveBeenCalled();
+    expect(mondayService.createLeadRow).not.toHaveBeenCalled();
+    expect(result.itemId).toBeNull();
+  });
+
+  it("vague-interested new sender WITHOUT the mark → unchanged (ask-service still fires)", async () => {
+    vi.mocked(classify.classifyLead).mockResolvedValue(vagueClassification);
+    vi.mocked(db.wasKnifeDmSentRecently).mockReturnValue(false);
+
+    const result = await handleIncomingMessage({
+      messageText: "היי אני מעוניינת",
+      senderId: SENDER_ID,
+      messageId: "knife-suppress-2",
+    });
+
+    expect(outbound.sendServiceQuestion).toHaveBeenCalledWith(SENDER_ID);
+    expect(mondayService.createLeadRow).toHaveBeenCalledWith(
+      expect.objectContaining({ service: null }),
+    );
+    expect(result.itemId).toBe("new-item-123");
+  });
+
+  it("explicit uman message WITH the mark → still processed normally (not suppressed)", async () => {
+    // interestedClassification names service "uman" explicitly.
+    vi.mocked(db.wasKnifeDmSentRecently).mockReturnValue(true);
+
+    const result = await handleIncomingMessage({
+      messageText: "אני רוצה טיסה לאומן 0501234567",
+      senderId: SENDER_ID,
+      messageId: "knife-suppress-3",
+    });
+
+    expect(mondayService.createLeadRow).toHaveBeenCalledWith(
+      expect.objectContaining({ service: "uman" }),
+    );
+    expect(outbound.sendReplyDM).toHaveBeenCalledWith(SENDER_ID, {
+      service: "uman",
+      hasPhone: true,
+      answered: false,
+    });
     expect(result.itemId).toBe("new-item-123");
   });
 });

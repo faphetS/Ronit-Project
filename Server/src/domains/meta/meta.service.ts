@@ -29,7 +29,7 @@ import {
 } from "../monday/monday.service.js";
 import { findLeadOnActiveServiceBoards } from "../monday/monday.webhook.service.js";
 import { MondayRateLimitError } from "../monday/monday.client.js";
-import { enqueueMondayLead, findQueuedLeadBySender } from "../../config/db.js";
+import { enqueueMondayLead, findQueuedLeadBySender, wasKnifeDmSentRecently } from "../../config/db.js";
 import { maybeSendUmanWelcome } from "../whatsapp/uman-welcome.service.js";
 import { sendReplyDM, sendServiceQuestion, sendPhoneThanks } from "./meta.outbound.service.js";
 import { fetchIgProfile } from "./meta.profile.service.js";
@@ -461,6 +461,23 @@ async function processClassifiedMessage(
   }
 
   // New-sender path (existing === null, interested).
+
+  // A vague ("challah or uman?") message from someone we recently DMed the
+  // knife-sale pitch to is more likely a knife-order follow-up than a fresh
+  // service inquiry — suppress the ask-service question and create nothing.
+  // Explicit service mentions (classification.service !== null) are unaffected.
+  if (
+    classification.service === null &&
+    input.senderId &&
+    wasKnifeDmSentRecently(input.senderId)
+  ) {
+    logger.info(
+      { senderId: input.senderId },
+      "Vague DM from recent knife-DM recipient — suppressing ask-service (likely knife order follow-up)",
+    );
+    return { itemId: null, classification };
+  }
+
   let igUsername: string | null = null;
   let displayName = "Unknown IG lead";
   if (input.senderId) {
