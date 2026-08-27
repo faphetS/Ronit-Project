@@ -102,7 +102,15 @@ Sources: [How call recording works KB](https://www.salestrail.io/knowledge-base/
 2. **Whether the per-user Integrations → Login step applies to Push API** or only to OAuth CRMs (Salesforce/HubSpot/…). The setup-mistakes doc states it generally ("calls tracked but not pushed to the CRM" until each user logs in); treat it as required — it costs nothing.
 3. **Proration** when adding a user mid-billing-cycle: not documented publicly (Purchase flow may show it; support can confirm).
 4. **Trial for a new seat in an existing paid org** (the 5-day trial is described for new accounts): not documented.
-5. **Pull API credential scope**: our `SALESTRAIL_API_USERNAME/PASSWORD` presumably covers all recordings in the org (endpoint takes only `callId`), but the docs don't state it explicitly. Verify on the first real call from the new number: check the container logs for "Salestrail recording downloaded" for that `callId`.
+5. ~~**Pull API credential scope**~~ — **VERIFIED 2026-08-25:** keys are strictly per-org. Org 2 recording `31783d18…`: org 2 key → 302→200, 170 KB m4a; org 1 key → 404 on the same callId. So the `משתמש N` label derived from "which key downloaded it" cannot misattribute.
+
+## Org-2 phone setup — what actually went wrong (2026-08-25)
+
+Device: Galaxy A57 5G, SM-A576B, Android 16 / One UI 8, ILO firmware. User "ortal", line +972509796862 (Ronit's phonebook: "אור הצדיק 2").
+- Samsung side was fine all along: Record calls → Auto record calls ON, scope **All calls**.
+- **Root cause: Salestrail Recording Directory had been manually set to a folder named "Sales trail"** (`content://…/tree/primary:Sales trail`) instead of where Samsung writes recordings. Tapping **Use Default** ("Directory not selected, using default Audio folder") fixed it immediately — next SIM call showed the "Recorded" label. **Tutorial must say: tap Use Default, never Select Directory.**
+- WhatsApp calls from this phone show no recording — expected in built-in mode (APK only).
+- Open question: several calls appeared in BOTH orgs' logs with identical timestamps/durations but different callIds and lines (e.g. Ronit's phone logged an outbound call to her own number the second ortal dialed her). Suspect Samsung "Call & text on other devices" call-log continuity between the two Galaxy phones. Not confirmed. Risk: a mirrored call has a different callId per phone → dedup can't catch it → one real call could count twice in Monday. Check the setting on both phones.
 
 ---
 

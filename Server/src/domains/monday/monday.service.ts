@@ -366,8 +366,17 @@ export async function updateItemService(
 // Call tracking — find lead by phone, move to group, increment calls
 // ---------------------------------------------------------------------------
 
+// Salestrail sends "-" as the number on WhatsApp calls that carry no caller id.
+// Stripping non-digits leaves "", and Monday's column search reads "" as "every
+// row with an empty phone" — which silently pinned one call's summary onto an
+// unrelated lead. Too-short input yields no variants at all, so callers find no
+// lead rather than the wrong one.
+const MIN_PHONE_DIGITS = 7;
+
 export function phoneVariants(raw: string): string[] {
   const digits = raw.replace(/\D/g, "");
+  if (digits.length < MIN_PHONE_DIGITS) return [];
+
   const variants = new Set<string>([digits]);
 
   // Israeli: 0XX → 972XX
@@ -396,6 +405,10 @@ export async function findLeadByPhone(
   phone: string,
 ): Promise<{ itemId: string; name: string } | null> {
   const variants = phoneVariants(phone);
+  if (variants.length === 0) {
+    logger.info({ phone }, "No usable phone digits — skipping lead lookup");
+    return null;
+  }
 
   const query = /* GraphQL */ `
     query ($boardId: ID!, $columns: [ItemsPageByColumnValuesQuery!]!) {
@@ -511,6 +524,11 @@ export async function findLeadByPhoneAllBoards(
   phone: string,
 ): Promise<{ itemId: string; name: string; boardId: string } | null> {
   const variants = phoneVariants(phone);
+  if (variants.length === 0) {
+    logger.info({ phone }, "No usable phone digits — skipping cross-board lead lookup");
+    return null;
+  }
+
   const allBoardIds = [env.MONDAY_BOARD_CRM_ID];
 
   const query = /* GraphQL */ `
