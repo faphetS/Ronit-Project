@@ -46,7 +46,7 @@ export async function handleSalestrailCall(
   const phone = payload.formattedNumber;
 
   logger.info(
-    { callId: payload.callId, phone, sourceDetail: payload.sourceDetail, duration: payload.duration, answered: payload.answered },
+    { callId: payload.callId, phone, sourceDetail: payload.sourceDetail, duration: payload.duration, answered: payload.answered, inbound: payload.inbound },
     "Processing Salestrail call",
   );
 
@@ -59,7 +59,7 @@ export async function handleSalestrailCall(
 
   if (!lead) {
     logger.info(
-      { phone, callId: payload.callId, sourceDetail: payload.sourceDetail },
+      { phone, callId: payload.callId, sourceDetail: payload.sourceDetail, duration: payload.duration, answered: payload.answered, inbound: payload.inbound },
       "No Monday CRM lead matched — skipping",
     );
     return { matched: false, reason: "no_match", phone };
