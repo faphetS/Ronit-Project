@@ -100,6 +100,7 @@ export async function handleIncomingComment(input: IncomingComment): Promise<voi
   }
 
   if (!UMAN_KEYWORD.test(commentText)) return;
+  if (!env.IG_COMMENT_UMAN_ENABLED) return;
 
   enqueueComment({
     commentId,
@@ -145,6 +146,14 @@ async function processQueuedComment(input: {
       "IG comment 'פרנסה' → knife DM sent (no Monday row by design)",
     );
     return "sent";
+  }
+
+  if (!env.IG_COMMENT_UMAN_ENABLED) {
+    logger.info(
+      { commentId, commenterId },
+      "Uman comment flow disabled — dropping queued comment without DM",
+    );
+    return "skipped";
   }
 
   // Duplicate-lead guard: already a live CRM lead → no dup row / no re-DM. A stale

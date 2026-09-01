@@ -84,6 +84,11 @@ const envSchema = z.object({
   // Monday row unless its DM was sent.
   IG_COMMENT_HANDLER_ENABLED: z.string().default("false").transform((v) => v === "true"),
 
+  // Sub-gate for the אומן comment flow only — the פרנסה (knife) comment flow has its
+  // own gate (IG_COMMENT_KNIFE_MEDIA_ID) and is unaffected by this switch. Default TRUE
+  // (keeps current behavior); the VPS sets this to "false" to kill only אומן comments.
+  IG_COMMENT_UMAN_ENABLED: z.string().default("true").transform((v) => v === "true"),
+
   // Anti-ban rate cap for comment Private-Reply DMs: at most this many sends per
   // rolling hour. Overflow comments are parked in ig_comment_queue and drained at
   // this rate by the meta cron (nothing is dropped). 0 = unlimited. Default 30.

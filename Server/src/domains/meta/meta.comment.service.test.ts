@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const ENV = vi.hoisted(() => ({
   IG_COMMENT_HANDLER_ENABLED: true,
+  IG_COMMENT_UMAN_ENABLED: true,
   IG_PROFESSIONAL_ACCOUNT_ID: "ownerself",
   IG_COMMENT_REPLY_MAX_PER_HOUR: 30,
   IG_COMMENT_KNIFE_MEDIA_ID: "knife-media-1",
@@ -78,6 +79,7 @@ function queued(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   ENV.IG_COMMENT_HANDLER_ENABLED = true;
+  ENV.IG_COMMENT_UMAN_ENABLED = true;
   ENV.IG_PROFESSIONAL_ACCOUNT_ID = "ownerself";
   ENV.IG_COMMENT_REPLY_MAX_PER_HOUR = 30;
   ENV.IG_COMMENT_KNIFE_MEDIA_ID = "knife-media-1";
@@ -140,6 +142,23 @@ describe("handleIncomingComment — ingest/enqueue", () => {
     vi.mocked(db.isCommentQueued).mockReturnValue(true);
     await handleIncomingComment(comment());
     expect(db.enqueueComment).not.toHaveBeenCalled();
+  });
+
+  it("uman sub-gate off → 'אומן' comment not enqueued, no DM", async () => {
+    ENV.IG_COMMENT_UMAN_ENABLED = false;
+    await handleIncomingComment(comment());
+    expect(db.enqueueComment).not.toHaveBeenCalled();
+    expect(outbound.sendCommentPrivateReply).not.toHaveBeenCalled();
+  });
+
+  it("uman sub-gate off → 'פרנסה' comment on the knife media still enqueued (knife unaffected)", async () => {
+    ENV.IG_COMMENT_UMAN_ENABLED = false;
+    await handleIncomingComment(
+      comment({ commentText: "מעוניינת בסכין לפרנסה", mediaId: "knife-media-1" }),
+    );
+    expect(db.enqueueComment).toHaveBeenCalledWith(
+      expect.objectContaining({ commentId: "c-1", commenterId: "commenter-1", kind: "knife" }),
+    );
   });
 });
 
@@ -299,6 +318,18 @@ describe("drainCommentQueue — paced send", () => {
     expect(outbound.sendCommentPrivateReply).toHaveBeenCalledWith("c-2", "commenter-2", "uman");
     expect(db.deleteQueuedComment).toHaveBeenCalledWith(2);
   });
+
+  it("uman sub-gate off → queued uman row dropped without DM/Monday/known-sender calls", async () => {
+    ENV.IG_COMMENT_UMAN_ENABLED = false;
+    vi.mocked(db.getQueuedComments).mockReturnValue([queued()]);
+    await drainCommentQueue();
+
+    expect(outbound.sendCommentPrivateReply).not.toHaveBeenCalled();
+    expect(monday.createLeadRow).not.toHaveBeenCalled();
+    expect(dedup.findKnownSender).not.toHaveBeenCalled();
+    expect(dedup.upsertKnownSender).not.toHaveBeenCalled();
+    expect(db.deleteQueuedComment).toHaveBeenCalledWith(1);
+  });
 });
 
 describe("drainCommentQueue — knife kind", () => {
@@ -323,5 +354,16 @@ describe("drainCommentQueue — knife kind", () => {
     expect(db.bumpQueuedComment).toHaveBeenCalledWith(1, expect.any(String));
     expect(db.deleteQueuedComment).not.toHaveBeenCalled();
     expect(dedup.markMessageProcessed).not.toHaveBeenCalled();
+  });
+
+  it("uman sub-gate off → knife DM still sent (knife unaffected)", async () => {
+    ENV.IG_COMMENT_UMAN_ENABLED = false;
+    vi.mocked(db.getQueuedComments).mockReturnValue([queued({ kind: "knife" })]);
+    await drainCommentQueue();
+
+    expect(outbound.sendCommentPrivateReply).toHaveBeenCalledWith("c-1", "commenter-1", "knife");
+    expect(dedup.markMessageProcessed).toHaveBeenCalledWith("ig_comment", "c-1");
+    expect(dedup.markMessageProcessed).toHaveBeenCalledWith("ig_knife_recipient", "commenter-1");
+    expect(db.deleteQueuedComment).toHaveBeenCalledWith(1);
   });
 });
