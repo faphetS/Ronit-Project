@@ -114,6 +114,12 @@ const envSchema = z.object({
   // form URL containing ?ig_id=<senderId>. As of the 2026-07 copy update the
   // openers dropped the teaser + link — only IG_MSG_UMAN_ANSWER_PHONE_MISSING
   // and IG_MSG_COMMENT_UMAN still carry {form_link}.
+  //
+  // DEPRECATED (2026-09-16, two-trip flow): the uman DM path no longer reaches
+  // these two — a uman opener now gets IG_MSG_UMAN_TRIP_ASK (or, when a trip is
+  // already named, one of the IG_MSG_UMAN_KISLEV_*/IG_MSG_UMAN_HANUKKAH_* pair)
+  // instead. Left DEFINED (not deleted) — the VPS .env still sets these, and
+  // removing the schema entries now would be a silent deploy trap.
   IG_MSG_PHONE_MISSING: z
     .string()
     .min(1)
@@ -157,6 +163,9 @@ const envSchema = z.object({
     .string()
     .min(1)
     .default("היי יקירה 🤍 , את מעוניינת בהפרשת חלה או טיסה לאומן?"),
+  // DEPRECATED (2026-09-16, two-trip flow) — see the note above IG_MSG_PHONE_MISSING.
+  // The uman "answer to the service question" step now asks IG_MSG_UMAN_TRIP_ASK
+  // instead of replying directly with these two.
   IG_MSG_UMAN_ANSWER_PHONE_PRESENT: z
     .string()
     .min(1)
@@ -167,6 +176,33 @@ const envSchema = z.object({
     .default(
       "היי יקירה 🤍\nאשמח שתכתבי לי את מספר הנייד שלך ונחזור אלייך עם כל הפרטים 🙏📞\n\n\nובינתיים…\nאני מצרפת לך כאן הצצה מרגשת אל תוך המסע לרבינו ✨\n{form_link}",
     ),
+
+  // Two-trip uman flow (added 2026-09-16). The uman path first asks WHICH trip
+  // (IG_MSG_UMAN_TRIP_ASK), then replies with the matching trip x phone-presence
+  // template below — followed by that trip's flyer (see meta.outbound.service.ts).
+  IG_MSG_UMAN_TRIP_ASK: z
+    .string()
+    .min(1)
+    .default(
+      'אם הגעת לפה זה אומר שרבנו קורא לך📣\nלפנייך שני תאריכים לבחירה\n11-15/11/26 ר"ח כסלו  ימים רביעי-ראשון\n6-10/12/26 נסיעת חנוכה ימים ראשון-חמישי\nאיזה תאריך מסתדר לך יותר חנוכה או ר"ח כסלו?',
+    ),
+  IG_MSG_UMAN_KISLEV_PHONE_MISSING: z
+    .string()
+    .min(1)
+    .default('נסיעה לר\' נחמן בר"ח כסלו שיוצאת בתאריכים 11-15/11\nתרשמי לי את מספר הטלפון שלך ואחזור בהקדם 💞'),
+  IG_MSG_UMAN_KISLEV_PHONE_PRESENT: z
+    .string()
+    .min(1)
+    .default('נסיעה לר\' נחמן בר"ח כסלו שיוצאת בתאריכים 11-15/11\nהעברנו את הפנייה למשרד נחזור אליך בהקדם 💞'),
+  IG_MSG_UMAN_HANUKKAH_PHONE_MISSING: z
+    .string()
+    .min(1)
+    .default("נסיעה לר' נחמן בחנוכה שיוצאת בתאריכים 6-10/12\nתרשמי לי את מספר הטלפון שלך ואחזור בהקדם 💞"),
+  IG_MSG_UMAN_HANUKKAH_PHONE_PRESENT: z
+    .string()
+    .min(1)
+    .default("נסיעה לר' נחמן בחנוכה שיוצאת בתאריכים 6-10/12\nהעברנו את הפנייה למשרד נחזור אליך בהקדם 💞"),
+
   IG_MSG_CHALLAH_ANSWER_PHONE_MISSING: z
     .string()
     .min(1)

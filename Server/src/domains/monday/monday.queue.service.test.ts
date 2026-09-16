@@ -61,6 +61,7 @@ function queuedLead(overrides: Partial<QueuedLead> = {}): QueuedLead {
     source: "instagram",
     payload: null,
     open_clarification: 0,
+    open_clarification_stage: "service",
     attempt_count: 0,
     last_error: null,
     next_attempt_at: "2026-01-01 00:00:00",
@@ -254,21 +255,43 @@ describe("drainMondayLeadQueue — other error", () => {
 });
 
 describe("drainMondayLeadQueue — open_clarification", () => {
-  it("opens a pending clarification when service is still null after create", async () => {
+  it("opens a pending clarification at stage 'service' when service is still null after create", async () => {
     vi.mocked(db.getDueQueuedLeads).mockReturnValue([
-      queuedLead({ service: null, open_clarification: 1 }),
+      queuedLead({ service: null, open_clarification: 1, open_clarification_stage: "service" }),
     ]);
 
     await drainMondayLeadQueue();
 
     expect(conversation.upsertPendingClarification).toHaveBeenCalledWith(
-      expect.objectContaining({ platform: "instagram", senderId: "sender-1", mondayItemId: "new-item-1" }),
+      expect.objectContaining({
+        platform: "instagram",
+        senderId: "sender-1",
+        mondayItemId: "new-item-1",
+        stage: "service",
+      }),
     );
   });
 
-  it("does NOT open a clarification when a service is present", async () => {
+  it("opens a pending clarification at stage 'trip' when service is uman but the trip was unknown", async () => {
     vi.mocked(db.getDueQueuedLeads).mockReturnValue([
-      queuedLead({ service: "uman", open_clarification: 1 }),
+      queuedLead({ service: "uman", open_clarification: 1, open_clarification_stage: "trip" }),
+    ]);
+
+    await drainMondayLeadQueue();
+
+    expect(conversation.upsertPendingClarification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        platform: "instagram",
+        senderId: "sender-1",
+        mondayItemId: "new-item-1",
+        stage: "trip",
+      }),
+    );
+  });
+
+  it("does NOT open a clarification when open_clarification is 0 (e.g. uman + known trip, or challah)", async () => {
+    vi.mocked(db.getDueQueuedLeads).mockReturnValue([
+      queuedLead({ service: "uman", open_clarification: 0 }),
     ]);
 
     await drainMondayLeadQueue();

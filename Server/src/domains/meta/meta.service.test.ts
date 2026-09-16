@@ -17,6 +17,7 @@ vi.mock("../../lib/conversation.js", () => ({
   incrementReaskCount: vi.fn().mockReturnValue(1),
   clearPendingClarification: vi.fn(),
   deletePendingByItemId: vi.fn(),
+  advanceToTripStage: vi.fn(),
 }));
 
 vi.mock("../../lib/classify.js", () => ({
@@ -57,6 +58,8 @@ vi.mock("./meta.outbound.service.js", () => ({
   sendReplyDM: vi.fn().mockResolvedValue(undefined),
   sendServiceQuestion: vi.fn().mockResolvedValue(undefined),
   sendPhoneThanks: vi.fn().mockResolvedValue(undefined),
+  sendTripAsk: vi.fn().mockResolvedValue(undefined),
+  sendTripReply: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("./meta.profile.service.js", () => ({
@@ -126,6 +129,8 @@ beforeEach(() => {
   vi.mocked(outbound.sendReplyDM).mockResolvedValue(undefined);
   vi.mocked(outbound.sendServiceQuestion).mockResolvedValue(undefined);
   vi.mocked(outbound.sendPhoneThanks).mockResolvedValue(undefined);
+  vi.mocked(outbound.sendTripAsk).mockResolvedValue(undefined);
+  vi.mocked(outbound.sendTripReply).mockResolvedValue(undefined);
   vi.mocked(db.findQueuedLeadBySender).mockReturnValue(null);
   vi.mocked(db.wasKnifeDmSentRecently).mockReturnValue(false);
   vi.mocked(profileService.fetchIgProfile).mockResolvedValue({ id: "profile-id", username: "test_user" });
@@ -224,7 +229,9 @@ describe("handleIncomingMessage — stale mapping (getItemBoardAndGroup → null
     // updateLastIgMessage must NOT be called with the stale item id
     const calls = vi.mocked(mondayService.updateLastIgMessage).mock.calls;
     expect(calls.every(([id]) => id !== "stale-item-id")).toBe(true);
-    expect(outbound.sendReplyDM).toHaveBeenCalled();
+    // default classification names uman with no trip word in this message → trip-ask, not sendReplyDM.
+    expect(outbound.sendTripAsk).toHaveBeenCalledWith(SENDER_ID);
+    expect(outbound.sendReplyDM).not.toHaveBeenCalled();
     expect(result.itemId).toBe("new-item-123");
   });
 });
@@ -300,8 +307,8 @@ describe("handleIncomingMessage — stale where item lives on NON-CRM board", ()
 // New: service-based routing (Entry A) + the clarification flow (Entry B)
 // ---------------------------------------------------------------------------
 
-describe("handleIncomingMessage — new lead names a service (Entry A)", () => {
-  it("uman + phone → createLeadRow(service uman), sendReplyDM(answered:false), no question, no pending", async () => {
+describe("handleIncomingMessage — new lead names uman only, no trip (Entry A)", () => {
+  it("uman + phone, no trip word → createLeadRow(service uman), asks WHICH trip, opens pending at stage 'trip'", async () => {
     const result = await handleIncomingMessage({
       messageText: "אני רוצה טיסה לאומן 0501234567",
       senderId: SENDER_ID,
@@ -311,12 +318,62 @@ describe("handleIncomingMessage — new lead names a service (Entry A)", () => {
     expect(mondayService.createLeadRow).toHaveBeenCalledWith(
       expect.objectContaining({ service: "uman" }),
     );
-    expect(outbound.sendReplyDM).toHaveBeenCalledWith(SENDER_ID, {
-      service: "uman",
-      hasPhone: true,
-      answered: false,
-    });
+    expect(outbound.sendTripAsk).toHaveBeenCalledWith(SENDER_ID);
+    expect(outbound.sendReplyDM).not.toHaveBeenCalled();
     expect(outbound.sendServiceQuestion).not.toHaveBeenCalled();
+    expect(conversation.upsertPendingClarification).toHaveBeenCalledWith(
+      expect.objectContaining({ senderId: SENDER_ID, mondayItemId: "new-item-123", stage: "trip" }),
+    );
+    expect(result.itemId).toBe("new-item-123");
+  });
+});
+
+describe("handleIncomingMessage — new lead names uman AND a trip (skips both questions)", () => {
+  it("uman + hanukkah + phone → createLeadRow(service uman), sends the hanukkah trip reply + flyer, no pending opened", async () => {
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      ...interestedClassification,
+      service: "uman",
+      extractedPhone: "0501234567",
+    });
+
+    const result = await handleIncomingMessage({
+      messageText: "אני רוצה טיסה לאומן בחנוכה, המספר שלי 0501234567",
+      senderId: SENDER_ID,
+      messageId: "entryA-trip-1",
+    });
+
+    expect(mondayService.createLeadRow).toHaveBeenCalledWith(
+      expect.objectContaining({ service: "uman" }),
+    );
+    expect(outbound.sendTripReply).toHaveBeenCalledWith(SENDER_ID, {
+      trip: "hanukkah",
+      hasPhone: true,
+    });
+    expect(outbound.sendTripAsk).not.toHaveBeenCalled();
+    expect(outbound.sendReplyDM).not.toHaveBeenCalled();
+    expect(conversation.upsertPendingClarification).not.toHaveBeenCalled();
+    expect(result.itemId).toBe("new-item-123");
+  });
+
+  it("service null but a trip word is present → still treated as uman, sends the kislev trip reply", async () => {
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      ...vagueClassification,
+      extractedPhone: null,
+    });
+
+    const result = await handleIncomingMessage({
+      messageText: 'מעוניינת בנסיעה של ר"ח כסלו',
+      senderId: SENDER_ID,
+      messageId: "entryA-trip-2",
+    });
+
+    expect(mondayService.createLeadRow).toHaveBeenCalledWith(
+      expect.objectContaining({ service: "uman" }),
+    );
+    expect(outbound.sendTripReply).toHaveBeenCalledWith(SENDER_ID, {
+      trip: "kislev",
+      hasPhone: false,
+    });
     expect(conversation.upsertPendingClarification).not.toHaveBeenCalled();
     expect(result.itemId).toBe("new-item-123");
   });
@@ -379,7 +436,7 @@ describe("handleIncomingMessage — knife-DM recipient suppression", () => {
   });
 
   it("explicit uman message WITH the mark → still processed normally (not suppressed)", async () => {
-    // interestedClassification names service "uman" explicitly.
+    // interestedClassification names service "uman" explicitly, no trip word → trip-ask.
     vi.mocked(db.wasKnifeDmSentRecently).mockReturnValue(true);
 
     const result = await handleIncomingMessage({
@@ -391,21 +448,78 @@ describe("handleIncomingMessage — knife-DM recipient suppression", () => {
     expect(mondayService.createLeadRow).toHaveBeenCalledWith(
       expect.objectContaining({ service: "uman" }),
     );
-    expect(outbound.sendReplyDM).toHaveBeenCalledWith(SENDER_ID, {
-      service: "uman",
+    expect(outbound.sendTripAsk).toHaveBeenCalledWith(SENDER_ID);
+    expect(result.itemId).toBe("new-item-123");
+  });
+
+  it("vague message (no service) WITH a trip word AND the knife mark → NOT suppressed (a named trip is not genuinely vague)", async () => {
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      ...vagueClassification,
+      extractedPhone: "0501234567",
+    });
+    vi.mocked(db.wasKnifeDmSentRecently).mockReturnValue(true);
+
+    const result = await handleIncomingMessage({
+      messageText: "מעוניינת בנסיעת חנוכה 0501234567",
+      senderId: SENDER_ID,
+      messageId: "knife-suppress-4",
+    });
+
+    expect(mondayService.createLeadRow).toHaveBeenCalledWith(
+      expect.objectContaining({ service: "uman" }),
+    );
+    expect(outbound.sendTripReply).toHaveBeenCalledWith(SENDER_ID, {
+      trip: "hanukkah",
       hasPhone: true,
-      answered: false,
     });
     expect(result.itemId).toBe("new-item-123");
   });
 });
 
 describe("handleIncomingMessage — pending lead answers with a service (Entry B step 2)", () => {
-  it("updates service, sends answered reply, clears pending, no new row", async () => {
+  it("challah — updates service, sends answered reply, clears pending, no new row", async () => {
     vi.mocked(conversation.getPendingClarification).mockReturnValue({
       monday_item_id: ITEM_ID,
       phone: null,
       reask_count: 0,
+      stage: "service" as const,
+      trip: null,
+    });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+      boardId: CRM_BOARD,
+      groupId: NEW_LEADS_GROUP,
+      service: null,
+    });
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      ...interestedClassification,
+      service: "challah",
+      extractedPhone: "0526964676",
+    });
+
+    const result = await handleIncomingMessage({
+      messageText: "הפרשת חלה 0526964676",
+      senderId: SENDER_ID,
+      messageId: "ansB1",
+    });
+
+    expect(mondayService.updateItemService).toHaveBeenCalledWith(ITEM_ID, "challah");
+    expect(outbound.sendReplyDM).toHaveBeenCalledWith(SENDER_ID, {
+      service: "challah",
+      hasPhone: true,
+      answered: true,
+    });
+    expect(conversation.clearPendingClarification).toHaveBeenCalledWith("instagram", SENDER_ID);
+    expect(mondayService.createLeadRow).not.toHaveBeenCalled();
+    expect(result.itemId).toBe(ITEM_ID);
+  });
+
+  it("uman, no trip named → advances to trip stage, sends trip-ask, does NOT clear pending", async () => {
+    vi.mocked(conversation.getPendingClarification).mockReturnValue({
+      monday_item_id: ITEM_ID,
+      phone: null,
+      reask_count: 0,
+      stage: "service" as const,
+      trip: null,
     });
     vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
       boardId: CRM_BOARD,
@@ -425,14 +539,226 @@ describe("handleIncomingMessage — pending lead answers with a service (Entry B
     });
 
     expect(mondayService.updateItemService).toHaveBeenCalledWith(ITEM_ID, "uman");
-    expect(outbound.sendReplyDM).toHaveBeenCalledWith(SENDER_ID, {
-      service: "uman",
-      hasPhone: true,
-      answered: true,
-    });
-    expect(conversation.clearPendingClarification).toHaveBeenCalledWith("instagram", SENDER_ID);
+    expect(outbound.sendTripAsk).toHaveBeenCalledWith(SENDER_ID);
+    expect(outbound.sendReplyDM).not.toHaveBeenCalled();
+    expect(conversation.advanceToTripStage).toHaveBeenCalledWith("instagram", SENDER_ID);
+    expect(conversation.clearPendingClarification).not.toHaveBeenCalled();
     expect(mondayService.createLeadRow).not.toHaveBeenCalled();
     expect(result.itemId).toBe(ITEM_ID);
+  });
+
+  it("uman + trip named in the same message → resolves immediately with the trip reply, clears pending", async () => {
+    vi.mocked(conversation.getPendingClarification).mockReturnValue({
+      monday_item_id: ITEM_ID,
+      phone: null,
+      reask_count: 0,
+      stage: "service" as const,
+      trip: null,
+    });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+      boardId: CRM_BOARD,
+      groupId: NEW_LEADS_GROUP,
+      service: null,
+    });
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      ...interestedClassification,
+      service: "uman",
+      extractedPhone: "0526964676",
+    });
+
+    const result = await handleIncomingMessage({
+      messageText: "אומן, ר\"ח כסלו 0526964676",
+      senderId: SENDER_ID,
+      messageId: "ansB1-trip",
+    });
+
+    expect(mondayService.updateItemService).toHaveBeenCalledWith(ITEM_ID, "uman");
+    expect(outbound.sendTripReply).toHaveBeenCalledWith(SENDER_ID, { trip: "kislev", hasPhone: true });
+    expect(outbound.sendTripAsk).not.toHaveBeenCalled();
+    expect(conversation.clearPendingClarification).toHaveBeenCalledWith("instagram", SENDER_ID);
+    expect(result.itemId).toBe(ITEM_ID);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Trip stage — pending.stage === "trip" (uman-only, asked once the service is
+// known). Mirrors the service-stage suite below, but for the "which trip?"
+// question.
+// ---------------------------------------------------------------------------
+
+describe("handleIncomingMessage — trip stage, she names a trip", () => {
+  it("resolves with the trip reply, clears pending, fires the uman welcome", async () => {
+    vi.mocked(conversation.getPendingClarification).mockReturnValue({
+      monday_item_id: ITEM_ID,
+      phone: "0501234567",
+      reask_count: 0,
+      stage: "trip" as const,
+      trip: null,
+    });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+      boardId: CRM_BOARD,
+      groupId: NEW_LEADS_GROUP,
+      service: "טיסה לאומן",
+    });
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      ...interestedClassification,
+      service: "uman",
+      extractedPhone: null,
+    });
+
+    const result = await handleIncomingMessage({
+      messageText: "חנוכה מתאים לי",
+      senderId: SENDER_ID,
+      messageId: "trip-answer-1",
+    });
+
+    expect(outbound.sendTripReply).toHaveBeenCalledWith(SENDER_ID, { trip: "hanukkah", hasPhone: true });
+    expect(conversation.clearPendingClarification).toHaveBeenCalledWith("instagram", SENDER_ID);
+    expect(umanWelcome.maybeSendUmanWelcome).toHaveBeenCalledWith(
+      expect.objectContaining({ senderId: SENDER_ID, mondayItemId: ITEM_ID, service: "uman", phone: "0501234567" }),
+    );
+    expect(result.itemId).toBe(ITEM_ID);
+  });
+
+  it("a trip answer arriving together with a NEW phone → hasPhone true, phone persisted", async () => {
+    vi.mocked(conversation.getPendingClarification).mockReturnValue({
+      monday_item_id: ITEM_ID,
+      phone: null,
+      reask_count: 0,
+      stage: "trip" as const,
+      trip: null,
+    });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+      boardId: CRM_BOARD,
+      groupId: NO_PHONE_GROUP,
+      service: "טיסה לאומן",
+    });
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      ...interestedClassification,
+      service: "uman",
+      extractedPhone: "0501234567",
+    });
+
+    const result = await handleIncomingMessage({
+      messageText: 'ר"ח כסלו, המספר שלי 0501234567',
+      senderId: SENDER_ID,
+      messageId: "trip-answer-2",
+    });
+
+    expect(mondayService.updateItemPhone).toHaveBeenCalledWith(ITEM_ID, "0501234567");
+    expect(mondayService.moveItemToGroup).toHaveBeenCalledWith(ITEM_ID, NEW_LEADS_GROUP);
+    expect(outbound.sendTripReply).toHaveBeenCalledWith(SENDER_ID, { trip: "kislev", hasPhone: true });
+    expect(result.itemId).toBe(ITEM_ID);
+  });
+
+  it("a named trip resolves even on a message the classifier marks not-interested (trip check runs first)", async () => {
+    vi.mocked(conversation.getPendingClarification).mockReturnValue({
+      monday_item_id: ITEM_ID,
+      phone: "0501234567",
+      reask_count: 0,
+      stage: "trip" as const,
+      trip: null,
+    });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+      boardId: CRM_BOARD,
+      groupId: NEW_LEADS_GROUP,
+      service: "טיסה לאומן",
+    });
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      ...notInterestedClassification,
+      extractedPhone: null,
+    });
+
+    const result = await handleIncomingMessage({
+      messageText: "חנוכה",
+      senderId: SENDER_ID,
+      messageId: "trip-answer-3",
+    });
+
+    expect(outbound.sendTripReply).toHaveBeenCalledWith(SENDER_ID, { trip: "hanukkah", hasPhone: true });
+    expect(conversation.clearPendingClarification).toHaveBeenCalledWith("instagram", SENDER_ID);
+    expect(result.itemId).toBe(ITEM_ID);
+  });
+});
+
+describe("handleIncomingMessage — trip stage, unclear answer (no trip named)", () => {
+  it("still interested, under the cap → re-asks which trip, increments the count", async () => {
+    vi.mocked(conversation.getPendingClarification).mockReturnValue({
+      monday_item_id: ITEM_ID,
+      phone: null,
+      reask_count: 1,
+      stage: "trip" as const,
+      trip: null,
+    });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+      boardId: CRM_BOARD,
+      groupId: NO_PHONE_GROUP,
+      service: "טיסה לאומן",
+    });
+    vi.mocked(classify.classifyLead).mockResolvedValue(vagueClassification);
+
+    await handleIncomingMessage({
+      messageText: "מתי זה יוצא?",
+      senderId: SENDER_ID,
+      messageId: "trip-reask-1",
+    });
+
+    expect(outbound.sendTripAsk).toHaveBeenCalledWith(SENDER_ID);
+    expect(conversation.incrementReaskCount).toHaveBeenCalledWith("instagram", SENDER_ID);
+    expect(outbound.sendTripReply).not.toHaveBeenCalled();
+    expect(conversation.clearPendingClarification).not.toHaveBeenCalled();
+  });
+
+  it("cap reached → stays silent, pending is preserved (not cleared)", async () => {
+    vi.mocked(conversation.getPendingClarification).mockReturnValue({
+      monday_item_id: ITEM_ID,
+      phone: null,
+      reask_count: 3,
+      stage: "trip" as const,
+      trip: null,
+    });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+      boardId: CRM_BOARD,
+      groupId: NO_PHONE_GROUP,
+      service: "טיסה לאומן",
+    });
+    vi.mocked(classify.classifyLead).mockResolvedValue(vagueClassification);
+
+    await handleIncomingMessage({
+      messageText: "מתי זה יוצא?",
+      senderId: SENDER_ID,
+      messageId: "trip-reask-2",
+    });
+
+    expect(outbound.sendTripAsk).not.toHaveBeenCalled();
+    expect(conversation.incrementReaskCount).not.toHaveBeenCalled();
+    expect(conversation.clearPendingClarification).not.toHaveBeenCalled();
+  });
+
+  it("not interested and no trip named → clears pending, stays silent", async () => {
+    vi.mocked(conversation.getPendingClarification).mockReturnValue({
+      monday_item_id: ITEM_ID,
+      phone: null,
+      reask_count: 0,
+      stage: "trip" as const,
+      trip: null,
+    });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+      boardId: CRM_BOARD,
+      groupId: NO_PHONE_GROUP,
+      service: "טיסה לאומן",
+    });
+    vi.mocked(classify.classifyLead).mockResolvedValue(notInterestedClassification);
+
+    await handleIncomingMessage({
+      messageText: "לא תודה",
+      senderId: SENDER_ID,
+      messageId: "trip-decline-1",
+    });
+
+    expect(conversation.clearPendingClarification).toHaveBeenCalledWith("instagram", SENDER_ID);
+    expect(outbound.sendTripAsk).not.toHaveBeenCalled();
+    expect(outbound.sendTripReply).not.toHaveBeenCalled();
   });
 });
 
@@ -442,6 +768,8 @@ describe("handleIncomingMessage — pending lead replies WITHOUT a service", () 
       monday_item_id: ITEM_ID,
       phone: null,
       reask_count: 1,
+      stage: "service" as const,
+      trip: null,
     });
     vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
       boardId: CRM_BOARD,
@@ -467,6 +795,8 @@ describe("handleIncomingMessage — pending lead replies WITHOUT a service", () 
       monday_item_id: ITEM_ID,
       phone: null,
       reask_count: 3,
+      stage: "service" as const,
+      trip: null,
     });
     vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
       boardId: CRM_BOARD,
@@ -492,6 +822,8 @@ describe("handleIncomingMessage — pending lead replies NOT interested", () => 
       monday_item_id: ITEM_ID,
       phone: null,
       reask_count: 0,
+      stage: "service" as const,
+      trip: null,
     });
     vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
       boardId: CRM_BOARD,
@@ -521,6 +853,8 @@ describe("handleIncomingMessage — pending mapping is stale", () => {
       monday_item_id: "stale-pending-id",
       phone: "0509999999",
       reask_count: 0,
+      stage: "service" as const,
+      trip: null,
     });
     vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue(null);
     vi.mocked(dedup.findKnownSender).mockReturnValue(null);
@@ -604,6 +938,8 @@ describe("handleIncomingMessage — pending takes precedence over known-sender b
       monday_item_id: ITEM_ID,
       phone: null,
       reask_count: 0,
+      stage: "service" as const,
+      trip: null,
     });
     vi.mocked(dedup.findKnownSender).mockReturnValue({
       monday_item_id: ITEM_ID,
@@ -626,12 +962,12 @@ describe("handleIncomingMessage — pending takes precedence over known-sender b
       messageId: "order1",
     });
 
-    expect(outbound.sendReplyDM).toHaveBeenCalledWith(SENDER_ID, {
-      service: "uman",
-      hasPhone: false,
-      answered: true,
-    });
-    expect(conversation.clearPendingClarification).toHaveBeenCalled();
+    // No trip word in "אומן" → advances to the trip question rather than
+    // resolving; the pending-precedence guarantee (findKnownSender skipped)
+    // still holds regardless.
+    expect(outbound.sendTripAsk).toHaveBeenCalledWith(SENDER_ID);
+    expect(outbound.sendReplyDM).not.toHaveBeenCalled();
+    expect(conversation.clearPendingClarification).not.toHaveBeenCalled();
     expect(dedup.findKnownSender).not.toHaveBeenCalled();
   });
 });
@@ -756,6 +1092,8 @@ describe("handleIncomingMessage — pending lead names service, still no phone �
       monday_item_id: ITEM_ID,
       phone: null,
       reask_count: 0,
+      stage: "service" as const,
+      trip: null,
     });
     vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
       boardId: CRM_BOARD,
@@ -883,8 +1221,8 @@ describe("handleIncomingMessage — unmarkMessageProcessed on failure", () => {
 // ---------------------------------------------------------------------------
 
 describe("handleIncomingMessage — DM send failure is non-fatal", () => {
-  it("resolves and creates lead even when sendReplyDM throws", async () => {
-    vi.mocked(outbound.sendReplyDM).mockRejectedValue(new Error("IG API 503"));
+  it("resolves and creates lead even when sendTripAsk throws (default classification has no trip word)", async () => {
+    vi.mocked(outbound.sendTripAsk).mockRejectedValue(new Error("IG API 503"));
 
     const result = await handleIncomingMessage({
       messageText: "אני רוצה טיסה לאומן 0501234567",
@@ -895,6 +1233,25 @@ describe("handleIncomingMessage — DM send failure is non-fatal", () => {
     expect(mondayService.createLeadRow).toHaveBeenCalled();
     expect(result.itemId).toBe("new-item-123");
     // the dedup mark must remain (not unmarked)
+    expect(dedup.unmarkMessageProcessed).not.toHaveBeenCalled();
+  });
+
+  it("resolves and creates lead even when sendTripReply throws (trip named in the message)", async () => {
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      ...interestedClassification,
+      service: "uman",
+      extractedPhone: "0501234567",
+    });
+    vi.mocked(outbound.sendTripReply).mockRejectedValue(new Error("IG API 503"));
+
+    const result = await handleIncomingMessage({
+      messageText: "אני רוצה טיסה לאומן בחנוכה 0501234567",
+      senderId: SENDER_ID,
+      messageId: "dm-fail-1b",
+    });
+
+    expect(mondayService.createLeadRow).toHaveBeenCalled();
+    expect(result.itemId).toBe("new-item-123");
     expect(dedup.unmarkMessageProcessed).not.toHaveBeenCalled();
   });
 
@@ -937,13 +1294,14 @@ describe("handleIncomingMessage — createLeadRow rate-limited (daily)", () => {
         senderId: SENDER_ID,
         phone: "0501234567",
         service: "uman",
+        openClarification: true,
+        openClarificationStage: "trip",
       }),
     );
-    expect(outbound.sendReplyDM).toHaveBeenCalledWith(SENDER_ID, {
-      service: "uman",
-      hasPhone: true,
-      answered: false,
-    });
+    // No trip word in this message → the deferred first-contact sequence asks
+    // which trip, not the (now unreachable) direct uman reply.
+    expect(outbound.sendTripAsk).toHaveBeenCalledWith(SENDER_ID);
+    expect(outbound.sendReplyDM).not.toHaveBeenCalled();
     // F3: no mondayItemId exists yet on this path, so the welcome must NOT
     // fire here at all — Monday's own create_item lead-ready webhook fires it
     // once the queue eventually creates the row (single dedup key).
@@ -966,6 +1324,7 @@ describe("handleIncomingMessage — sender already queued", () => {
       source: "instagram",
       payload: null,
       open_clarification: 0,
+      open_clarification_stage: "service" as const,
       attempt_count: 1,
       last_error: "rate limited",
       next_attempt_at: "2026-01-01 00:00:00",
@@ -1003,6 +1362,7 @@ describe("handleIncomingMessage — sender already queued, message classifies NO
       source: "instagram",
       payload: null,
       open_clarification: 0,
+      open_clarification_stage: "service" as const,
       attempt_count: 0,
       last_error: null,
       next_attempt_at: "2026-01-01 00:00:00",
@@ -1115,6 +1475,8 @@ describe("handleIncomingMessage — phone survives even when the very first Mond
       monday_item_id: ITEM_ID,
       phone: null,
       reask_count: 0,
+      stage: "service" as const,
+      trip: null,
     });
     vi.mocked(mondayService.getItemBoardAndGroup).mockRejectedValue(
       new MondayRateLimitError("minute", 45, "minute cap"),
@@ -1246,6 +1608,8 @@ describe("handleIncomingMessage — phone thank-you ack (uman only)", () => {
       monday_item_id: ITEM_ID,
       phone: null,
       reask_count: 0,
+      stage: "service" as const,
+      trip: null,
     });
     vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
       boardId: CRM_BOARD,

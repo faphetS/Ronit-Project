@@ -85,6 +85,8 @@ CREATE TABLE IF NOT EXISTS pending_clarifications (
   monday_item_id TEXT NOT NULL,
   phone TEXT,
   reask_count INTEGER NOT NULL DEFAULT 0,
+  stage TEXT NOT NULL DEFAULT 'service',
+  trip TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(platform, sender_id)
@@ -147,6 +149,7 @@ CREATE TABLE IF NOT EXISTS monday_lead_queue (
   source TEXT NOT NULL DEFAULT 'instagram',
   payload TEXT,
   open_clarification INTEGER NOT NULL DEFAULT 0,
+  open_clarification_stage TEXT NOT NULL DEFAULT 'service',
   attempt_count INTEGER NOT NULL DEFAULT 0,
   last_error TEXT,
   next_attempt_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -187,6 +190,17 @@ export function getDb(): Database.Database {
   const commentQueueCols = db.prepare("PRAGMA table_info(ig_comment_queue)").all() as Array<{ name: string }>;
   if (!commentQueueCols.some((c) => c.name === "kind")) {
     db.exec("ALTER TABLE ig_comment_queue ADD COLUMN kind TEXT NOT NULL DEFAULT 'uman'");
+  }
+  const pendingClarCols = db.prepare("PRAGMA table_info(pending_clarifications)").all() as Array<{ name: string }>;
+  if (!pendingClarCols.some((c) => c.name === "stage")) {
+    db.exec("ALTER TABLE pending_clarifications ADD COLUMN stage TEXT NOT NULL DEFAULT 'service'");
+  }
+  if (!pendingClarCols.some((c) => c.name === "trip")) {
+    db.exec("ALTER TABLE pending_clarifications ADD COLUMN trip TEXT");
+  }
+  const leadQueueCols = db.prepare("PRAGMA table_info(monday_lead_queue)").all() as Array<{ name: string }>;
+  if (!leadQueueCols.some((c) => c.name === "open_clarification_stage")) {
+    db.exec("ALTER TABLE monday_lead_queue ADD COLUMN open_clarification_stage TEXT NOT NULL DEFAULT 'service'");
   }
   logger.info({ path: env.DB_FILE_PATH }, "SQLite DB opened and schema applied");
   return db;
@@ -520,6 +534,7 @@ export interface QueuedLead {
   source: string;
   payload: string | null;
   open_clarification: number;
+  open_clarification_stage: "service" | "trip";
   attempt_count: number;
   last_error: string | null;
   next_attempt_at: string;
@@ -527,7 +542,7 @@ export interface QueuedLead {
 }
 
 const MONDAY_LEAD_QUEUE_COLS =
-  "id, platform, sender_id, sender_username, display_name, phone, service, message_text, source, payload, open_clarification, attempt_count, last_error, next_attempt_at, created_at";
+  "id, platform, sender_id, sender_username, display_name, phone, service, message_text, source, payload, open_clarification, open_clarification_stage, attempt_count, last_error, next_attempt_at, created_at";
 
 export interface EnqueueMondayLeadInput {
   platform: string;
@@ -540,18 +555,21 @@ export interface EnqueueMondayLeadInput {
   source?: string;
   payload?: string | null;
   openClarification?: boolean;
+  openClarificationStage?: "service" | "trip";
 }
 
 // Upsert on (platform, sender_id): a second message from an already-queued
 // sender merges its phone/service into the row via COALESCE and refreshes
 // message_text — it must NOT touch next_attempt_at/attempt_count, since a
 // merged message is no reason to poll a still-exhausted rate limit sooner.
+// open_clarification(_stage) is intentionally NOT touched on merge — it is
+// decided once, by the first message that triggered the enqueue.
 export function enqueueMondayLead(input: EnqueueMondayLeadInput): void {
   getDb()
     .prepare(
       `INSERT INTO monday_lead_queue
-         (platform, sender_id, sender_username, display_name, phone, service, message_text, source, payload, open_clarification)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         (platform, sender_id, sender_username, display_name, phone, service, message_text, source, payload, open_clarification, open_clarification_stage)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(platform, sender_id) DO UPDATE SET
          sender_username = COALESCE(excluded.sender_username, monday_lead_queue.sender_username),
          phone = COALESCE(excluded.phone, monday_lead_queue.phone),
@@ -571,6 +589,7 @@ export function enqueueMondayLead(input: EnqueueMondayLeadInput): void {
       input.source ?? "instagram",
       input.payload ?? null,
       input.openClarification ? 1 : 0,
+      input.openClarificationStage ?? "service",
     );
 }
 
