@@ -194,16 +194,19 @@ async function drainIgRow(row: QueuedLead): Promise<void> {
     phone: row.phone,
   });
 
-  // Entry B — a vague lead's clarification is deferred here (it needs a
-  // mondayItemId). The WA welcome is NOT fired here — Monday's own create_item
-  // lead-ready webhook fires it once this create lands, under the itemId
-  // dedup key; firing it again here would double-send.
-  if (row.open_clarification && row.service === null) {
+  // A deferred vague lead (service null → stage 'service') or a deferred uman
+  // lead whose trip is still unknown (service 'uman' → stage 'trip') both need
+  // their clarification opened here (it needs a mondayItemId). The WA welcome
+  // is NOT fired here — Monday's own create_item lead-ready webhook fires it
+  // once this create lands, under the itemId dedup key; firing it again here
+  // would double-send.
+  if (row.open_clarification) {
     upsertPendingClarification({
       platform: row.platform,
       senderId: row.sender_id,
       mondayItemId: itemId,
       phone: row.phone,
+      stage: row.open_clarification_stage,
     });
   }
 

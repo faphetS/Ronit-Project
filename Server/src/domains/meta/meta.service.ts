@@ -1,6 +1,7 @@
 import { logger } from "../../config/logger.js";
 import { env } from "../../config/env.js";
 import { classifyLead, type Classification } from "../../lib/classify.js";
+import { detectTrip, type Trip } from "../../lib/trip.js";
 import {
   isMessageProcessed,
   markMessageProcessed,
@@ -16,6 +17,8 @@ import {
   incrementReaskCount,
   clearPendingClarification,
   deletePendingByItemId,
+  advanceToTripStage,
+  type PendingClarification,
 } from "../../lib/conversation.js";
 import {
   createLeadRow,
@@ -31,7 +34,13 @@ import { findLeadOnActiveServiceBoards } from "../monday/monday.webhook.service.
 import { MondayRateLimitError } from "../monday/monday.client.js";
 import { enqueueMondayLead, findQueuedLeadBySender, wasKnifeDmSentRecently } from "../../config/db.js";
 import { maybeSendUmanWelcome } from "../whatsapp/uman-welcome.service.js";
-import { sendReplyDM, sendServiceQuestion, sendPhoneThanks } from "./meta.outbound.service.js";
+import {
+  sendReplyDM,
+  sendServiceQuestion,
+  sendPhoneThanks,
+  sendTripAsk,
+  sendTripReply,
+} from "./meta.outbound.service.js";
 import { fetchIgProfile } from "./meta.profile.service.js";
 
 // Cap on how many times we re-ask "challah or uman?" when she keeps replying
@@ -83,6 +92,25 @@ async function safeSendPhoneThanks(senderId: string): Promise<void> {
   }
 }
 
+async function safeSendTripAsk(senderId: string): Promise<void> {
+  try {
+    await sendTripAsk(senderId);
+  } catch (err) {
+    logger.warn({ err, senderId }, "sendTripAsk failed — continuing (non-fatal)");
+  }
+}
+
+async function safeSendTripReply(
+  senderId: string,
+  opts: { trip: Trip; hasPhone: boolean },
+): Promise<void> {
+  try {
+    await sendTripReply(senderId, opts);
+  } catch (err) {
+    logger.warn({ err, senderId }, "sendTripReply failed — continuing (non-fatal)");
+  }
+}
+
 // First-contact DM/question. Shared by the happy-path create and the
 // rate-limited-create catch below. The Uman WhatsApp welcome only fires when
 // a `mondayItemId` is supplied (the normal create path) — a deferred create
@@ -91,14 +119,25 @@ async function safeSendPhoneThanks(senderId: string): Promise<void> {
 // eventually creates the row, so there is exactly one dedup key (the item
 // id) across both paths instead of one keyed on `senderId` racing another
 // keyed on `mondayItemId`.
+//
+// uman routes on `trip`: a known trip gets the trip reply (+ flyer) directly;
+// an unknown trip gets the trip-ask question instead (mirrors the vague-service
+// ask-service branch below).
 async function sendFirstContactSequence(
   senderId: string,
   service: "uman" | "challah" | null,
+  trip: Trip | null,
   phone: string | null,
   mondayItemId?: string,
 ): Promise<void> {
-  if (service !== null) {
-    await safeSendReplyDM(senderId, { service, hasPhone: !!phone, answered: false });
+  if (service === "challah") {
+    await safeSendReplyDM(senderId, { service: "challah", hasPhone: !!phone, answered: false });
+  } else if (service === "uman") {
+    if (trip !== null) {
+      await safeSendTripReply(senderId, { trip, hasPhone: !!phone });
+    } else {
+      await safeSendTripAsk(senderId);
+    }
   } else {
     await safeSendServiceQuestion(senderId);
   }
@@ -151,6 +190,89 @@ function handleUpdatePathRateLimit(
   return { itemId: mondayItemId, classification };
 }
 
+// BLOCK 0 (uman-only) — the trip question is outstanding. Applies the SAME
+// phone-capture + re-file rules as the service stage, unconditionally, before
+// branching on whether she named a trip. Precedence (per spec): a named trip
+// always resolves the clarification, even ahead of the interested flag; only
+// when no trip is found does the not-interested / re-ask split apply.
+async function resolvePendingTripStage(
+  input: { messageText: string; senderId?: string; senderUsername?: string; messageId?: string },
+  classification: Classification,
+  pending: PendingClarification,
+  currentGroupId: string,
+  capturedPhone: string | null,
+): Promise<{ itemId: string | null; classification: Classification }> {
+  const currentPhone = classification.extractedPhone ?? pending.phone;
+
+  if (capturedPhone) {
+    await updateItemPhone(pending.monday_item_id, capturedPhone);
+  }
+  if (currentPhone || classification.interested) {
+    const target = leadGroupForPhone(currentPhone);
+    if (currentGroupId !== target) {
+      await moveItemToGroup(pending.monday_item_id, target);
+    }
+  }
+  // Keep pending_clarifications.phone in sync — later trip-stage messages read
+  // pending.phone directly (mirrors the service stage's own upsert-on-capture).
+  if (capturedPhone) {
+    upsertPendingClarification({
+      platform: "instagram",
+      senderId: input.senderId!,
+      mondayItemId: pending.monday_item_id,
+      phone: capturedPhone,
+      stage: "trip",
+    });
+  }
+
+  const trip = detectTrip(input.messageText);
+  const hasPhone = !!currentPhone;
+
+  if (trip !== null) {
+    await safeSendTripReply(input.senderId!, { trip, hasPhone });
+    clearPendingClarification("instagram", input.senderId!);
+    logger.info(
+      { senderId: input.senderId, mondayItemId: pending.monday_item_id, trip },
+      "Pending trip clarification resolved — trip answered",
+    );
+    void maybeSendUmanWelcome({
+      senderId: input.senderId!,
+      mondayItemId: pending.monday_item_id,
+      service: "uman",
+      phone: currentPhone,
+    }).catch((err) => logger.error({ err }, "Uman welcome rejected unexpectedly"));
+    return { itemId: pending.monday_item_id, classification };
+  }
+
+  if (!classification.interested) {
+    clearPendingClarification("instagram", input.senderId!);
+    logger.info(
+      { senderId: input.senderId, mondayItemId: pending.monday_item_id },
+      "Pending trip clarification — not interested, clarification cleared, staying silent",
+    );
+    return { itemId: pending.monday_item_id, classification };
+  }
+
+  if (pending.reask_count < MAX_REASKS) {
+    await safeSendTripAsk(input.senderId!);
+    incrementReaskCount("instagram", input.senderId!);
+    logger.info(
+      {
+        senderId: input.senderId,
+        mondayItemId: pending.monday_item_id,
+        reaskCount: pending.reask_count + 1,
+      },
+      "Pending trip clarification — re-asked which trip",
+    );
+  } else {
+    logger.info(
+      { senderId: input.senderId, mondayItemId: pending.monday_item_id },
+      "Pending trip clarification re-ask cap reached — staying silent",
+    );
+  }
+  return { itemId: pending.monday_item_id, classification };
+}
+
 async function processClassifiedMessage(
   input: {
     messageText: string;
@@ -197,6 +319,10 @@ async function processClassifiedMessage(
       } else {
         await updateLastIgMessage(pending.monday_item_id, input.messageText);
 
+        if (pending.stage === "trip") {
+          return await resolvePendingTripStage(input, classification, pending, live.groupId, capturedPhone);
+        }
+
         // She explicitly declined mid-clarification → end it and stay silent.
         // Clearing the pending row stops further re-asks and avoids a stale row.
         if (!classification.interested) {
@@ -221,7 +347,8 @@ async function processClassifiedMessage(
           return { itemId: pending.monday_item_id, classification };
         }
 
-        // (a) She named a service → finalize with the post-question reply.
+        // (a) She named a service → finalize (challah), or advance to the trip
+        // question (uman).
         if (classification.interested && classification.service !== null) {
           await safeUpdateService(pending.monday_item_id, classification.service);
 
@@ -235,28 +362,52 @@ async function processClassifiedMessage(
           }
 
           const hasPhone = !!(pending.phone || classification.extractedPhone);
-          await safeSendReplyDM(input.senderId!, {
-            service: classification.service,
-            hasPhone,
-            answered: true,
-          });
 
-          clearPendingClarification("instagram", input.senderId!);
-          logger.info(
-            {
-              senderId: input.senderId,
+          if (classification.service === "challah") {
+            await safeSendReplyDM(input.senderId!, {
+              service: "challah",
+              hasPhone,
+              answered: true,
+            });
+
+            clearPendingClarification("instagram", input.senderId!);
+            logger.info(
+              { senderId: input.senderId, mondayItemId: pending.monday_item_id, service: "challah" },
+              "Pending clarification resolved — service answered",
+            );
+
+            void maybeSendUmanWelcome({
+              senderId: input.senderId!,
               mondayItemId: pending.monday_item_id,
-              service: classification.service,
-            },
-            "Pending clarification resolved — service answered",
-          );
+              service: "challah",
+              phone: pending.phone ?? classification.extractedPhone,
+            }).catch((err) => logger.error({ err }, "Uman welcome rejected unexpectedly"));
 
-          // Service just confirmed → if uman + phone, send the WhatsApp welcome
-          // (fire-and-forget; it has its own inter-bubble delay).
+            return { itemId: pending.monday_item_id, classification };
+          }
+
+          // uman — ask WHICH trip, unless she already named one in this message.
+          const trip = detectTrip(input.messageText);
+          if (trip !== null) {
+            await safeSendTripReply(input.senderId!, { trip, hasPhone });
+            clearPendingClarification("instagram", input.senderId!);
+            logger.info(
+              { senderId: input.senderId, mondayItemId: pending.monday_item_id, trip },
+              "Pending clarification resolved — uman + trip answered",
+            );
+          } else {
+            advanceToTripStage("instagram", input.senderId!);
+            await safeSendTripAsk(input.senderId!);
+            logger.info(
+              { senderId: input.senderId, mondayItemId: pending.monday_item_id },
+              "Pending clarification advanced to trip stage — asked which trip",
+            );
+          }
+
           void maybeSendUmanWelcome({
             senderId: input.senderId!,
             mondayItemId: pending.monday_item_id,
-            service: classification.service,
+            service: "uman",
             phone: pending.phone ?? classification.extractedPhone,
           }).catch((err) => logger.error({ err }, "Uman welcome rejected unexpectedly"));
 
@@ -462,12 +613,20 @@ async function processClassifiedMessage(
 
   // New-sender path (existing === null, interested).
 
+  // Detect a named trip BEFORE deciding effective service — a message naming a
+  // trip ("מעוניינת בחנוכה") with no explicit service word still means uman.
+  const trip = detectTrip(input.messageText);
+  const treatAsUman = classification.service === "uman" || (classification.service === null && trip !== null);
+  const effectiveService: "uman" | "challah" | null = treatAsUman ? "uman" : classification.service;
+
   // A vague ("challah or uman?") message from someone we recently DMed the
   // knife-sale pitch to is more likely a knife-order follow-up than a fresh
   // service inquiry — suppress the ask-service question and create nothing.
-  // Explicit service mentions (classification.service !== null) are unaffected.
+  // Only the genuinely vague case (no service AND no trip) is suppressed —
+  // an explicit service or trip mention is unaffected.
   if (
     classification.service === null &&
+    trip === null &&
     input.senderId &&
     wasKnifeDmSentRecently(input.senderId)
   ) {
@@ -492,21 +651,22 @@ async function processClassifiedMessage(
 
   try {
     // Before creating a CRM row, check whether this lead is already on an active
-    // service board (applies when classification named a specific service).
-    if (classification.service !== null) {
+    // service board (applies whenever we can resolve a specific service, whether
+    // named explicitly or inferred from a trip mention).
+    if (effectiveService !== null) {
       const phones = [classification.extractedPhone, stalePhone].filter(
         (p): p is string => !!p,
       );
       const searchName = igUsername ?? input.senderUsername ?? null;
 
-      const hit = await findLeadOnActiveServiceBoards(classification.service, phones, searchName);
+      const hit = await findLeadOnActiveServiceBoards(effectiveService, phones, searchName);
       if (hit) {
         logger.info(
           {
             senderId: input.senderId,
             boardId: hit.boardId,
             serviceItemId: hit.itemId,
-            service: classification.service,
+            service: effectiveService,
           },
           "Lead already on active service board — skipping CRM row creation",
         );
@@ -517,7 +677,7 @@ async function processClassifiedMessage(
     const { itemId } = await createLeadRow({
       name: displayName,
       phone,
-      service: classification.service,
+      service: effectiveService,
       source: "instagram",
     });
 
@@ -530,15 +690,24 @@ async function processClassifiedMessage(
         phone,
       });
 
-      // Entry B step 1 — vague lead (no service named). Open a clarification right
-      // after the row + mapping (both synchronous below) and before any further
-      // await, to shrink the window where a fast second message misses it.
-      if (classification.service === null) {
+      // Entry B step 1 — vague lead (no service, no trip). Open a clarification
+      // right after the row + mapping (both synchronous below) and before any
+      // further await, to shrink the window where a fast second message misses it.
+      if (effectiveService === null) {
         upsertPendingClarification({
           platform: "instagram",
           senderId: input.senderId,
           mondayItemId: itemId,
           phone,
+        });
+      } else if (effectiveService === "uman" && trip === null) {
+        // Service is known (uman) but the trip is not — ask which trip.
+        upsertPendingClarification({
+          platform: "instagram",
+          senderId: input.senderId,
+          mondayItemId: itemId,
+          phone,
+          stage: "trip",
         });
       }
     }
@@ -546,22 +715,29 @@ async function processClassifiedMessage(
     await updateLastIgMessage(itemId, input.messageText);
 
     if (input.senderId) {
-      await sendFirstContactSequence(input.senderId, classification.service, phone, itemId);
+      await sendFirstContactSequence(input.senderId, effectiveService, trip, phone, itemId);
     }
 
     return { itemId, classification };
   } catch (err) {
     if (err instanceof MondayRateLimitError && input.senderId) {
+      // Pending needs opening whenever the trip question or the service question
+      // is still outstanding — i.e. whenever we're not already fully answered
+      // (challah, or uman + known trip).
+      const openClarification = trip === null && effectiveService !== "challah";
+      const openClarificationStage: "service" | "trip" = effectiveService === "uman" ? "trip" : "service";
+
       enqueueMondayLead({
         platform: "instagram",
         senderId: input.senderId,
         senderUsername: igUsername ?? input.senderUsername,
         displayName,
         phone,
-        service: classification.service,
+        service: effectiveService,
         messageText: input.messageText,
         source: "instagram",
-        openClarification: classification.service === null,
+        openClarification,
+        openClarificationStage,
       });
 
       logger.warn(
@@ -571,7 +747,7 @@ async function processClassifiedMessage(
 
       // No mondayItemId yet, so this skips the welcome (see sendFirstContactSequence) —
       // Monday's own create_item lead-ready webhook fires it once the queue creates the row.
-      await sendFirstContactSequence(input.senderId, classification.service, phone);
+      await sendFirstContactSequence(input.senderId, effectiveService, trip, phone);
 
       return { itemId: null, classification };
     }

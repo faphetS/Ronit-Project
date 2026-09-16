@@ -1,21 +1,16 @@
 import { env } from "../../config/env.js";
 import { logger } from "../../config/logger.js";
 import { getCurrentIgToken } from "./meta.token.service.js";
+import type { Trip } from "../../lib/trip.js";
 
 const FORM_BASE_URL = "https://www.orhazadik.online";
 
-// Seasonal Uman-hilula campaign flyer (27–30/9 trip, see CLAUDE.md "Uman hilula
-// campaign copy — EXPIRES 30/9"). Deliberately hardcoded, not an env var.
-const FLYER_IMAGE_URL = "https://api.ronitbarash.site/static/file.jpg";
-
-// The only pickReplyTemplate labels that get the flyer as a second bubble —
-// the two uman openers and the two uman answers-after-question.
-const FLYER_TEMPLATE_LABELS = new Set([
-  "UMAN_PHONE_PRESENT",
-  "UMAN_PHONE_MISSING",
-  "UMAN_ANSWER_PHONE_PRESENT",
-  "UMAN_ANSWER_PHONE_MISSING",
-]);
+// Per-trip flyer, sent as the second bubble after the matching trip reply
+// (see sendTripReply below). Deliberately hardcoded, not an env var.
+const FLYER_IMAGE_URLS: Record<Trip, string> = {
+  kislev: "https://api.ronitbarash.site/static/uman-kislev.jpeg",
+  hanukkah: "https://api.ronitbarash.site/static/uman-hanukkah.jpeg",
+};
 
 type Service = "uman" | "challah";
 
@@ -27,6 +22,12 @@ type Service = "uman" | "challah";
  * eight combos has its own template. Only uman + answered + no-phone still
  * carries the "journey to Rabbeinu" teaser + {form_link}; everything else is
  * short and link-free.
+ *
+ * NOTE (two-trip flow, 2026-09-16): the challah branches are current and used
+ * by the DM flow. The uman branches below are DEPRECATED and no longer reached
+ * from meta.service.ts — a uman lead now goes through sendTripAsk/sendTripReply
+ * (see pickTripTemplate below) instead. Kept working (not deleted) for the same
+ * "no silent deploy trap" reason as the deprecated env templates it reads.
  */
 export function pickReplyTemplate(args: {
   service: Service;
@@ -119,8 +120,8 @@ async function sendIgMessage(
   }
 }
 
-/** POST the flyer image as a message attachment (same shape as a text send). */
-async function postFlyerImage(recipientIgsid: string): Promise<boolean> {
+/** POST an image as a message attachment (same shape as a text send). */
+async function postFlyerImage(recipientIgsid: string, imageUrl: string): Promise<boolean> {
   let token: string;
   try {
     token = await getCurrentIgToken();
@@ -134,7 +135,7 @@ async function postFlyerImage(recipientIgsid: string): Promise<boolean> {
   // ARRAY — not Messenger's singular `attachment` object.
   const body = JSON.stringify({
     recipient: { id: recipientIgsid },
-    message: { attachments: [{ type: "image", payload: { url: FLYER_IMAGE_URL } }] },
+    message: { attachments: [{ type: "image", payload: { url: imageUrl } }] },
   });
 
   try {
@@ -150,7 +151,7 @@ async function postFlyerImage(recipientIgsid: string): Promise<boolean> {
       );
       return false;
     }
-    logger.info({ recipientIgsid, url: FLYER_IMAGE_URL }, "IG flyer image sent");
+    logger.info({ recipientIgsid, url: imageUrl }, "IG flyer image sent");
     return true;
   } catch (err) {
     logger.warn({ err, recipientIgsid }, "IG flyer outbound fetch error");
@@ -159,42 +160,80 @@ async function postFlyerImage(recipientIgsid: string): Promise<boolean> {
 }
 
 /**
- * Second chat bubble — the seasonal campaign flyer — sent after certain uman
- * text replies (see FLYER_TEMPLATE_LABELS). Best-effort: never throws, retries
- * exactly once after ~1s on failure, and must never block the webhook's 200 to
- * Meta or the text reply that precedes it.
+ * Second chat bubble — the trip flyer — sent after the matching trip reply
+ * (see sendTripReply). Best-effort: never throws, retries exactly once after
+ * ~1s on failure, and must never block the webhook's 200 to Meta or the text
+ * reply that precedes it.
  */
-export async function sendFlyerImage(recipientIgsid: string): Promise<void> {
+export async function sendFlyerImage(recipientIgsid: string, trip: Trip): Promise<void> {
+  const imageUrl = FLYER_IMAGE_URLS[trip];
+
   // Testing seam — mirror sendIgMessage's dry-run behavior exactly.
   if (env.IG_OUTBOUND_DRYRUN) {
-    logger.info({ recipientIgsid, url: FLYER_IMAGE_URL }, "IG flyer image DRY-RUN (not sent)");
+    logger.info({ recipientIgsid, trip, url: imageUrl }, "IG flyer image DRY-RUN (not sent)");
     return;
   }
 
-  if (await postFlyerImage(recipientIgsid)) return;
+  if (await postFlyerImage(recipientIgsid, imageUrl)) return;
 
   await new Promise((resolve) => setTimeout(resolve, 1000));
 
-  if (!(await postFlyerImage(recipientIgsid))) {
+  if (!(await postFlyerImage(recipientIgsid, imageUrl))) {
     logger.error({ recipientIgsid }, "IG flyer image failed after retry — giving up");
   }
 }
 
-/** Send the service-routed reply (first-contact when answered=false, post-question when true). */
+/**
+ * Send the service-routed reply (first-contact when answered=false, post-question
+ * when true). DEPRECATED for uman (see pickReplyTemplate) — uman leads now go
+ * through sendTripAsk/sendTripReply; this never sends a flyer (flyers are
+ * trip-specific, see sendTripReply).
+ */
 export async function sendReplyDM(
   recipientIgsid: string,
   args: { service: Service; hasPhone: boolean; answered: boolean },
 ): Promise<void> {
   const { template, label } = pickReplyTemplate(args);
-  const sent = await sendIgMessage(recipientIgsid, template, label);
-  if (sent && FLYER_TEMPLATE_LABELS.has(label)) {
-    await sendFlyerImage(recipientIgsid);
-  }
+  await sendIgMessage(recipientIgsid, template, label);
 }
 
 /** Ask a vague lead which service she wants (Entry B step 1 + re-asks). */
 export async function sendServiceQuestion(recipientIgsid: string): Promise<void> {
   await sendIgMessage(recipientIgsid, env.IG_MSG_ASK_SERVICE, "ASK_SERVICE");
+}
+
+/** Ask a known-uman lead WHICH trip she wants (asked once service is known; re-asked up to the cap). No flyer — she has not chosen yet. */
+export async function sendTripAsk(recipientIgsid: string): Promise<void> {
+  await sendIgMessage(recipientIgsid, env.IG_MSG_UMAN_TRIP_ASK, "UMAN_TRIP_ASK");
+}
+
+/** Resolve the trip-routed reply template + log label for a (trip, phone) combo. */
+export function pickTripTemplate(args: { trip: Trip; hasPhone: boolean }): {
+  template: string;
+  label: string;
+} {
+  const { trip, hasPhone } = args;
+
+  if (trip === "kislev") {
+    return hasPhone
+      ? { template: env.IG_MSG_UMAN_KISLEV_PHONE_PRESENT, label: "UMAN_KISLEV_PHONE_PRESENT" }
+      : { template: env.IG_MSG_UMAN_KISLEV_PHONE_MISSING, label: "UMAN_KISLEV_PHONE_MISSING" };
+  }
+  return hasPhone
+    ? { template: env.IG_MSG_UMAN_HANUKKAH_PHONE_PRESENT, label: "UMAN_HANUKKAH_PHONE_PRESENT" }
+    : { template: env.IG_MSG_UMAN_HANUKKAH_PHONE_MISSING, label: "UMAN_HANUKKAH_PHONE_MISSING" };
+}
+
+/** Send the trip-routed reply, then that trip's flyer as a second bubble (gated on a confirmed text send). */
+export async function sendTripReply(
+  recipientIgsid: string,
+  args: { trip: Trip; hasPhone: boolean },
+): Promise<void> {
+  const { template, label } = pickTripTemplate(args);
+  const sent = await sendIgMessage(recipientIgsid, template, label);
+  if (sent) {
+    await sendFlyerImage(recipientIgsid, args.trip);
+  }
 }
 
 /** Thank a uman lead for handing over her phone after being asked for it. */
