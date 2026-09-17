@@ -193,7 +193,7 @@ const envSchema = z.object({
   IG_MSG_UMAN_KISLEV_PHONE_PRESENT: z
     .string()
     .min(1)
-    .default('נסיעה לר\' נחמן בר"ח כסלו שיוצאת בתאריכים 11-15/11\nהעברנו את הפנייה למשרד נחזור אליך בהקדם 💞'),
+    .default('נסיעה לר\' נחמן בר"ח כסלו שיוצאת בתאריכים 11-15/11\nתודה, ניצור קשר בהקדם 💞'),
   IG_MSG_UMAN_HANUKKAH_PHONE_MISSING: z
     .string()
     .min(1)
@@ -201,7 +201,7 @@ const envSchema = z.object({
   IG_MSG_UMAN_HANUKKAH_PHONE_PRESENT: z
     .string()
     .min(1)
-    .default("נסיעה לר' נחמן בחנוכה שיוצאת בתאריכים 6-10/12\nהעברנו את הפנייה למשרד נחזור אליך בהקדם 💞"),
+    .default("נסיעה לר' נחמן בחנוכה שיוצאת בתאריכים 6-10/12\nתודה, ניצור קשר בהקדם 💞"),
 
   IG_MSG_CHALLAH_ANSWER_PHONE_MISSING: z
     .string()
