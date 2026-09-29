@@ -22,7 +22,7 @@ import { logger } from "../../config/logger.js";
 const RID = "IGSID_123";
 const FORM_LINK = `https://www.orhazadik.online/?ig_id=${encodeURIComponent(RID)}`;
 const KISLEV_FLYER_URL = "https://api.ronitbarash.site/static/uman-kislev.jpeg";
-const HANUKKAH_FLYER_URL = "https://api.ronitbarash.site/static/uman-hanukkah.jpeg";
+const HANUKKAH_FLYER_URL = "https://api.ronitbarash.site/static/uman-hanukkah-v2.jpeg";
 
 // Mirror the transform applied inside the outbound sender.
 function render(template: string): string {

@@ -7,9 +7,18 @@ const FORM_BASE_URL = "https://www.orhazadik.online";
 
 // Per-trip flyer, sent as the second bubble after the matching trip reply
 // (see sendTripReply below). Deliberately hardcoded, not an env var.
+//
+// A replaced flyer gets a NEW filename rather than overwriting the old one:
+// we hand Meta a URL and Meta fetches it, so reusing a URL risks it serving a
+// cached copy of the previous image — which would look like a failed deploy
+// while leads quietly received the wrong times. The superseded file stays in
+// public/ (unreferenced) so the old artwork is still recoverable.
 const FLYER_IMAGE_URLS: Record<Trip, string> = {
   kislev: "https://api.ronitbarash.site/static/uman-kislev.jpeg",
-  hanukkah: "https://api.ronitbarash.site/static/uman-hanukkah.jpeg",
+  // v2 (2026-09-29): flight times moved (SKYUP 518/517 instead of 516/515) and
+  // the daily programme shifted with them. Dates and price are unchanged, so no
+  // copy or detectTrip change was needed. Supersedes uman-hanukkah.jpeg.
+  hanukkah: "https://api.ronitbarash.site/static/uman-hanukkah-v2.jpeg",
 };
 
 type Service = "uman" | "challah";
