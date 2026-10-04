@@ -222,9 +222,20 @@ describe("sendTripReply — sends the resolved trip template, then that trip's f
     expect(callBody(1).message.attachments).toEqual([{ type: "image", payload: { url: HANUKKAH_FLYER_URL } }]);
   });
 
-  it("text send failure → flyer never attempted", async () => {
+  it("resolves true once the text bubble is sent (the flyer goes out after it)", async () => {
+    await expect(sendTripReply(RID, { trip: "kislev", hasPhone: true })).resolves.toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("text send failure → resolves false, flyer never attempted", async () => {
     fetchMock.mockResolvedValueOnce({ ok: false, status: 500, text: async () => "boom" });
-    await sendTripReply(RID, { trip: "kislev", hasPhone: true });
+    await expect(sendTripReply(RID, { trip: "kislev", hasPhone: true })).resolves.toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("text send network error → resolves false, flyer never attempted", async () => {
+    fetchMock.mockRejectedValueOnce(new Error("socket hang up"));
+    await expect(sendTripReply(RID, { trip: "hanukkah", hasPhone: false })).resolves.toBe(false);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -237,12 +248,12 @@ describe("sendTripReply — sends the resolved trip template, then that trip's f
 
     const promise = sendTripReply(RID, { trip: "hanukkah", hasPhone: true });
     await vi.advanceTimersByTimeAsync(1000);
-    await promise;
+    await expect(promise).resolves.toBe(true);
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  it("flyer fails twice → logged at error level, no throw, flow completes", async () => {
+  it("flyer fails twice → logged at error level, no throw, still resolves true (the TEXT bubble was sent)", async () => {
     vi.useFakeTimers();
     const errorSpy = vi.spyOn(logger, "error");
     fetchMock
@@ -252,7 +263,7 @@ describe("sendTripReply — sends the resolved trip template, then that trip's f
 
     const promise = sendTripReply(RID, { trip: "hanukkah", hasPhone: true });
     await vi.advanceTimersByTimeAsync(1000);
-    await expect(promise).resolves.toBeUndefined();
+    await expect(promise).resolves.toBe(true);
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(errorSpy).toHaveBeenCalledWith(
@@ -262,9 +273,9 @@ describe("sendTripReply — sends the resolved trip template, then that trip's f
     errorSpy.mockRestore();
   });
 
-  it("dry-run mode → no network call for either bubble", async () => {
+  it("dry-run mode → no network call for either bubble, resolves true like a real send", async () => {
     env.IG_OUTBOUND_DRYRUN = true;
-    await sendTripReply(RID, { trip: "kislev", hasPhone: true });
+    await expect(sendTripReply(RID, { trip: "kislev", hasPhone: true })).resolves.toBe(true);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

@@ -1,7 +1,7 @@
 import { logger } from "../../config/logger.js";
 import { env } from "../../config/env.js";
-import { classifyLead, type Classification } from "../../lib/classify.js";
-import { detectTrip, type Trip } from "../../lib/trip.js";
+import { classifyLead, extractPhoneFallback, type Classification } from "../../lib/classify.js";
+import { detectTrip, detectTripTrigger, type Trip } from "../../lib/trip.js";
 import {
   isMessageProcessed,
   markMessageProcessed,
@@ -32,7 +32,14 @@ import {
 } from "../monday/monday.service.js";
 import { findLeadOnActiveServiceBoards } from "../monday/monday.webhook.service.js";
 import { MondayRateLimitError } from "../monday/monday.client.js";
-import { enqueueMondayLead, findQueuedLeadBySender, wasKnifeDmSentRecently } from "../../config/db.js";
+import {
+  enqueueMondayLead,
+  findQueuedLeadBySender,
+  wasKnifeDmSentRecently,
+  wasTripReplySentRecently,
+  claimTripReply,
+  releaseTripReply,
+} from "../../config/db.js";
 import { maybeSendUmanWelcome } from "../whatsapp/uman-welcome.service.js";
 import {
   sendReplyDM,
@@ -105,9 +112,26 @@ async function safeSendTripReply(
   opts: { trip: Trip; hasPhone: boolean },
 ): Promise<void> {
   try {
-    await sendTripReply(senderId, opts);
+    // Claim BEFORE the first await. better-sqlite3 is synchronous, so this is an
+    // atomic check-and-mark for concurrent webhooks in this process; marking after
+    // the send would let a second message that arrives mid-send send again.
+    if (!claimTripReply(senderId, opts.trip)) {
+      logger.info(
+        { senderId, trip: opts.trip },
+        "Trip reply already sent in the last 24h — not resending",
+      );
+      return;
+    }
+    try {
+      if (await sendTripReply(senderId, opts)) return;
+    } catch (err) {
+      logger.warn({ err, senderId }, "sendTripReply failed — continuing (non-fatal)");
+    }
+    // The text bubble did not go out: hand the claim back so the finally-retry in
+    // processTripTrigger, or her next message, can still answer her.
+    releaseTripReply(senderId, opts.trip);
   } catch (err) {
-    logger.warn({ err, senderId }, "sendTripReply failed — continuing (non-fatal)");
+    logger.warn({ err, senderId }, "Trip reply claim bookkeeping failed — continuing (non-fatal)");
   }
 }
 
@@ -281,6 +305,7 @@ async function processClassifiedMessage(
     messageId?: string;
   },
   classification: Classification,
+  opts: { skipPhoneThanks?: boolean } = {},
 ): Promise<{ itemId: string | null; classification: Classification }> {
   let stalePhone: string | null = null;
 
@@ -508,7 +533,7 @@ async function processClassifiedMessage(
           // already safe (SQLite + queue drain) but the thanks is skipped for
           // good — same silence the lead got before this feature existed.
           const serviceKey = classification.service ?? mapItemServiceToKey(live.service);
-          if (serviceKey === "uman") {
+          if (serviceKey === "uman" && !opts.skipPhoneThanks) {
             await safeSendPhoneThanks(input.senderId!);
           }
         }
@@ -755,6 +780,63 @@ async function processClassifiedMessage(
   }
 }
 
+// A bare trip word carries no signal the LLM can use (it judged "כסלו"
+// not-interested in prod), so the classification is synthesised instead.
+function triggerClassification(text: string): Classification {
+  return {
+    interested: true,
+    service: "uman",
+    extractedName: null,
+    extractedPhone: extractPhoneFallback(text),
+    confidence: 1,
+    rawResponse: "trip-trigger",
+  };
+}
+
+// The story promised details to anyone who writes the word. Bookkeeping (pending,
+// known lead, queue, new row, service-board dedup) runs through the normal path;
+// the finally guarantees she gets this trip's reply even where that path sends
+// nothing (existing lead, already on a service board, Monday down or erroring).
+// safeSendTripReply's 24h guard makes the finally a no-op when the path already sent it.
+async function processTripTrigger(
+  input: {
+    messageText: string;
+    senderId?: string;
+    senderUsername?: string;
+    messageId?: string;
+  },
+  trip: Trip,
+  classification: Classification,
+): Promise<{ itemId: string | null; classification: Classification }> {
+  const senderId = input.senderId!;
+
+  // Read BEFORE processing: the stale-mapping paths delete these rows.
+  const pending = getPendingClarification("instagram", senderId);
+  const known = findKnownSender("instagram", senderId);
+  const queued = findQueuedLeadBySender("instagram", senderId);
+  const hasPhone = !!(
+    classification.extractedPhone ??
+    pending?.phone ??
+    known?.phone ??
+    queued?.phone
+  );
+  const replyDue = !wasTripReplySentRecently(senderId, trip);
+
+  logger.info(
+    { senderId, trip, hasPhone, replyDue },
+    "IG trip trigger word — routed without the classifier",
+  );
+
+  try {
+    // The PHONE_PRESENT trip reply already says "תודה, ניצור קשר בהקדם", so a
+    // separate thanks bubble would duplicate it — but when the 24h guard is about
+    // to block the reply, the thanks must still go out or she gets nothing.
+    return await processClassifiedMessage(input, classification, { skipPhoneThanks: replyDue });
+  } finally {
+    await safeSendTripReply(senderId, { trip, hasPhone });
+  }
+}
+
 export async function handleIncomingMessage(input: {
   messageText: string;
   senderId?: string;
@@ -776,14 +858,17 @@ export async function handleIncomingMessage(input: {
     };
   }
 
-  const classification = await classifyLead(input);
+  const trip = input.senderId ? detectTripTrigger(input.messageText) : null;
+  const classification = trip ? triggerClassification(input.messageText) : await classifyLead(input);
 
   if (input.messageId) {
     markMessageProcessed("meta", input.messageId);
   }
 
   try {
-    return await processClassifiedMessage(input, classification);
+    return trip
+      ? await processTripTrigger(input, trip, classification)
+      : await processClassifiedMessage(input, classification);
   } catch (err) {
     if (input.messageId) {
       unmarkMessageProcessed("meta", input.messageId);

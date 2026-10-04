@@ -233,16 +233,21 @@ export function pickTripTemplate(args: { trip: Trip; hasPhone: boolean }): {
     : { template: env.IG_MSG_UMAN_HANUKKAH_PHONE_MISSING, label: "UMAN_HANUKKAH_PHONE_MISSING" };
 }
 
-/** Send the trip-routed reply, then that trip's flyer as a second bubble (gated on a confirmed text send). */
+/**
+ * Send the trip-routed reply, then that trip's flyer as a second bubble (gated on a
+ * confirmed text send). Resolves true iff the TEXT bubble went out — the flyer is
+ * best-effort and never changes the result.
+ */
 export async function sendTripReply(
   recipientIgsid: string,
   args: { trip: Trip; hasPhone: boolean },
-): Promise<void> {
+): Promise<boolean> {
   const { template, label } = pickTripTemplate(args);
   const sent = await sendIgMessage(recipientIgsid, template, label);
   if (sent) {
     await sendFlyerImage(recipientIgsid, args.trip);
   }
+  return sent;
 }
 
 /** Thank a uman lead for handing over her phone after being asked for it. */
