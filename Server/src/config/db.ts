@@ -505,6 +505,43 @@ export function wasKnifeDmSentRecently(commenterId: string): boolean {
   return row !== undefined;
 }
 
+// One trip reply per person per trip per 24h — a double-tapped trigger word
+// ("כסלו" twice in a minute) must not send the flyer twice. The slot is held from
+// the moment it is claimed, so this is true while a reply is being sent too.
+export function wasTripReplySentRecently(senderId: string, trip: string): boolean {
+  const row = getDb()
+    .prepare(
+      `SELECT id FROM processed_webhooks
+       WHERE source = ? AND external_id = ?
+         AND processed_at >= datetime('now','-24 hours')`,
+    )
+    .get(`ig_trip_reply:${trip}`, senderId);
+  return row !== undefined;
+}
+
+// Claims the slot BEFORE the send, in a single statement. better-sqlite3 is
+// synchronous, so claiming before the caller's first await is an atomic
+// check-and-mark for concurrent webhooks in this process — checking first and
+// marking after the send would let a second message that arrives mid-send send
+// again. True means the caller owns the send; a row older than 24h is taken over
+// in place. If the send fails, hand the slot back with releaseTripReply.
+export function claimTripReply(senderId: string, trip: string): boolean {
+  const { changes } = getDb()
+    .prepare(
+      `INSERT INTO processed_webhooks (source, external_id) VALUES (?, ?)
+       ON CONFLICT(source, external_id) DO UPDATE SET processed_at = datetime('now')
+         WHERE processed_at < datetime('now','-24 hours')`,
+    )
+    .run(`ig_trip_reply:${trip}`, senderId);
+  return changes > 0;
+}
+
+export function releaseTripReply(senderId: string, trip: string): void {
+  getDb()
+    .prepare("DELETE FROM processed_webhooks WHERE source = ? AND external_id = ?")
+    .run(`ig_trip_reply:${trip}`, senderId);
+}
+
 // Drop queued comments older than the ~7-day Private-Reply window (the DM would
 // fail anyway). Returns the comment_ids removed so the caller can log them.
 export function expireOldQueuedComments(): string[] {
