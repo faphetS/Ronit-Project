@@ -244,6 +244,9 @@ const envSchema = z.object({
   SALESTRAIL_API_PASSWORD: z.string().min(1).optional(),
   SALESTRAIL_API_USERNAME_2: z.string().min(1).optional(),
   SALESTRAIL_API_PASSWORD_2: z.string().min(1).optional(),
+  // Salestrail "backsync" replays weeks of old calls as fresh webhooks (e.g. a SIM
+  // newly ticked in Track SIM Cards). Calls older than this are logged and skipped.
+  SALESTRAIL_MAX_CALL_AGE_HOURS: z.coerce.number().int().min(1).default(48),
   OPENROUTER_AUDIO_MODEL: z.string().default("google/gemini-2.5-flash"),
 
   // Monday.com — CRM group/column IDs for call tracking
