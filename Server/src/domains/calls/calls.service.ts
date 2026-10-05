@@ -46,9 +46,24 @@ export async function handleSalestrailCall(
   const phone = payload.formattedNumber;
 
   logger.info(
-    { callId: payload.callId, phone, sourceDetail: payload.sourceDetail, duration: payload.duration, answered: payload.answered, inbound: payload.inbound },
+    { callId: payload.callId, phone, sourceDetail: payload.sourceDetail, duration: payload.duration, answered: payload.answered, inbound: payload.inbound, startTime: payload.startTime, userName: payload.userName, userPhone: payload.userPhone },
     "Processing Salestrail call",
   );
+
+  // Salestrail "backsync" (a SIM newly ticked in Track SIM Cards, a reinstall) replays
+  // weeks of old calls as fresh webhooks. 2026-10-05: 369 such calls in 5 minutes bumped
+  // 161 leads, stamped today's date on them and blew the Monday daily cap. An old call is
+  // history, not activity — stop here, before anything touches Monday. Unparseable
+  // startTime fails open: a real call is worth more than a guard.
+  const startMs = toEpochMs(payload.startTime);
+  const ageHours = startMs === null ? null : (Date.now() - startMs) / 3_600_000;
+  if (ageHours !== null && ageHours > env.SALESTRAIL_MAX_CALL_AGE_HOURS) {
+    logger.warn(
+      { callId: payload.callId, phone, startTime: payload.startTime, ageHours: Math.round(ageHours), userName: payload.userName },
+      "Stale Salestrail call (backsync) — skipping Monday",
+    );
+    return { matched: false, reason: "stale", phone };
+  }
 
   if (isMessageProcessed(DEDUP_SOURCE, payload.callId)) {
     logger.info({ callId: payload.callId, phone }, "Duplicate Salestrail call — skipping");
@@ -59,7 +74,7 @@ export async function handleSalestrailCall(
 
   if (!lead) {
     logger.info(
-      { phone, callId: payload.callId, sourceDetail: payload.sourceDetail, duration: payload.duration, answered: payload.answered, inbound: payload.inbound },
+      { phone, callId: payload.callId, sourceDetail: payload.sourceDetail, duration: payload.duration, answered: payload.answered, inbound: payload.inbound, startTime: payload.startTime, userName: payload.userName },
       "No Monday CRM lead matched — skipping",
     );
     return { matched: false, reason: "no_match", phone };
