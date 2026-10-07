@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { logger } from "../../config/logger.js";
 import { env } from "../../config/env.js";
 import { classifyLead, extractPhoneFallback, type Classification } from "../../lib/classify.js";
@@ -39,6 +40,8 @@ import {
   wasTripReplySentRecently,
   claimTripReply,
   releaseTripReply,
+  getOwedCommentTrips,
+  consumeOwedCommentFlyer,
 } from "../../config/db.js";
 import { maybeSendUmanWelcome } from "../whatsapp/uman-welcome.service.js";
 import {
@@ -47,6 +50,7 @@ import {
   sendPhoneThanks,
   sendTripAsk,
   sendTripReply,
+  sendFlyerImage,
 } from "./meta.outbound.service.js";
 import { fetchIgProfile } from "./meta.profile.service.js";
 
@@ -54,6 +58,21 @@ import { fetchIgProfile } from "./meta.profile.service.js";
 // without naming a service. After the cap we stay silent (the pending row is
 // kept, so a later service mention still gets answered).
 const MAX_REASKS = 3;
+
+// A lead that comes from a COMMENT cannot receive our normal DMs: the private reply under
+// the comment already was her DM, and Meta allows no second message until she answers. The
+// bookkeeping for such a lead reuses the regular lead path, which would otherwise send the
+// trip reply, the trip/service question or the phone thanks on top of it — so every
+// safeSend* below returns early while this scope is set. AsyncLocalStorage (not a flag)
+// because webhooks for other senders run interleaved on the same event loop and must still
+// be answered.
+const dmSuppression = new AsyncLocalStorage<true>();
+
+function dmSuppressed(senderId: string, send: string): boolean {
+  if (!dmSuppression.getStore()) return false;
+  logger.debug({ senderId, send }, "DM suppressed — comment-origin lead, the private reply was the DM");
+  return true;
+}
 
 // Service-column update is best-effort: a transient Monday failure here must NOT
 // abort the critical path (phone capture, move-back, reply DM, clearing pending).
@@ -76,6 +95,7 @@ async function safeSendReplyDM(
   senderId: string,
   opts: { service: "uman" | "challah"; hasPhone: boolean; answered: boolean },
 ): Promise<void> {
+  if (dmSuppressed(senderId, "sendReplyDM")) return;
   try {
     await sendReplyDM(senderId, opts);
   } catch (err) {
@@ -84,6 +104,7 @@ async function safeSendReplyDM(
 }
 
 async function safeSendServiceQuestion(senderId: string): Promise<void> {
+  if (dmSuppressed(senderId, "sendServiceQuestion")) return;
   try {
     await sendServiceQuestion(senderId);
   } catch (err) {
@@ -92,6 +113,7 @@ async function safeSendServiceQuestion(senderId: string): Promise<void> {
 }
 
 async function safeSendPhoneThanks(senderId: string): Promise<void> {
+  if (dmSuppressed(senderId, "sendPhoneThanks")) return;
   try {
     await sendPhoneThanks(senderId);
   } catch (err) {
@@ -100,6 +122,7 @@ async function safeSendPhoneThanks(senderId: string): Promise<void> {
 }
 
 async function safeSendTripAsk(senderId: string): Promise<void> {
+  if (dmSuppressed(senderId, "sendTripAsk")) return;
   try {
     await sendTripAsk(senderId);
   } catch (err) {
@@ -107,10 +130,20 @@ async function safeSendTripAsk(senderId: string): Promise<void> {
   }
 }
 
+async function safeSendFlyer(senderId: string, trip: Trip): Promise<void> {
+  try {
+    await sendFlyerImage(senderId, trip);
+  } catch (err) {
+    logger.warn({ err, senderId, trip }, "sendFlyerImage failed — continuing (non-fatal)");
+  }
+}
+
 async function safeSendTripReply(
   senderId: string,
   opts: { trip: Trip; hasPhone: boolean },
 ): Promise<void> {
+  // Before the claim: a suppressed send must not burn the 24h slot a later real reply needs.
+  if (dmSuppressed(senderId, "sendTripReply")) return;
   try {
     // Claim BEFORE the first await. better-sqlite3 is synchronous, so this is an
     // atomic check-and-mark for concurrent webhooks in this process; marking after
@@ -225,6 +258,7 @@ async function resolvePendingTripStage(
   pending: PendingClarification,
   currentGroupId: string,
   capturedPhone: string | null,
+  tripHint: Trip | undefined,
 ): Promise<{ itemId: string | null; classification: Classification }> {
   const currentPhone = classification.extractedPhone ?? pending.phone;
 
@@ -249,7 +283,7 @@ async function resolvePendingTripStage(
     });
   }
 
-  const trip = detectTrip(input.messageText);
+  const trip = detectTrip(input.messageText) ?? tripHint ?? null;
   const hasPhone = !!currentPhone;
 
   if (trip !== null) {
@@ -305,7 +339,10 @@ async function processClassifiedMessage(
     messageId?: string;
   },
   classification: Classification,
-  opts: { skipPhoneThanks?: boolean } = {},
+  // tripHint: a trip already known from elsewhere (the trip word she commented) for a message
+  // that names none itself — a bare phone number, say. Without it that message would open a
+  // trip-stage pending and ask which trip.
+  opts: { skipPhoneThanks?: boolean; tripHint?: Trip } = {},
 ): Promise<{ itemId: string | null; classification: Classification }> {
   let stalePhone: string | null = null;
 
@@ -345,7 +382,14 @@ async function processClassifiedMessage(
         await updateLastIgMessage(pending.monday_item_id, input.messageText);
 
         if (pending.stage === "trip") {
-          return await resolvePendingTripStage(input, classification, pending, live.groupId, capturedPhone);
+          return await resolvePendingTripStage(
+            input,
+            classification,
+            pending,
+            live.groupId,
+            capturedPhone,
+            opts.tripHint,
+          );
         }
 
         // She explicitly declined mid-clarification → end it and stay silent.
@@ -412,7 +456,7 @@ async function processClassifiedMessage(
           }
 
           // uman — ask WHICH trip, unless she already named one in this message.
-          const trip = detectTrip(input.messageText);
+          const trip = detectTrip(input.messageText) ?? opts.tripHint ?? null;
           if (trip !== null) {
             await safeSendTripReply(input.senderId!, { trip, hasPhone });
             clearPendingClarification("instagram", input.senderId!);
@@ -640,7 +684,7 @@ async function processClassifiedMessage(
 
   // Detect a named trip BEFORE deciding effective service — a message naming a
   // trip ("מעוניינת בחנוכה") with no explicit service word still means uman.
-  const trip = detectTrip(input.messageText);
+  const trip = detectTrip(input.messageText) ?? opts.tripHint ?? null;
   const treatAsUman = classification.service === "uman" || (classification.service === null && trip !== null);
   const effectiveService: "uman" | "challah" | null = treatAsUman ? "uman" : classification.service;
 
@@ -663,7 +707,9 @@ async function processClassifiedMessage(
   }
 
   let igUsername: string | null = null;
-  let displayName = "Unknown IG lead";
+  // The profile lookup usually fails for someone who only commented and never DMed us, so
+  // the username the event itself carried is the next best name for her row.
+  let displayName = input.senderUsername ?? "Unknown IG lead";
   if (input.senderId) {
     const profile = await fetchIgProfile(input.senderId);
     if (profile?.username) {
@@ -837,6 +883,93 @@ async function processTripTrigger(
   }
 }
 
+/**
+ * Lead bookkeeping for someone whose trip-word COMMENT already got its private reply.
+ * Runs the regular lead path — pending resolved, known lead updated and re-filed, stale
+ * mapping healed, queued sender merged, a new one deduped against the active Uman board
+ * and given a row + known_sender, a Monday 429 deferred to the queue — with every DM
+ * suppressed (see dmSuppression) and no phone: a public comment is never mined for one.
+ * `trip` is the hint that keeps the path from asking which trip she meant.
+ */
+export async function recordTripCommentLead(input: {
+  senderId: string;
+  senderUsername?: string;
+  commentText: string;
+  trip: Trip;
+}): Promise<void> {
+  await dmSuppression.run(true, () =>
+    processClassifiedMessage(
+      { messageText: input.commentText, senderId: input.senderId, senderUsername: input.senderUsername },
+      {
+        interested: true,
+        service: "uman",
+        extractedName: null,
+        extractedPhone: null,
+        confidence: 1,
+        rawResponse: "trip-comment",
+      },
+      { tripHint: input.trip },
+    ),
+  );
+}
+
+// The first DM she can actually receive after a trip-word comment: the flyer the private
+// reply could not carry, then one thank-you. Never throws — it runs inside a finally.
+async function sendOwedFlyersAndThanks(senderId: string, owed: Trip[]): Promise<void> {
+  try {
+    // Synchronous, before any await: of two phone messages in flight only one consume
+    // succeeds per trip, so the flyer and the thank-you go out once.
+    const consumed = owed.filter((trip) => consumeOwedCommentFlyer(senderId, trip));
+    for (const trip of consumed) await safeSendFlyer(senderId, trip);
+    if (consumed.length > 0) await safeSendPhoneThanks(senderId);
+  } catch (err) {
+    logger.warn({ err, senderId }, "Owed comment flyer bookkeeping failed — continuing (non-fatal)");
+  }
+}
+
+// She was DMed by private reply after commenting a trip word and is now answering. Nothing
+// she writes needs the classifier or a reply: the lead is recorded quietly, and the one
+// message worth answering — a phone number — gets the owed flyer + a thank-you.
+async function handleCommentFollowUp(
+  input: { messageText: string; senderId: string; senderUsername?: string; messageId?: string },
+  owed: Trip[],
+  trigger: Trip | null,
+): Promise<{ itemId: string | null; classification: Classification }> {
+  const { senderId } = input;
+  const phone = extractPhoneFallback(input.messageText);
+  const classification: Classification = {
+    interested: phone !== null,
+    service: phone !== null ? "uman" : null,
+    extractedName: null,
+    extractedPhone: phone,
+    confidence: 1,
+    rawResponse: "comment-follow-up",
+  };
+
+  logger.info(
+    { senderId, owed, trigger, hasPhone: phone !== null },
+    "IG reply to a trip-word comment — routed without the classifier",
+  );
+
+  if (input.messageId) {
+    markMessageProcessed("meta", input.messageId);
+  }
+
+  try {
+    return await dmSuppression.run(true, () =>
+      processClassifiedMessage(input, classification, { tripHint: trigger ?? owed[0] }),
+    );
+  } catch (err) {
+    if (input.messageId) {
+      unmarkMessageProcessed("meta", input.messageId);
+    }
+    throw err;
+  } finally {
+    // Outside the suppression scope on purpose — these are real sends.
+    if (phone !== null) await sendOwedFlyersAndThanks(senderId, owed);
+  }
+}
+
 export async function handleIncomingMessage(input: {
   messageText: string;
   senderId?: string;
@@ -858,7 +991,16 @@ export async function handleIncomingMessage(input: {
     };
   }
 
-  const trip = input.senderId ? detectTripTrigger(input.messageText) : null;
+  const { senderId } = input;
+  const owed = senderId ? getOwedCommentTrips(senderId) : [];
+  const trip = senderId ? detectTripTrigger(input.messageText) : null;
+
+  // A trigger word for the trip she was already DMed about is not a new request — the
+  // private reply was the answer — but a trigger for a DIFFERENT trip still is one.
+  if (senderId && owed.length > 0 && (trip === null || owed.includes(trip))) {
+    return handleCommentFollowUp({ ...input, senderId }, owed, trip);
+  }
+
   const classification = trip ? triggerClassification(input.messageText) : await classifyLead(input);
 
   if (input.messageId) {

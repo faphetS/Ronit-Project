@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { mkdirSync } from "node:fs";
 import { env } from "./env.js";
 import { logger } from "./logger.js";
+import type { Trip } from "../lib/trip.js";
 
 let db: Database.Database | null = null;
 
@@ -128,6 +129,7 @@ CREATE TABLE IF NOT EXISTS ig_comment_queue (
   kind               TEXT NOT NULL DEFAULT 'uman',
   attempt_count      INTEGER NOT NULL DEFAULT 0,
   last_error         TEXT,
+  next_attempt_at    TEXT NOT NULL DEFAULT (datetime('now')),
   created_at         TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -191,6 +193,20 @@ export function getDb(): Database.Database {
   if (!commentQueueCols.some((c) => c.name === "kind")) {
     db.exec("ALTER TABLE ig_comment_queue ADD COLUMN kind TEXT NOT NULL DEFAULT 'uman'");
   }
+  if (!commentQueueCols.some((c) => c.name === "next_attempt_at")) {
+    // ADD COLUMN cannot take a non-constant default such as datetime('now') — and SQLite only
+    // objects once the table has rows, so that form passes on an empty dev database and then
+    // fails at boot in production. Existing rows get a constant in the past instead = due
+    // immediately. New rows are stamped by enqueueComment itself; only fresh databases use
+    // the datetime('now') default in the CREATE TABLE above.
+    db.exec(
+      "ALTER TABLE ig_comment_queue ADD COLUMN next_attempt_at TEXT NOT NULL DEFAULT '1970-01-01 00:00:00'",
+    );
+  }
+  // Must run AFTER the migration above and never inside SCHEMA: SCHEMA executes before the
+  // ALTER, and on an existing database the column is not there yet — an index on it in
+  // SCHEMA would throw "no such column" at boot.
+  db.exec("CREATE INDEX IF NOT EXISTS idx_ig_comment_queue_due ON ig_comment_queue(next_attempt_at, created_at)");
   const pendingClarCols = db.prepare("PRAGMA table_info(pending_clarifications)").all() as Array<{ name: string }>;
   if (!pendingClarCols.some((c) => c.name === "stage")) {
     db.exec("ALTER TABLE pending_clarifications ADD COLUMN stage TEXT NOT NULL DEFAULT 'service'");
@@ -419,7 +435,7 @@ export interface QueuedComment {
   commenter_username: string | null;
   recipient_id: string | null;
   comment_text: string;
-  kind: "uman" | "knife";
+  kind: "uman" | "knife" | "trip";
   attempt_count: number;
   created_at: string;
 }
@@ -433,13 +449,18 @@ export function enqueueComment(input: {
   commenterUsername?: string;
   recipientId?: string;
   commentText: string;
-  kind?: "uman" | "knife";
+  kind?: "uman" | "knife" | "trip";
+  // SQLite UTC "YYYY-MM-DD HH:MM:SS". Lets a backfilled comment keep its real age, so the
+  // 6-day expiry (which counts from created_at) still protects the 7-day Private-Reply window.
+  createdAt?: string;
 }): void {
+  // next_attempt_at is stamped explicitly: on a migrated table the column default is the
+  // 1970 constant, which would sort every new row ahead of the whole queue.
   getDb()
     .prepare(
       `INSERT OR IGNORE INTO ig_comment_queue
-         (comment_id, commenter_id, commenter_username, recipient_id, comment_text, kind)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+         (comment_id, commenter_id, commenter_username, recipient_id, comment_text, kind, created_at, next_attempt_at)
+       VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'))`,
     )
     .run(
       input.commentId,
@@ -448,6 +469,7 @@ export function enqueueComment(input: {
       input.recipientId ?? null,
       input.commentText,
       input.kind ?? "uman",
+      input.createdAt ?? null,
     );
 }
 
@@ -458,11 +480,14 @@ export function isCommentQueued(commentId: string): boolean {
   return row !== undefined;
 }
 
+// Only rows whose backoff has lapsed, soonest-due first: a row that keeps failing sinks
+// behind everything else instead of being re-fetched every tick and starving the queue.
 export function getQueuedComments(limit: number): QueuedComment[] {
   return getDb()
     .prepare(
       `SELECT ${IG_COMMENT_QUEUE_COLS} FROM ig_comment_queue
-       ORDER BY created_at ASC, id ASC LIMIT ?`,
+       WHERE next_attempt_at <= datetime('now')
+       ORDER BY next_attempt_at ASC, created_at ASC, id ASC LIMIT ?`,
     )
     .all(limit) as QueuedComment[];
 }
@@ -471,12 +496,16 @@ export function deleteQueuedComment(id: number): void {
   getDb().prepare("DELETE FROM ig_comment_queue WHERE id = ?").run(id);
 }
 
-export function bumpQueuedComment(id: number, error: string): void {
+export function bumpQueuedComment(id: number, error: string, delaySeconds: number): void {
   getDb()
     .prepare(
-      "UPDATE ig_comment_queue SET attempt_count = attempt_count + 1, last_error = ? WHERE id = ?",
+      `UPDATE ig_comment_queue
+       SET attempt_count = attempt_count + 1,
+           last_error = ?,
+           next_attempt_at = datetime('now', '+' || ? || ' seconds')
+       WHERE id = ?`,
     )
-    .run(error, id);
+    .run(error, delaySeconds, id);
 }
 
 // Count of comment DMs actually sent in the last hour (one ig_comment mark per
@@ -540,6 +569,50 @@ export function releaseTripReply(senderId: string, trip: string): void {
   getDb()
     .prepare("DELETE FROM processed_webhooks WHERE source = ? AND external_id = ?")
     .run(`ig_trip_reply:${trip}`, senderId);
+}
+
+// A trip-word comment's private reply is text only — Meta allows no image there — so the
+// flyer is "owed" until she answers and the 24h messaging window opens. One mark per
+// (sender, trip); it lives 7 days, the same as the private-reply window itself.
+const OWED_FLYER_PREFIX = "ig_comment_flyer:";
+
+// Compile-time exhaustive: adding a trip to the Trip union breaks this until it is listed.
+const KNOWN_TRIPS: Record<Trip, true> = { kislev: true, hanukkah: true };
+const isTrip = (value: string): value is Trip => Object.hasOwn(KNOWN_TRIPS, value);
+
+export function markOwedCommentFlyer(senderId: string, trip: Trip): void {
+  getDb()
+    .prepare(
+      `INSERT INTO processed_webhooks (source, external_id) VALUES (?, ?)
+       ON CONFLICT(source, external_id) DO UPDATE SET processed_at = datetime('now')`,
+    )
+    .run(`${OWED_FLYER_PREFIX}${trip}`, senderId);
+}
+
+// Peek, never consume: the caller decides what her message is before anything is spent.
+export function getOwedCommentTrips(senderId: string): Trip[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT source FROM processed_webhooks
+       WHERE source LIKE 'ig_comment_flyer:%' AND external_id = ?
+         AND processed_at >= datetime('now','-7 days')
+       ORDER BY id ASC`,
+    )
+    .all(senderId) as Array<{ source: string }>;
+  return rows.map((row) => row.source.slice(OWED_FLYER_PREFIX.length)).filter(isTrip);
+}
+
+// True only for the caller that actually removed the mark: with two phone messages in
+// flight, exactly one wins, so the flyer and the thank-you go out once.
+export function consumeOwedCommentFlyer(senderId: string, trip: Trip): boolean {
+  const { changes } = getDb()
+    .prepare(
+      `DELETE FROM processed_webhooks
+       WHERE source = ? AND external_id = ?
+         AND processed_at >= datetime('now','-7 days')`,
+    )
+    .run(`${OWED_FLYER_PREFIX}${trip}`, senderId);
+  return changes > 0;
 }
 
 // Drop queued comments older than the ~7-day Private-Reply window (the DM would

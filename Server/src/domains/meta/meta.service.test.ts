@@ -54,6 +54,8 @@ vi.mock("../../config/db.js", () => ({
   wasTripReplySentRecently: vi.fn().mockReturnValue(false),
   claimTripReply: vi.fn().mockReturnValue(true),
   releaseTripReply: vi.fn(),
+  getOwedCommentTrips: vi.fn().mockReturnValue([]),
+  consumeOwedCommentFlyer: vi.fn().mockReturnValue(false),
 }));
 
 vi.mock("../whatsapp/uman-welcome.service.js", () => ({
@@ -66,13 +68,15 @@ vi.mock("./meta.outbound.service.js", () => ({
   sendPhoneThanks: vi.fn().mockResolvedValue(undefined),
   sendTripAsk: vi.fn().mockResolvedValue(undefined),
   sendTripReply: vi.fn().mockResolvedValue(true),
+  sendFlyerImage: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("./meta.profile.service.js", () => ({
   fetchIgProfile: vi.fn().mockResolvedValue({ username: "test_user" }),
 }));
 
-import { handleIncomingMessage } from "./meta.service.js";
+import { handleIncomingMessage, recordTripCommentLead } from "./meta.service.js";
+import type { Trip } from "../../lib/trip.js";
 import { env } from "../../config/env.js";
 import * as dedup from "../../lib/dedup.js";
 import * as conversation from "../../lib/conversation.js";
@@ -127,9 +131,19 @@ const vagueClassification = {
 const tripRepliesSent = new Set<string>();
 const tripKey = (senderId: string, trip: string): string => `${senderId}:${trip}`;
 
+// Same idea for the "owed flyer" marks a trip-word comment leaves behind: consume
+// must hand out each mark exactly once, or the single-fire assertions mean nothing.
+const owedMarks = new Map<string, Set<Trip>>();
+
 beforeEach(() => {
   vi.clearAllMocks();
   tripRepliesSent.clear();
+  owedMarks.clear();
+  vi.mocked(db.getOwedCommentTrips).mockImplementation((senderId) => [...(owedMarks.get(senderId) ?? [])]);
+  vi.mocked(db.consumeOwedCommentFlyer).mockImplementation(
+    (senderId, trip) => owedMarks.get(senderId)?.delete(trip) ?? false,
+  );
+  vi.mocked(outbound.sendFlyerImage).mockResolvedValue(undefined);
   vi.mocked(db.wasTripReplySentRecently).mockImplementation((senderId, trip) =>
     tripRepliesSent.has(tripKey(senderId, trip)),
   );
@@ -159,7 +173,8 @@ beforeEach(() => {
   vi.mocked(outbound.sendTripReply).mockResolvedValue(true);
   vi.mocked(db.findQueuedLeadBySender).mockReturnValue(null);
   vi.mocked(db.wasKnifeDmSentRecently).mockReturnValue(false);
-  vi.mocked(profileService.fetchIgProfile).mockResolvedValue({ id: "profile-id", username: "test_user" });
+  // mockReset (not just a new default): a queued once-implementation must not leak into the next test.
+  vi.mocked(profileService.fetchIgProfile).mockReset().mockResolvedValue({ id: "profile-id", username: "test_user" });
 });
 
 describe("handleIncomingMessage — live row in another group + interested", () => {
@@ -2408,5 +2423,649 @@ describe("handleIncomingMessage — messages that are NOT a bare trip word still
     expect(outbound.sendTripReply).toHaveBeenCalledWith(SENDER_ID, { trip: "hanukkah", hasPhone: true });
     expect(db.claimTripReply).toHaveBeenCalledWith(SENDER_ID, "hanukkah");
     expect(db.releaseTripReply).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Trip-word COMMENTS. The private reply under the comment already was her DM, so
+// the bookkeeping that follows (recordTripCommentLead) must send nothing at all,
+// and her later phone-only reply is answered with the owed flyer + one thank-you,
+// without the classifier.
+// ---------------------------------------------------------------------------
+
+const PHONE = "0501234567";
+
+function seedOwed(senderId: string, ...trips: Trip[]): void {
+  owedMarks.set(senderId, new Set(trips));
+}
+
+function knownLiveLead(phone: string | null = null, groupId: string = NO_PHONE_GROUP): void {
+  vi.mocked(dedup.findKnownSender).mockReturnValue({ monday_item_id: ITEM_ID, phone });
+  vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+    boardId: CRM_BOARD,
+    groupId,
+    service: "טיסה לאומן",
+  });
+}
+
+function expectNoOutbound(): void {
+  expect(outbound.sendReplyDM).not.toHaveBeenCalled();
+  expect(outbound.sendServiceQuestion).not.toHaveBeenCalled();
+  expect(outbound.sendTripAsk).not.toHaveBeenCalled();
+  expect(outbound.sendTripReply).not.toHaveBeenCalled();
+  expect(outbound.sendPhoneThanks).not.toHaveBeenCalled();
+  expect(outbound.sendFlyerImage).not.toHaveBeenCalled();
+}
+
+function callOrder(fn: unknown, index = 0): number {
+  const order = vi.mocked(fn as (...args: never[]) => unknown).mock.invocationCallOrder[index];
+  if (order === undefined) throw new Error("expected the mock to have been called");
+  return order;
+}
+
+describe("recordTripCommentLead — comment-origin lead bookkeeping, every DM suppressed", () => {
+  const COMMENT = {
+    senderId: SENDER_ID,
+    senderUsername: "ig_handle",
+    commentText: "חנוכה",
+    trip: "hanukkah" as const,
+  };
+
+  beforeEach(() => {
+    vi.mocked(mondayService.updateLastIgMessage).mockResolvedValue(undefined);
+    vi.mocked(mondayService.updateItemPhone).mockResolvedValue(undefined);
+    vi.mocked(mondayService.moveItemToGroup).mockResolvedValue(undefined);
+  });
+
+  it("new commenter → uman CRM row with no phone + known sender + her comment as the last message; no pending, nothing sent", async () => {
+    await recordTripCommentLead(COMMENT);
+
+    expect(classify.classifyLead).not.toHaveBeenCalled();
+    expect(mondayService.createLeadRow).toHaveBeenCalledTimes(1);
+    expect(mondayService.createLeadRow).toHaveBeenCalledWith(
+      expect.objectContaining({ service: "uman", phone: null, source: "instagram" }),
+    );
+    expect(dedup.upsertKnownSender).toHaveBeenCalledWith(
+      expect.objectContaining({
+        platform: "instagram",
+        senderId: SENDER_ID,
+        mondayItemId: "new-item-123",
+        phone: null,
+      }),
+    );
+    expect(mondayService.updateLastIgMessage).toHaveBeenCalledWith("new-item-123", "חנוכה");
+    expect(conversation.upsertPendingClarification).not.toHaveBeenCalled();
+    expectNoOutbound();
+  });
+
+  it("the WhatsApp welcome is NOT suppressed (only Instagram DMs are) — it still gets its chance", async () => {
+    await recordTripCommentLead(COMMENT);
+
+    expect(umanWelcome.maybeSendUmanWelcome).toHaveBeenCalledWith(
+      expect.objectContaining({ senderId: SENDER_ID, mondayItemId: "new-item-123", service: "uman", phone: null }),
+    );
+  });
+
+  it("the word never opens a trip-stage pending or asks which trip (the comment's trip is the hint)", async () => {
+    await recordTripCommentLead({ ...COMMENT, commentText: "🙏", trip: "kislev" });
+
+    expect(conversation.upsertPendingClarification).not.toHaveBeenCalled();
+    expect(outbound.sendTripAsk).not.toHaveBeenCalled();
+    expectNoOutbound();
+  });
+
+  it("known live lead with a stored phone → updated and re-filed, no new row, nothing sent", async () => {
+    knownLiveLead("0509999999", "followup_group");
+
+    await recordTripCommentLead(COMMENT);
+
+    expect(mondayService.updateLastIgMessage).toHaveBeenCalledWith(ITEM_ID, "חנוכה");
+    expect(mondayService.moveItemToGroup).toHaveBeenCalledWith(ITEM_ID, NEW_LEADS_GROUP);
+    expect(mondayService.createLeadRow).not.toHaveBeenCalled();
+    expectNoOutbound();
+  });
+
+  it("known live lead with no phone → re-filed to the no-phone group, nothing sent", async () => {
+    knownLiveLead(null, "followup_group");
+
+    await recordTripCommentLead(COMMENT);
+
+    expect(mondayService.moveItemToGroup).toHaveBeenCalledWith(ITEM_ID, NO_PHONE_GROUP);
+    expect(mondayService.createLeadRow).not.toHaveBeenCalled();
+    expectNoOutbound();
+  });
+
+  it("an open service-stage pending is resolved, the trip question is never asked", async () => {
+    vi.mocked(conversation.getPendingClarification).mockReturnValue({
+      monday_item_id: ITEM_ID,
+      phone: null,
+      reask_count: 1,
+      stage: "service" as const,
+      trip: null,
+    });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+      boardId: CRM_BOARD,
+      groupId: NO_PHONE_GROUP,
+      service: null,
+    });
+
+    await recordTripCommentLead(COMMENT);
+
+    expect(conversation.clearPendingClarification).toHaveBeenCalledWith("instagram", SENDER_ID);
+    expect(conversation.advanceToTripStage).not.toHaveBeenCalled();
+    expectNoOutbound();
+  });
+
+  it("an open trip-stage pending is resolved, never re-asked", async () => {
+    vi.mocked(conversation.getPendingClarification).mockReturnValue({
+      monday_item_id: ITEM_ID,
+      phone: null,
+      reask_count: 0,
+      stage: "trip" as const,
+      trip: null,
+    });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+      boardId: CRM_BOARD,
+      groupId: NO_PHONE_GROUP,
+      service: "טיסה לאומן",
+    });
+
+    await recordTripCommentLead({ ...COMMENT, commentText: "🙏" });
+
+    expect(conversation.clearPendingClarification).toHaveBeenCalledWith("instagram", SENDER_ID);
+    expectNoOutbound();
+  });
+
+  it("already on the active Uman service board → no CRM row, nothing sent", async () => {
+    vi.mocked(mondayWebhookService.findLeadOnActiveServiceBoards).mockResolvedValue({
+      itemId: "service-item-222",
+      boardId: "service-board-111",
+    });
+
+    await recordTripCommentLead(COMMENT);
+
+    expect(mondayService.createLeadRow).not.toHaveBeenCalled();
+    expect(dedup.upsertKnownSender).not.toHaveBeenCalled();
+    expectNoOutbound();
+  });
+
+  it("a sender whose create is already queued → merged into the queue, nothing sent", async () => {
+    vi.mocked(db.findQueuedLeadBySender).mockReturnValue(queuedRow({ phone: null }));
+
+    await recordTripCommentLead(COMMENT);
+
+    expect(db.enqueueMondayLead).toHaveBeenCalledWith(
+      expect.objectContaining({ senderId: SENDER_ID, service: "uman", messageText: "חנוכה" }),
+    );
+    expect(mondayService.createLeadRow).not.toHaveBeenCalled();
+    expectNoOutbound();
+  });
+
+  it("stale mapping → treated as new: a fresh row, nothing sent", async () => {
+    vi.mocked(dedup.findKnownSender).mockReturnValue({ monday_item_id: "stale-item-id", phone: null });
+    vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue(null);
+
+    await recordTripCommentLead(COMMENT);
+
+    expect(dedup.deleteKnownSenderByItemId).toHaveBeenCalledWith("stale-item-id");
+    expect(mondayService.createLeadRow).toHaveBeenCalledTimes(1);
+    expectNoOutbound();
+  });
+
+  it("Monday rate-limits the create → deferred to the queue with no clarification, nothing sent", async () => {
+    vi.mocked(mondayService.createLeadRow).mockRejectedValue(new MondayRateLimitError("daily", 9000, "daily cap"));
+
+    await expect(recordTripCommentLead(COMMENT)).resolves.toBeUndefined();
+
+    expect(db.enqueueMondayLead).toHaveBeenCalledWith(
+      expect.objectContaining({ senderId: SENDER_ID, service: "uman", phone: null, openClarification: false }),
+    );
+    expectNoOutbound();
+  });
+
+  it("a non-rate-limit Monday error propagates (the caller defers it) and still sent nothing", async () => {
+    vi.mocked(mondayService.createLeadRow).mockRejectedValue(new Error("Monday down"));
+
+    await expect(recordTripCommentLead(COMMENT)).rejects.toThrow("Monday down");
+
+    expectNoOutbound();
+  });
+
+  it("the suppression is scoped to the comment lead: another sender's DM handled at the same moment is still answered", async () => {
+    // Slow profile lookup keeps the comment lead mid-flight (inside the suppression
+    // scope) while the other message reaches its own send.
+    vi.mocked(profileService.fetchIgProfile).mockImplementationOnce(
+      () => new Promise((resolve) => setTimeout(() => resolve({ id: "p", username: "slow_user" }), 5)),
+    );
+
+    await Promise.all([
+      recordTripCommentLead(COMMENT),
+      handleIncomingMessage({ messageText: "כסלו", senderId: "other_sender", messageId: "iso-1" }),
+    ]);
+
+    expect(outbound.sendTripReply).toHaveBeenCalledTimes(1);
+    expect(outbound.sendTripReply).toHaveBeenCalledWith("other_sender", { trip: "kislev", hasPhone: false });
+  });
+
+  it("the suppression does not outlive the call: her next DM is answered normally", async () => {
+    await recordTripCommentLead(COMMENT);
+    expectNoOutbound();
+
+    await handleIncomingMessage({ messageText: "כסלו", senderId: SENDER_ID, messageId: "iso-2" });
+
+    expect(outbound.sendTripReply).toHaveBeenCalledWith(SENDER_ID, { trip: "kislev", hasPhone: false });
+  });
+});
+
+describe("new-sender display name", () => {
+  const MESSAGE = { messageText: "אני רוצה טיסה לאומן", senderId: SENDER_ID };
+
+  it("the IG profile username is used when the lookup works", async () => {
+    vi.mocked(profileService.fetchIgProfile).mockResolvedValue({ id: "p", username: "profile_user" });
+
+    await handleIncomingMessage({ ...MESSAGE, senderUsername: "event_handle", messageId: "name-1" });
+
+    expect(mondayService.createLeadRow).toHaveBeenCalledWith(expect.objectContaining({ name: "profile_user" }));
+  });
+
+  it("falls back to the username the event carried when the profile lookup fails (a commenter who never DMed us)", async () => {
+    vi.mocked(profileService.fetchIgProfile).mockResolvedValue(null);
+
+    await handleIncomingMessage({ ...MESSAGE, senderUsername: "event_handle", messageId: "name-2" });
+
+    expect(mondayService.createLeadRow).toHaveBeenCalledWith(expect.objectContaining({ name: "event_handle" }));
+    expect(dedup.upsertKnownSender).toHaveBeenCalledWith(
+      expect.objectContaining({ senderId: SENDER_ID, senderUsername: "event_handle" }),
+    );
+  });
+
+  it("falls back to the event username when the profile comes back without one", async () => {
+    vi.mocked(profileService.fetchIgProfile).mockResolvedValue({ id: "p" });
+
+    await handleIncomingMessage({ ...MESSAGE, senderUsername: "event_handle", messageId: "name-3" });
+
+    expect(mondayService.createLeadRow).toHaveBeenCalledWith(expect.objectContaining({ name: "event_handle" }));
+  });
+
+  it("neither source has a name → 'Unknown IG lead'", async () => {
+    vi.mocked(profileService.fetchIgProfile).mockResolvedValue(null);
+
+    await handleIncomingMessage({ ...MESSAGE, messageId: "name-4" });
+
+    expect(mondayService.createLeadRow).toHaveBeenCalledWith(expect.objectContaining({ name: "Unknown IG lead" }));
+  });
+
+  it("a comment lead whose profile lookup fails is named after her handle", async () => {
+    vi.mocked(profileService.fetchIgProfile).mockResolvedValue(null);
+
+    await recordTripCommentLead({
+      senderId: SENDER_ID,
+      senderUsername: "commenter_handle",
+      commentText: "כסלו",
+      trip: "kislev",
+    });
+
+    expect(mondayService.createLeadRow).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "commenter_handle" }),
+    );
+  });
+
+  it("the deferred (rate-limited) create carries the same fallback name into the queue", async () => {
+    vi.mocked(profileService.fetchIgProfile).mockResolvedValue(null);
+    vi.mocked(mondayService.createLeadRow).mockRejectedValue(new MondayRateLimitError("daily", 9000, "daily cap"));
+
+    await handleIncomingMessage({ ...MESSAGE, senderUsername: "event_handle", messageId: "name-5" });
+
+    expect(db.enqueueMondayLead).toHaveBeenCalledWith(
+      expect.objectContaining({ senderId: SENDER_ID, displayName: "event_handle" }),
+    );
+  });
+});
+
+describe("handleIncomingMessage — her reply after a trip-word comment (owed flyer)", () => {
+  beforeEach(() => {
+    vi.mocked(mondayService.updateLastIgMessage).mockResolvedValue(undefined);
+    vi.mocked(mondayService.updateItemPhone).mockResolvedValue(undefined);
+    vi.mocked(mondayService.moveItemToGroup).mockResolvedValue(undefined);
+    vi.mocked(mondayService.createLeadRow).mockResolvedValue({ itemId: "new-item-123" });
+    // If the follow-up ever consults the classifier, these tests fail loudly.
+    vi.mocked(classify.classifyLead).mockResolvedValue(notInterestedClassification);
+    seedOwed(SENDER_ID, "hanukkah");
+  });
+
+  describe("replies that carry no phone", () => {
+    it("a plain reply → nothing is sent, the classifier is skipped, her message is still recorded, the owed mark stays", async () => {
+      knownLiveLead();
+
+      const result = await handleIncomingMessage({ messageText: "תודה רבה", senderId: SENDER_ID, messageId: "fu-1" });
+
+      expect(classify.classifyLead).not.toHaveBeenCalled();
+      expectNoOutbound();
+      expect(mondayService.updateLastIgMessage).toHaveBeenCalledWith(ITEM_ID, "תודה רבה");
+      expect(db.consumeOwedCommentFlyer).not.toHaveBeenCalled();
+      expect(db.getOwedCommentTrips(SENDER_ID)).toEqual(["hanukkah"]);
+      expect(result.classification).toMatchObject({
+        interested: false,
+        service: null,
+        extractedPhone: null,
+        rawResponse: "comment-follow-up",
+      });
+    });
+
+    it("the bare word of the trip she was already DMed about → nothing is sent (the private reply was the answer)", async () => {
+      knownLiveLead();
+
+      await handleIncomingMessage({ messageText: "חנוכה", senderId: SENDER_ID, messageId: "fu-2" });
+
+      expect(classify.classifyLead).not.toHaveBeenCalled();
+      expectNoOutbound();
+      expect(db.claimTripReply).not.toHaveBeenCalled();
+      expect(db.consumeOwedCommentFlyer).not.toHaveBeenCalled();
+      expect(db.getOwedCommentTrips(SENDER_ID)).toEqual(["hanukkah"]);
+    });
+
+    it("a sender with no row and no phone → nothing is created, nothing is sent", async () => {
+      await handleIncomingMessage({ messageText: "תודה", senderId: SENDER_ID, messageId: "fu-2b" });
+
+      expect(mondayService.createLeadRow).not.toHaveBeenCalled();
+      expectNoOutbound();
+    });
+  });
+
+  describe("replies that carry a phone", () => {
+    it("a phone → the owed flyer, then ONE thank-you; the mark is consumed and the phone is stored as for any known lead", async () => {
+      knownLiveLead();
+
+      const result = await handleIncomingMessage({ messageText: PHONE, senderId: SENDER_ID, messageId: "fu-3" });
+
+      expect(classify.classifyLead).not.toHaveBeenCalled();
+      expect(outbound.sendFlyerImage).toHaveBeenCalledTimes(1);
+      expect(outbound.sendFlyerImage).toHaveBeenCalledWith(SENDER_ID, "hanukkah");
+      expect(outbound.sendPhoneThanks).toHaveBeenCalledTimes(1);
+      expect(outbound.sendPhoneThanks).toHaveBeenCalledWith(SENDER_ID);
+      expect(callOrder(outbound.sendFlyerImage)).toBeLessThan(callOrder(outbound.sendPhoneThanks));
+      expect(db.consumeOwedCommentFlyer).toHaveBeenCalledWith(SENDER_ID, "hanukkah");
+      expect(db.getOwedCommentTrips(SENDER_ID)).toEqual([]);
+
+      expect(outbound.sendTripReply).not.toHaveBeenCalled();
+      expect(outbound.sendTripAsk).not.toHaveBeenCalled();
+      expect(outbound.sendServiceQuestion).not.toHaveBeenCalled();
+      expect(dedup.updateSenderPhone).toHaveBeenCalledWith("instagram", SENDER_ID, PHONE);
+      expect(mondayService.updateItemPhone).toHaveBeenCalledWith(ITEM_ID, PHONE);
+      expect(mondayService.moveItemToGroup).toHaveBeenCalledWith(ITEM_ID, NEW_LEADS_GROUP);
+      expect(result.classification).toMatchObject({
+        interested: true,
+        service: "uman",
+        extractedPhone: PHONE,
+        rawResponse: "comment-follow-up",
+      });
+    });
+
+    it("a phone inside a sentence works too", async () => {
+      knownLiveLead();
+
+      await handleIncomingMessage({ messageText: `הנה המספר שלי ${PHONE} תודה`, senderId: SENDER_ID, messageId: "fu-3b" });
+
+      expect(outbound.sendFlyerImage).toHaveBeenCalledTimes(1);
+      expect(outbound.sendPhoneThanks).toHaveBeenCalledTimes(1);
+    });
+
+    it("a phone when one is ALREADY stored → still the flyer + one thank-you (any phone, not only a first one)", async () => {
+      knownLiveLead("0509999999", NEW_LEADS_GROUP);
+
+      await handleIncomingMessage({ messageText: `המספר שלי ${PHONE}`, senderId: SENDER_ID, messageId: "fu-4" });
+
+      expect(mondayService.updateItemPhone).not.toHaveBeenCalled();
+      expect(outbound.sendFlyerImage).toHaveBeenCalledTimes(1);
+      expect(outbound.sendFlyerImage).toHaveBeenCalledWith(SENDER_ID, "hanukkah");
+      expect(outbound.sendPhoneThanks).toHaveBeenCalledTimes(1);
+    });
+
+    it('"חנוכה 0501234567" for the owed trip → the flyer + one thank-you, no second trip reply, classifier skipped', async () => {
+      knownLiveLead();
+
+      await handleIncomingMessage({ messageText: `חנוכה ${PHONE}`, senderId: SENDER_ID, messageId: "fu-5" });
+
+      expect(classify.classifyLead).not.toHaveBeenCalled();
+      expect(outbound.sendTripReply).not.toHaveBeenCalled();
+      expect(db.claimTripReply).not.toHaveBeenCalled();
+      expect(outbound.sendFlyerImage).toHaveBeenCalledTimes(1);
+      expect(outbound.sendFlyerImage).toHaveBeenCalledWith(SENDER_ID, "hanukkah");
+      expect(outbound.sendPhoneThanks).toHaveBeenCalledTimes(1);
+    });
+
+    it("a sender whose row is still queued → merged into the queue with the phone, then the flyer + thank-you", async () => {
+      vi.mocked(db.findQueuedLeadBySender).mockReturnValue(queuedRow({ phone: null }));
+
+      await handleIncomingMessage({ messageText: PHONE, senderId: SENDER_ID, messageId: "fu-6" });
+
+      expect(db.enqueueMondayLead).toHaveBeenCalledWith(
+        expect.objectContaining({ senderId: SENDER_ID, phone: PHONE, service: "uman" }),
+      );
+      expect(mondayService.createLeadRow).not.toHaveBeenCalled();
+      expect(outbound.sendFlyerImage).toHaveBeenCalledTimes(1);
+      expect(outbound.sendPhoneThanks).toHaveBeenCalledTimes(1);
+    });
+
+    it("a sender with no row yet → a row is created WITH the phone, no trip-stage pending, no trip question; then the flyer + thank-you", async () => {
+      const result = await handleIncomingMessage({ messageText: PHONE, senderId: SENDER_ID, messageId: "fu-7" });
+
+      expect(mondayService.createLeadRow).toHaveBeenCalledWith(
+        expect.objectContaining({ service: "uman", phone: PHONE }),
+      );
+      expect(dedup.upsertKnownSender).toHaveBeenCalledWith(
+        expect.objectContaining({ senderId: SENDER_ID, mondayItemId: "new-item-123", phone: PHONE }),
+      );
+      expect(conversation.upsertPendingClarification).not.toHaveBeenCalled();
+      expect(outbound.sendTripAsk).not.toHaveBeenCalled();
+      expect(outbound.sendTripReply).not.toHaveBeenCalled();
+      expect(outbound.sendFlyerImage).toHaveBeenCalledTimes(1);
+      expect(outbound.sendPhoneThanks).toHaveBeenCalledTimes(1);
+      expect(result.itemId).toBe("new-item-123");
+    });
+
+    it("an open trip-stage pending + her phone → resolved with the owed trip, never re-asked", async () => {
+      vi.mocked(conversation.getPendingClarification).mockReturnValue({
+        monday_item_id: ITEM_ID,
+        phone: null,
+        reask_count: 1,
+        stage: "trip" as const,
+        trip: null,
+      });
+      vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+        boardId: CRM_BOARD,
+        groupId: NO_PHONE_GROUP,
+        service: "טיסה לאומן",
+      });
+
+      await handleIncomingMessage({ messageText: PHONE, senderId: SENDER_ID, messageId: "fu-8" });
+
+      expect(conversation.clearPendingClarification).toHaveBeenCalledWith("instagram", SENDER_ID);
+      expect(outbound.sendTripAsk).not.toHaveBeenCalled();
+      expect(outbound.sendFlyerImage).toHaveBeenCalledTimes(1);
+      expect(outbound.sendPhoneThanks).toHaveBeenCalledTimes(1);
+    });
+
+    it("an open service-stage pending + her phone → resolved with the owed trip, no trip question", async () => {
+      vi.mocked(conversation.getPendingClarification).mockReturnValue({
+        monday_item_id: ITEM_ID,
+        phone: null,
+        reask_count: 0,
+        stage: "service" as const,
+        trip: null,
+      });
+      vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+        boardId: CRM_BOARD,
+        groupId: NO_PHONE_GROUP,
+        service: null,
+      });
+
+      await handleIncomingMessage({ messageText: PHONE, senderId: SENDER_ID, messageId: "fu-9" });
+
+      expect(conversation.clearPendingClarification).toHaveBeenCalledWith("instagram", SENDER_ID);
+      expect(conversation.advanceToTripStage).not.toHaveBeenCalled();
+      expect(outbound.sendTripAsk).not.toHaveBeenCalled();
+      expect(outbound.sendFlyerImage).toHaveBeenCalledTimes(1);
+      expect(outbound.sendPhoneThanks).toHaveBeenCalledTimes(1);
+    });
+
+    it("two owed trips → both flyers (before the thank-you), one thank-you, both marks consumed", async () => {
+      seedOwed(SENDER_ID, "kislev", "hanukkah");
+      knownLiveLead();
+
+      await handleIncomingMessage({ messageText: PHONE, senderId: SENDER_ID, messageId: "fu-10" });
+
+      expect(outbound.sendFlyerImage).toHaveBeenCalledTimes(2);
+      expect(outbound.sendFlyerImage).toHaveBeenCalledWith(SENDER_ID, "kislev");
+      expect(outbound.sendFlyerImage).toHaveBeenCalledWith(SENDER_ID, "hanukkah");
+      expect(outbound.sendPhoneThanks).toHaveBeenCalledTimes(1);
+      expect(callOrder(outbound.sendFlyerImage, 1)).toBeLessThan(callOrder(outbound.sendPhoneThanks));
+      expect(db.getOwedCommentTrips(SENDER_ID)).toEqual([]);
+    });
+
+    it("two phone messages started together → the flyer and the thank-you go out once", async () => {
+      knownLiveLead();
+      // A send that takes a macrotask guarantees the second message reaches its
+      // consume while the first one is still mid-send.
+      vi.mocked(outbound.sendFlyerImage).mockImplementation(
+        () => new Promise<void>((resolve) => setTimeout(resolve, 0)),
+      );
+
+      await Promise.all([
+        handleIncomingMessage({ messageText: PHONE, senderId: SENDER_ID, messageId: "fu-conc-1" }),
+        handleIncomingMessage({ messageText: `${PHONE} שוב`, senderId: SENDER_ID, messageId: "fu-conc-2" }),
+      ]);
+
+      expect(outbound.sendFlyerImage).toHaveBeenCalledTimes(1);
+      expect(outbound.sendPhoneThanks).toHaveBeenCalledTimes(1);
+      expect(classify.classifyLead).not.toHaveBeenCalled();
+    });
+
+    it("Monday errors → the flyer + thank-you still go out and the error propagates (message unmarked)", async () => {
+      knownLiveLead();
+      vi.mocked(mondayService.getItemBoardAndGroup).mockRejectedValue(new Error("Monday API 500"));
+
+      await expect(
+        handleIncomingMessage({ messageText: PHONE, senderId: SENDER_ID, messageId: "fu-err" }),
+      ).rejects.toThrow("Monday API 500");
+
+      expect(outbound.sendFlyerImage).toHaveBeenCalledTimes(1);
+      expect(outbound.sendFlyerImage).toHaveBeenCalledWith(SENDER_ID, "hanukkah");
+      expect(outbound.sendPhoneThanks).toHaveBeenCalledTimes(1);
+      expect(dedup.unmarkMessageProcessed).toHaveBeenCalledWith("meta", "fu-err");
+    });
+
+    it("Monday rate-limits her row → the phone is queued, the flyer + thank-you still go out, nothing is unmarked", async () => {
+      knownLiveLead();
+      vi.mocked(mondayService.getItemBoardAndGroup).mockRejectedValue(
+        new MondayRateLimitError("daily", 9000, "daily cap"),
+      );
+
+      await handleIncomingMessage({ messageText: PHONE, senderId: SENDER_ID, messageId: "fu-429" });
+
+      expect(db.enqueueMondayLead).toHaveBeenCalledWith(
+        expect.objectContaining({ senderId: SENDER_ID, phone: PHONE }),
+      );
+      expect(outbound.sendFlyerImage).toHaveBeenCalledTimes(1);
+      expect(outbound.sendPhoneThanks).toHaveBeenCalledTimes(1);
+      expect(dedup.unmarkMessageProcessed).not.toHaveBeenCalled();
+    });
+
+    it("consuming the mark throws (DB error) → nothing propagates, the lead is still recorded, she just gets no flyer", async () => {
+      knownLiveLead();
+      vi.mocked(db.consumeOwedCommentFlyer).mockImplementation(() => {
+        throw new Error("SQLITE_BUSY");
+      });
+
+      const result = await handleIncomingMessage({ messageText: PHONE, senderId: SENDER_ID, messageId: "fu-busy" });
+
+      expect(result.itemId).toBe(ITEM_ID);
+      expect(mondayService.updateItemPhone).toHaveBeenCalledWith(ITEM_ID, PHONE);
+      expect(outbound.sendFlyerImage).not.toHaveBeenCalled();
+      expect(outbound.sendPhoneThanks).not.toHaveBeenCalled();
+      expect(dedup.unmarkMessageProcessed).not.toHaveBeenCalled();
+    });
+
+    it("a bookkeeping error in the finally does not mask the path's own error", async () => {
+      knownLiveLead();
+      vi.mocked(mondayService.getItemBoardAndGroup).mockRejectedValue(new Error("Monday API 500"));
+      vi.mocked(db.consumeOwedCommentFlyer).mockImplementation(() => {
+        throw new Error("SQLITE_BUSY");
+      });
+
+      await expect(
+        handleIncomingMessage({ messageText: PHONE, senderId: SENDER_ID, messageId: "fu-mask" }),
+      ).rejects.toThrow("Monday API 500");
+
+      expect(dedup.unmarkMessageProcessed).toHaveBeenCalledWith("meta", "fu-mask");
+    });
+
+    it("a flyer send that throws never blocks the thank-you or the result", async () => {
+      knownLiveLead();
+      vi.mocked(outbound.sendFlyerImage).mockRejectedValue(new Error("IG API 503"));
+
+      const result = await handleIncomingMessage({ messageText: PHONE, senderId: SENDER_ID, messageId: "fu-flyer-err" });
+
+      expect(result.itemId).toBe(ITEM_ID);
+      expect(outbound.sendPhoneThanks).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("what is NOT a follow-up", () => {
+    it("a trigger word for a DIFFERENT trip → the normal trigger path answers it; the owed mark is untouched", async () => {
+      knownLiveLead();
+
+      await handleIncomingMessage({ messageText: "כסלו", senderId: SENDER_ID, messageId: "fu-diff" });
+
+      expect(classify.classifyLead).not.toHaveBeenCalled();
+      expect(outbound.sendTripReply).toHaveBeenCalledTimes(1);
+      expect(outbound.sendTripReply).toHaveBeenCalledWith(SENDER_ID, { trip: "kislev", hasPhone: false });
+      expect(outbound.sendFlyerImage).not.toHaveBeenCalled();
+      expect(db.consumeOwedCommentFlyer).not.toHaveBeenCalled();
+      expect(db.getOwedCommentTrips(SENDER_ID)).toEqual(["hanukkah"]);
+    });
+
+    it("no owed mark → a phone-only message goes through the classifier exactly as before", async () => {
+      owedMarks.clear();
+      knownLiveLead();
+      vi.mocked(classify.classifyLead).mockResolvedValue({ ...notInterestedClassification, extractedPhone: PHONE });
+
+      await handleIncomingMessage({ messageText: PHONE, senderId: SENDER_ID, messageId: "fu-none" });
+
+      expect(classify.classifyLead).toHaveBeenCalledTimes(1);
+      expect(outbound.sendFlyerImage).not.toHaveBeenCalled();
+      // the pre-existing first-phone thank-you for a known uman lead is unchanged
+      expect(outbound.sendPhoneThanks).toHaveBeenCalledTimes(1);
+      expect(db.consumeOwedCommentFlyer).not.toHaveBeenCalled();
+    });
+
+    it("an owed mark belonging to someone else is not hers", async () => {
+      owedMarks.clear();
+      seedOwed("some_other_sender", "hanukkah");
+      knownLiveLead();
+      vi.mocked(classify.classifyLead).mockResolvedValue({ ...notInterestedClassification, extractedPhone: PHONE });
+
+      await handleIncomingMessage({ messageText: PHONE, senderId: SENDER_ID, messageId: "fu-other" });
+
+      expect(classify.classifyLead).toHaveBeenCalledTimes(1);
+      expect(outbound.sendFlyerImage).not.toHaveBeenCalled();
+    });
+
+    it("a duplicate webhook delivery returns before the owed marks are even read", async () => {
+      vi.mocked(dedup.isMessageProcessed).mockReturnValue(true);
+
+      await handleIncomingMessage({ messageText: PHONE, senderId: SENDER_ID, messageId: "fu-dup" });
+
+      expect(db.getOwedCommentTrips).not.toHaveBeenCalled();
+      expect(db.consumeOwedCommentFlyer).not.toHaveBeenCalled();
+      expectNoOutbound();
+    });
+
+    it("no senderId (dev test-inject) → never a follow-up", async () => {
+      await handleIncomingMessage({ messageText: PHONE });
+
+      expect(db.getOwedCommentTrips).not.toHaveBeenCalled();
+      expect(classify.classifyLead).toHaveBeenCalledTimes(1);
+    });
   });
 });

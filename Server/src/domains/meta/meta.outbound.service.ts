@@ -1,5 +1,6 @@
 import { env } from "../../config/env.js";
 import { logger } from "../../config/logger.js";
+import { AppError } from "../../lib/errors.js";
 import { getCurrentIgToken } from "./meta.token.service.js";
 import type { Trip } from "../../lib/trip.js";
 
@@ -256,37 +257,129 @@ export async function sendPhoneThanks(recipientIgsid: string): Promise<void> {
 }
 
 /**
+ * What a Private-Reply attempt came back as. The values are split by what the caller
+ * should do NEXT, not by HTTP status:
+ *  - sent            delivered.
+ *  - blocked         she cannot be messaged (privacy settings): tell her publicly, never retry.
+ *  - maybe-blocked   a blocked-looking signature (code 100, subcode 2534025) that may also come
+ *                    back when an earlier attempt of this very send already landed — so the
+ *                    caller only trusts it as "blocked" on a first try.
+ *  - drop            permanent for this comment (already answered, comment gone, no such user):
+ *                    nothing worth telling her, never retry.
+ *  - rejected        some other 4xx we do not recognise: a few retries, then give up.
+ *  - transient       network error / 5xx / Graph codes 1 and 2: retry with backoff.
+ *  - rate-limited    HTTP 429 / Graph 4, 17, 32, 613: stop sending for a while.
+ *  - token           token unavailable / Graph 190: stop sending until it is fixed.
+ *  - action-blocked  Graph 368, Meta flagged the account's behaviour: stop for a long while.
+ *  - dry-run         IG_OUTBOUND_DRYRUN — nothing was sent.
+ */
+export type PrivateReplyOutcome =
+  | "sent"
+  | "blocked"
+  | "maybe-blocked"
+  | "drop"
+  | "rejected"
+  | "transient"
+  | "rate-limited"
+  | "token"
+  | "action-blocked"
+  | "dry-run";
+
+interface GraphError {
+  code?: number;
+  subcode?: number;
+  message?: string;
+  userMessage?: string;
+  traceId?: string;
+}
+
+// Meta's error envelope is { error: { code, error_subcode, message, error_user_msg, fbtrace_id } },
+// but a proxy or an outage can put anything in the body — every field is checked, none assumed.
+function parseGraphError(body: string): GraphError {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return {};
+  }
+  const error = typeof parsed === "object" && parsed !== null ? (parsed as { error?: unknown }).error : undefined;
+  if (typeof error !== "object" || error === null) return {};
+
+  const fields = error as Record<string, unknown>;
+  const num = (value: unknown): number | undefined => (typeof value === "number" ? value : undefined);
+  const str = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
+  return {
+    code: num(fields.code),
+    subcode: num(fields.error_subcode),
+    message: str(fields.message),
+    userMessage: str(fields.error_user_msg),
+    traceId: str(fields.fbtrace_id),
+  };
+}
+
+const RATE_LIMIT_CODES = new Set([4, 17, 32, 613]);
+// Permanent per-comment failures. Checked against both fields because Meta reports some of
+// these as the top-level code and others as the subcode.
+const SILENT_DROP_VALUES = new Set([10900, 2534022, 2534014, 2018001]);
+
+function classifyFailure(status: number, { code, subcode }: GraphError): PrivateReplyOutcome {
+  if (code === 551) return "blocked";
+  if (code === 100 && subcode === 2534025) return "maybe-blocked";
+  if (code === 368) return "action-blocked";
+  if (status === 429 || (code !== undefined && RATE_LIMIT_CODES.has(code))) return "rate-limited";
+  if (code === 190) return "token";
+  if (
+    (code !== undefined && SILENT_DROP_VALUES.has(code)) ||
+    (subcode !== undefined && SILENT_DROP_VALUES.has(subcode)) ||
+    (code === 100 && subcode === 33)
+  ) {
+    return "drop";
+  }
+  if (status >= 500 || code === 1 || code === 2) return "transient";
+  if (status >= 400 && status < 500) return "rejected";
+  return "transient";
+}
+
+function privateReplyText(kind: "uman" | "knife" | "trip", commenterIgsid: string, trip?: Trip): string {
+  if (kind === "knife") return env.IG_MSG_COMMENT_KNIFE.replace(/\\n/g, "\n");
+  if (kind === "trip") {
+    if (!trip) throw new AppError(500, "A trip private reply needs the trip it is for", "TRIP_REQUIRED");
+    // No phone yet — she has only commented — so always the ask-for-phone variant.
+    return pickTripTemplate({ trip, hasPhone: false }).template.replace(/\\n/g, "\n");
+  }
+  return env.IG_MSG_COMMENT_UMAN.replace(/\\n/g, "\n").replaceAll(
+    "{form_link}",
+    `${FORM_BASE_URL}/?ig_id=${encodeURIComponent(commenterIgsid)}`,
+  );
+}
+
+/**
  * Send a Meta "Private Reply" DM to someone who commented on a post. This is the
  * ONLY sanctioned way to DM a commenter (we cannot cold-DM): the recipient is the
- * comment_id, allowed within 7 days of the comment, once per comment.
+ * comment_id, allowed within 7 days of the comment, once per comment, text only.
  *
- * `kind` selects the template: "uman" (default) is the lead-capture funnel DM with
- * {form_link}; "knife" is the direct knife-sale pitch (IG_MSG_COMMENT_KNIFE), which
- * carries no form link and never produces a Monday row.
+ * `kind` selects the template: "uman" is the lead-capture funnel DM with {form_link};
+ * "knife" is the direct knife-sale pitch (IG_MSG_COMMENT_KNIFE); "trip" is that trip's
+ * no-phone reply (`trip` required) — the flyer cannot ride along, it is sent after she
+ * answers (see the owed-flyer marks in db.ts).
  *
- * Returns true ONLY on a confirmed send (mirrors sendGatewayMessage) so the caller
- * can couple Monday-row creation to a successful DM — a comment never produces a
- * row unless this returned true. The form link (uman only) is personalized with the
- * COMMENTER's IG id (?ig_id=) so a later form submit de-dupes back to the same row.
+ * Resolves to "sent" ONLY on a confirmed send, so the caller can couple Monday-row
+ * creation to a successful DM; every other outcome says what to do instead (see
+ * PrivateReplyOutcome). Never throws for a failed send.
  */
 export async function sendCommentPrivateReply(
   commentId: string,
   commenterIgsid: string,
-  kind: "uman" | "knife" = "uman",
-): Promise<boolean> {
-  const text =
-    kind === "knife"
-      ? env.IG_MSG_COMMENT_KNIFE.replace(/\\n/g, "\n")
-      : env.IG_MSG_COMMENT_UMAN.replace(/\\n/g, "\n").replaceAll(
-          "{form_link}",
-          `${FORM_BASE_URL}/?ig_id=${encodeURIComponent(commenterIgsid)}`,
-        );
+  kind: "uman" | "knife" | "trip",
+  trip?: Trip,
+): Promise<PrivateReplyOutcome> {
+  const text = privateReplyText(kind, commenterIgsid, trip);
 
-  // Testing seam — log the rendered DM and send nothing. Returns false so the
-  // caller skips row creation too (no row without a real message).
+  // Testing seam — log the rendered DM and send nothing, so the caller creates no row
+  // and drops the queue item instead of retrying a send that can never happen.
   if (env.IG_OUTBOUND_DRYRUN) {
     logger.info({ commentId, commenterIgsid, kind, text }, "IG comment Private-Reply DRY-RUN (not sent)");
-    return false;
+    return "dry-run";
   }
 
   let token: string;
@@ -294,7 +387,7 @@ export async function sendCommentPrivateReply(
     token = await getCurrentIgToken();
   } catch (err) {
     logger.warn({ err, commentId, kind }, "IG comment Private-Reply skipped — token unavailable");
-    return false;
+    return "token";
   }
 
   const url = `https://graph.instagram.com/v23.0/me/messages?access_token=${encodeURIComponent(token)}`;
@@ -309,17 +402,75 @@ export async function sendCommentPrivateReply(
       headers: { "Content-Type": "application/json" },
       body,
     });
+    if (res.ok) {
+      logger.info({ commentId, commenterIgsid, kind, textLen: text.length }, "IG comment Private-Reply sent");
+      return "sent";
+    }
+
+    const raw = await res.text();
+    const error = parseGraphError(raw);
+    const outcome = classifyFailure(res.status, error);
+    logger.warn(
+      {
+        commentId,
+        commenterIgsid,
+        kind,
+        status: res.status,
+        code: error.code,
+        error_subcode: error.subcode,
+        error_message: error.message,
+        error_user_msg: error.userMessage,
+        fbtrace_id: error.traceId,
+        outcome,
+        body: raw.slice(0, 2000),
+      },
+      "IG comment Private-Reply non-2xx",
+    );
+    return outcome;
+  } catch (err) {
+    logger.warn({ err, commentId, commenterIgsid, kind }, "IG comment Private-Reply fetch error");
+    return "transient";
+  }
+}
+
+/**
+ * Public reply under a comment (e.g. "a private message was sent to you"). Best-effort
+ * and never retried: it never throws, and a failure is only logged. The text goes out
+ * exactly as given.
+ */
+export async function postCommentReply(commentId: string, text: string): Promise<boolean> {
+  if (env.IG_OUTBOUND_DRYRUN) {
+    logger.info({ commentId, text }, "IG comment public reply DRY-RUN (not posted)");
+    return true;
+  }
+
+  let token: string;
+  try {
+    token = await getCurrentIgToken();
+  } catch (err) {
+    logger.warn({ err, commentId }, "IG comment public reply skipped — token unavailable");
+    return false;
+  }
+
+  const url = `https://graph.instagram.com/v23.0/${encodeURIComponent(commentId)}/replies?access_token=${encodeURIComponent(token)}`;
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text }),
+    });
     if (!res.ok) {
       logger.warn(
-        { commentId, commenterIgsid, kind, status: res.status, body: (await res.text()).slice(0, 300) },
-        "IG comment Private-Reply non-2xx",
+        { commentId, status: res.status, body: (await res.text()).slice(0, 2000) },
+        "IG comment public reply non-2xx",
       );
       return false;
     }
-    logger.info({ commentId, commenterIgsid, kind, textLen: text.length }, "IG comment Private-Reply sent");
+    logger.info({ commentId, textLen: text.length }, "IG comment public reply posted");
     return true;
   } catch (err) {
-    logger.warn({ err, commentId, commenterIgsid, kind }, "IG comment Private-Reply fetch error");
+    logger.warn({ err, commentId }, "IG comment public reply fetch error");
     return false;
   }
 }
