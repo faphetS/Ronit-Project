@@ -11,11 +11,14 @@ import {
   sendServiceQuestion,
   sendPhoneThanks,
   sendCommentPrivateReply,
+  postCommentReply,
   sendFlyerImage,
   sendTripAsk,
   pickTripTemplate,
   sendTripReply,
 } from "./meta.outbound.service.js";
+import { getCurrentIgToken } from "./meta.token.service.js";
+import { AppError } from "../../lib/errors.js";
 import { env } from "../../config/env.js";
 import { logger } from "../../config/logger.js";
 
@@ -54,6 +57,8 @@ beforeEach(() => {
     text: async () => "",
   });
   vi.stubGlobal("fetch", fetchMock);
+  // mockReset: a once-rejection queued by a test that failed early must not leak into the next one.
+  vi.mocked(getCurrentIgToken).mockReset().mockResolvedValue("test-token");
 });
 
 describe("pickReplyTemplate — service × phone × path routing", () => {
@@ -312,13 +317,13 @@ describe("sendFlyerImage — direct calls", () => {
 
 describe("sendCommentPrivateReply — no flyer", () => {
   it("kind uman → no flyer (Meta allows only one private reply per comment)", async () => {
-    await sendCommentPrivateReply("c-1", RID);
+    await sendCommentPrivateReply("c-1", RID, "uman");
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("kind knife → renders IG_MSG_COMMENT_KNIFE verbatim (real newlines, no {form_link})", async () => {
-    const sent = await sendCommentPrivateReply("c-1", RID, "knife");
-    expect(sent).toBe(true);
+    const outcome = await sendCommentPrivateReply("c-1", RID, "knife");
+    expect(outcome).toBe("sent");
     const text = sentText();
     expect(text).toBe(env.IG_MSG_COMMENT_KNIFE.replace(/\\n/g, "\n"));
     expect(text).not.toContain("{form_link}");
@@ -326,11 +331,248 @@ describe("sendCommentPrivateReply — no flyer", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("kind knife, dry-run → no fetch, returns false", async () => {
+  it("kind knife, dry-run → no fetch, outcome 'dry-run' (the drain drops it instead of retrying forever)", async () => {
     env.IG_OUTBOUND_DRYRUN = true;
-    const sent = await sendCommentPrivateReply("c-1", RID, "knife");
-    expect(sent).toBe(false);
+    const outcome = await sendCommentPrivateReply("c-1", RID, "knife");
+    expect(outcome).toBe("dry-run");
     expect(fetchMock).not.toHaveBeenCalled();
     env.IG_OUTBOUND_DRYRUN = false;
+  });
+});
+
+function graphFailure(status: number, error?: Record<string, unknown> | string) {
+  return {
+    ok: false,
+    status,
+    text: async () =>
+      error === undefined ? "" : typeof error === "string" ? error : JSON.stringify({ error }),
+  };
+}
+
+describe("sendCommentPrivateReply — kind trip", () => {
+  afterEach(() => {
+    env.IG_OUTBOUND_DRYRUN = false;
+  });
+
+  it("hanukkah → sends that trip's PHONE_MISSING template as a comment_id private reply, newlines decoded, no flyer", async () => {
+    const outcome = await sendCommentPrivateReply("c-1", RID, "trip", "hanukkah");
+
+    expect(outcome).toBe("sent");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain("https://graph.instagram.com/v23.0/me/messages?access_token=test-token");
+    const body = JSON.parse((init as { body: string }).body) as {
+      recipient: { comment_id?: string; id?: string };
+      message: { text: string; attachments?: unknown };
+    };
+    expect(body.recipient).toEqual({ comment_id: "c-1" });
+    expect(body.message.text).toBe(env.IG_MSG_UMAN_HANUKKAH_PHONE_MISSING.replace(/\\n/g, "\n"));
+    expect(body.message.text).toContain("\n");
+    expect(body.message.attachments).toBeUndefined();
+  });
+
+  it("kislev → the kislev PHONE_MISSING template", async () => {
+    await sendCommentPrivateReply("c-1", RID, "trip", "kislev");
+    expect(sentText()).toBe(env.IG_MSG_UMAN_KISLEV_PHONE_MISSING.replace(/\\n/g, "\n"));
+  });
+
+  it("never the phone-present variant — a commenter has not given a number yet", async () => {
+    await sendCommentPrivateReply("c-1", RID, "trip", "kislev");
+    expect(sentText()).not.toBe(env.IG_MSG_UMAN_KISLEV_PHONE_PRESENT.replace(/\\n/g, "\n"));
+  });
+
+  it("a trip private reply without a trip is a programming error (AppError), not a blank DM", async () => {
+    await expect(sendCommentPrivateReply("c-1", RID, "trip")).rejects.toBeInstanceOf(AppError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("dry-run → nothing sent, outcome 'dry-run'", async () => {
+    env.IG_OUTBOUND_DRYRUN = true;
+    await expect(sendCommentPrivateReply("c-1", RID, "trip", "kislev")).resolves.toBe("dry-run");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("sendCommentPrivateReply — failure classification", () => {
+  it("fetch throws (network error) → transient", async () => {
+    fetchMock.mockRejectedValueOnce(new Error("socket hang up"));
+    await expect(sendCommentPrivateReply("c-1", RID, "trip", "kislev")).resolves.toBe("transient");
+  });
+
+  it("reading the error body throws → transient (never throws out)", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      text: async () => {
+        throw new Error("stream reset");
+      },
+    });
+    await expect(sendCommentPrivateReply("c-1", RID, "trip", "kislev")).resolves.toBe("transient");
+  });
+
+  it("token unavailable → token (pauses the drain), and nothing is fetched", async () => {
+    vi.mocked(getCurrentIgToken).mockRejectedValueOnce(new Error("no token file"));
+    await expect(sendCommentPrivateReply("c-1", RID, "trip", "kislev")).resolves.toBe("token");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["HTTP 500, empty body", "transient", 500, undefined],
+    ["HTTP 502, HTML body", "transient", 502, "<html>bad gateway</html>"],
+    ["HTTP 503 with a Graph error", "transient", 503, { code: 2, message: "Service temporarily unavailable" }],
+    ["code 1 (unknown error) on a 400", "transient", 400, { code: 1, message: "An unknown error occurred" }],
+    ["code 2 (service unavailable) on a 400", "transient", 400, { code: 2 }],
+    ["HTTP 429, empty body", "rate-limited", 429, undefined],
+    ["code 4 (app rate limit)", "rate-limited", 400, { code: 4 }],
+    ["code 17 (user rate limit)", "rate-limited", 400, { code: 17 }],
+    ["code 32 (page rate limit)", "rate-limited", 400, { code: 32 }],
+    ["code 613 (call rate limit)", "rate-limited", 400, { code: 613 }],
+    ["code 190 (invalid token)", "token", 400, { code: 190, type: "OAuthException" }],
+    ["code 368 (action blocked)", "action-blocked", 400, { code: 368 }],
+    ["code 551 (cannot be messaged)", "blocked", 400, { code: 551 }],
+    ["code 100 + subcode 2534025 (blocked only on a first attempt)", "maybe-blocked", 400, { code: 100, error_subcode: 2534025 }],
+    ["code 10900 (already replied to)", "drop", 400, { code: 10900 }],
+    ["subcode 2534022", "drop", 400, { code: 10, error_subcode: 2534022 }],
+    ["code 100 + subcode 33 (object gone)", "drop", 400, { code: 100, error_subcode: 33 }],
+    ["subcode 2534014", "drop", 400, { code: 100, error_subcode: 2534014 }],
+    ["subcode 2018001", "drop", 400, { code: 100, error_subcode: 2018001 }],
+    ["code 100 with an unknown subcode", "rejected", 400, { code: 100, error_subcode: 1234567 }],
+    ["code 100 with no subcode", "rejected", 400, { code: 100 }],
+    ["403 with an HTML body", "rejected", 403, "<html>forbidden</html>"],
+    ["404 with an empty body", "rejected", 404, undefined],
+    ["400 with a body that is not JSON", "rejected", 400, "{not json"],
+    ["400 whose error is a string", "rejected", 400, '{"error":"oops"}'],
+    ["400 whose code is a string", "rejected", 400, { code: "551" }],
+    ["400 whose body is JSON null", "rejected", 400, "null"],
+  ] as const)("%s → %s", async (_label, expected, status, error) => {
+    fetchMock.mockResolvedValueOnce(graphFailure(status, error as Record<string, unknown> | string | undefined));
+    await expect(sendCommentPrivateReply("c-1", RID, "trip", "kislev")).resolves.toBe(expected);
+  });
+
+  it("the same mapping applies to the uman and knife kinds", async () => {
+    fetchMock.mockResolvedValueOnce(graphFailure(400, { code: 551 }));
+    await expect(sendCommentPrivateReply("c-1", RID, "knife")).resolves.toBe("blocked");
+    fetchMock.mockResolvedValueOnce(graphFailure(500));
+    await expect(sendCommentPrivateReply("c-1", RID, "uman")).resolves.toBe("transient");
+  });
+
+  it("a non-2xx logs status, code, error_subcode, message, error_user_msg, fbtrace_id and the body", async () => {
+    const warnSpy = vi.spyOn(logger, "warn");
+    fetchMock.mockResolvedValueOnce(
+      graphFailure(400, {
+        message: "(#551) This person isn't available right now.",
+        type: "OAuthException",
+        code: 551,
+        error_subcode: 1545041,
+        error_user_msg: "Not available",
+        fbtrace_id: "AbCdEf123",
+      }),
+    );
+
+    await sendCommentPrivateReply("c-9", RID, "trip", "hanukkah");
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        commentId: "c-9",
+        kind: "trip",
+        status: 400,
+        code: 551,
+        error_subcode: 1545041,
+        error_message: "(#551) This person isn't available right now.",
+        error_user_msg: "Not available",
+        fbtrace_id: "AbCdEf123",
+        outcome: "blocked",
+        body: expect.stringContaining("1545041"),
+      }),
+      "IG comment Private-Reply non-2xx",
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("the logged body is capped at 2000 characters", async () => {
+    const warnSpy = vi.spyOn(logger, "warn");
+    fetchMock.mockResolvedValueOnce(graphFailure(500, "x".repeat(5000)));
+
+    await sendCommentPrivateReply("c-9", RID, "trip", "hanukkah");
+
+    const logged = warnSpy.mock.calls.find(([, msg]) => msg === "IG comment Private-Reply non-2xx")?.[0] as {
+      body: string;
+    };
+    expect(logged.body).toHaveLength(2000);
+    warnSpy.mockRestore();
+  });
+});
+
+describe("postCommentReply — the public reply under a comment", () => {
+  afterEach(() => {
+    env.IG_OUTBOUND_DRYRUN = false;
+  });
+
+  it("POSTs { message } as JSON to /{commentId}/replies on graph.instagram.com with the token", async () => {
+    const posted = await postCommentReply("c-1", "hello there");
+
+    expect(posted).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toBe("https://graph.instagram.com/v23.0/c-1/replies?access_token=test-token");
+    const request = init as { method: string; headers: Record<string, string>; body: string };
+    expect(request.method).toBe("POST");
+    expect(request.headers["Content-Type"]).toBe("application/json");
+    expect(JSON.parse(request.body)).toEqual({ message: "hello there" });
+  });
+
+  it("sends the text untouched (no newline decoding, no template substitution)", async () => {
+    await postCommentReply("c-1", "line one {form_link}");
+    const init = fetchMock.mock.calls[0]?.[1] as { body: string };
+    expect(JSON.parse(init.body)).toEqual({ message: "line one {form_link}" });
+  });
+
+  it("non-2xx → false, and the body is logged", async () => {
+    const warnSpy = vi.spyOn(logger, "warn");
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 400, text: async () => '{"error":{"code":10}}' });
+
+    await expect(postCommentReply("c-1", "hi")).resolves.toBe(false);
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ commentId: "c-1", status: 400, body: '{"error":{"code":10}}' }),
+      "IG comment public reply non-2xx",
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("a fetch error never throws → false", async () => {
+    fetchMock.mockRejectedValueOnce(new Error("socket hang up"));
+    await expect(postCommentReply("c-1", "hi")).resolves.toBe(false);
+  });
+
+  it("reading the error body throwing never throws out either → false", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      text: async () => {
+        throw new Error("stream reset");
+      },
+    });
+    await expect(postCommentReply("c-1", "hi")).resolves.toBe(false);
+  });
+
+  it("token unavailable → false, nothing fetched", async () => {
+    vi.mocked(getCurrentIgToken).mockRejectedValueOnce(new Error("no token file"));
+    await expect(postCommentReply("c-1", "hi")).resolves.toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("dry-run → logs and returns true without a network call", async () => {
+    const infoSpy = vi.spyOn(logger, "info");
+    env.IG_OUTBOUND_DRYRUN = true;
+
+    await expect(postCommentReply("c-1", "hi")).resolves.toBe(true);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ commentId: "c-1", text: "hi" }),
+      "IG comment public reply DRY-RUN (not posted)",
+    );
+    infoSpy.mockRestore();
   });
 });

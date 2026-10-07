@@ -89,6 +89,15 @@ const envSchema = z.object({
   // (keeps current behavior); the VPS sets this to "false" to kill only אומן comments.
   IG_COMMENT_UMAN_ENABLED: z.string().default("true").transform((v) => v === "true"),
 
+  // Sub-gate for the trip-word comment flow: a comment that is ONLY a trip's name (חנוכה /
+  // כסלו …) on ANY post gets a Private-Reply DM + a Uman lead. Independent of the אומן gate
+  // above. Default TRUE; "false" stops new ones and drops already-queued ones at drain time.
+  IG_COMMENT_TRIP_ENABLED: z.string().default("true").transform((v) => v === "true"),
+
+  // Gates ONLY the public "we could not message you" reply under a trip comment whose
+  // Private-Reply came back blocked. Default TRUE.
+  IG_COMMENT_BLOCKED_REPLY_ENABLED: z.string().default("true").transform((v) => v === "true"),
+
   // Anti-ban rate cap for comment Private-Reply DMs: at most this many sends per
   // rolling hour. Overflow comments are parked in ig_comment_queue and drained at
   // this rate by the meta cron (nothing is dropped). 0 = unlimited. Default 30.
@@ -108,6 +117,15 @@ const envSchema = z.object({
     .default(
       "היי אהובה 🤍\nעלות סכין סגולה לפרנסה – 148 ₪, כולל חריטה אישית של שם המשפחה על הסכין ✨\n🚚 משלוח עד הבית – 50 ₪\n📍 איסוף מדימונה / באר שבע – ללא עלות\nלשריון הסכין יש לשלוח שם משפחה לחריטה 🤍\nבשורות טובות ופרנסה בשפע 🙏🏻\n\nhttps://wa.me/message/KKU65Y3VRQAUB1\n054-5423112",
     ),
+
+  // Public replies posted UNDER a trip-word comment (the DM itself goes out as the
+  // private reply). SENT acknowledges the DM; BLOCKED says it could not be delivered
+  // and where to reach the team instead. Single line — posted as-is, no \n decoding.
+  IG_MSG_COMMENT_REPLY_SENT: z.string().min(1).default("נשלחה אלייך הודעה פרטית❤️"),
+  IG_MSG_COMMENT_REPLY_BLOCKED: z
+    .string()
+    .min(1)
+    .default("לא ניתן לשלוח לך הודעות תוכלי ליצור איתנו קשר 0502696862"),
 
   // Outbound IG first-contact templates. Literal "\n" escapes get decoded into
   // real newlines at send time; "{form_link}" is replaced with the personalized
