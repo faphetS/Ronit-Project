@@ -2,7 +2,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { logger } from "../../config/logger.js";
 import { env } from "../../config/env.js";
 import { classifyLead, extractPhoneFallback, type Classification } from "../../lib/classify.js";
-import { detectTrip, detectTripTrigger, type Trip } from "../../lib/trip.js";
+import { detectTrip, detectTripTrigger, hasNegationWord, tripMentions, type Trip } from "../../lib/trip.js";
+import { judgeTripAnswer, type TripVerdict } from "../../lib/trip-answer.js";
 import {
   isMessageProcessed,
   markMessageProcessed,
@@ -58,6 +59,18 @@ import { fetchIgProfile } from "./meta.profile.service.js";
 // without naming a service. After the cap we stay silent (the pending row is
 // kept, so a later service mention still gets answered).
 const MAX_REASKS = 3;
+
+// A trip question that went out less than this ago is not repeated when she answers with a
+// bare "אומן": she sent it twice in a row and the second one must not ask a second time.
+const TRIP_ASK_FRESH_MS = 120_000;
+
+// pending_clarifications.updated_at is SQLite datetime('now'): UTC with no zone marker, which
+// Date.parse alone would read as local time. An unparseable value is never fresh, so it
+// falls toward re-asking rather than toward silence.
+function tripAskIsFresh(updatedAt: string): boolean {
+  const sentAt = Date.parse(`${updatedAt.replace(" ", "T")}Z`);
+  return Number.isFinite(sentAt) && Date.now() - sentAt < TRIP_ASK_FRESH_MS;
+}
 
 // A lead that comes from a COMMENT cannot receive our normal DMs: the private reply under
 // the comment already was her DM, and Meta allows no second message until she answers. The
@@ -249,9 +262,10 @@ function handleUpdatePathRateLimit(
 
 // BLOCK 0 (uman-only) — the trip question is outstanding. Applies the SAME
 // phone-capture + re-file rules as the service stage, unconditionally, before
-// branching on whether she named a trip. Precedence (per spec): a named trip
-// always resolves the clarification, even ahead of the interested flag; only
-// when no trip is found does the not-interested / re-ask split apply.
+// deciding what she answered. Keywords (or a comment's tripHint) decide first; only a miss
+// goes to the AI judge, which — unlike the context-free lead classifier — sees the question
+// we sent. The classifier's interested flag plays no part in the decision: it read
+// "רביעי עד ראשון" as a decline and the bot went silent on a real lead.
 async function resolvePendingTripStage(
   input: { messageText: string; senderId?: string; senderUsername?: string; messageId?: string },
   classification: Classification,
@@ -283,14 +297,24 @@ async function resolvePendingTripStage(
     });
   }
 
-  const trip = detectTrip(input.messageText) ?? tripHint ?? null;
+  // detectTrip alone is not a safe fast path: it checks Hanukkah first, so it reads "כסלו או
+  // חנוכה" and "לא חנוכה" as Hanukkah. Only an answer that names exactly one trip and negates
+  // nothing skips the judge; a comment's tripHint still does, as before.
+  const mentioned = tripMentions(input.messageText);
+  const keywordTrip = mentioned.length === 1 && !hasNegationWord(input.messageText) ? mentioned[0] : null;
+  const knownTrip = keywordTrip ?? tripHint ?? null;
   const hasPhone = !!currentPhone;
 
-  if (trip !== null) {
-    await safeSendTripReply(input.senderId!, { trip, hasPhone });
+  const verdict: TripVerdict = knownTrip ?? (await judgeTripAnswer(input.messageText));
+
+  if (verdict === "kislev" || verdict === "hanukkah" || verdict === "both") {
+    const trips: Trip[] = verdict === "both" ? ["kislev", "hanukkah"] : [verdict];
+    for (const trip of trips) {
+      await safeSendTripReply(input.senderId!, { trip, hasPhone });
+    }
     clearPendingClarification("instagram", input.senderId!);
     logger.info(
-      { senderId: input.senderId, mondayItemId: pending.monday_item_id, trip },
+      { senderId: input.senderId, mondayItemId: pending.monday_item_id, verdict, trips },
       "Pending trip clarification resolved — trip answered",
     );
     void maybeSendUmanWelcome({
@@ -302,11 +326,19 @@ async function resolvePendingTripStage(
     return { itemId: pending.monday_item_id, classification };
   }
 
-  if (!classification.interested) {
+  if (verdict === "declined") {
     clearPendingClarification("instagram", input.senderId!);
     logger.info(
       { senderId: input.senderId, mondayItemId: pending.monday_item_id },
-      "Pending trip clarification — not interested, clarification cleared, staying silent",
+      "Pending trip clarification — she declined, clarification cleared, staying silent",
+    );
+    return { itemId: pending.monday_item_id, classification };
+  }
+
+  if (classification.service === "uman" && tripAskIsFresh(pending.updated_at)) {
+    logger.info(
+      { senderId: input.senderId, mondayItemId: pending.monday_item_id },
+      "Pending trip clarification — trip question just sent, not repeating it",
     );
     return { itemId: pending.monday_item_id, classification };
   }

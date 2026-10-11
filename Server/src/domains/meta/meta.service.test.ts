@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // All db-touching modules must be mocked before any import of meta.service.ts.
 vi.mock("../../lib/dedup.js", () => ({
@@ -25,6 +25,12 @@ vi.mock("../../lib/conversation.js", () => ({
 vi.mock("../../lib/classify.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../lib/classify.js")>()),
   classifyLead: vi.fn(),
+}));
+
+// The trip-stage judge is an LLM call that sees OUR question. Defaults to "unclear"
+// (what the real one returns on any failure) — each test states the verdict it needs.
+vi.mock("../../lib/trip-answer.js", () => ({
+  judgeTripAnswer: vi.fn().mockResolvedValue("unclear"),
 }));
 
 vi.mock("../monday/monday.service.js", () => ({
@@ -76,11 +82,14 @@ vi.mock("./meta.profile.service.js", () => ({
 }));
 
 import { handleIncomingMessage, recordTripCommentLead } from "./meta.service.js";
-import type { Trip } from "../../lib/trip.js";
+import { detectTrip, type Trip } from "../../lib/trip.js";
 import { env } from "../../config/env.js";
 import * as dedup from "../../lib/dedup.js";
 import * as conversation from "../../lib/conversation.js";
+import type { PendingClarification } from "../../lib/conversation.js";
 import * as classify from "../../lib/classify.js";
+import * as tripAnswer from "../../lib/trip-answer.js";
+import type { TripVerdict } from "../../lib/trip-answer.js";
 import * as mondayService from "../monday/monday.service.js";
 import * as mondayWebhookService from "../monday/monday.webhook.service.js";
 import * as outbound from "./meta.outbound.service.js";
@@ -95,6 +104,10 @@ const ITEM_ID = "crm-item-456";
 const NEW_LEADS_GROUP = env.MONDAY_GROUP_NEW_LEADS_ID;
 const NO_PHONE_GROUP = env.MONDAY_GROUP_NO_PHONE_ID;
 const CRM_BOARD = env.MONDAY_BOARD_CRM_ID;
+
+// pending_clarifications.updated_at is SQLite datetime('now'): UTC, "YYYY-MM-DD HH:MM:SS".
+// Fixtures that don't care when the question went out use a time long past.
+const ASKED_LONG_AGO = "2026-01-01 00:00:00";
 
 const interestedClassification = {
   interested: true,
@@ -162,6 +175,8 @@ beforeEach(() => {
   vi.mocked(conversation.getPendingClarification).mockReturnValue(null);
   vi.mocked(conversation.incrementReaskCount).mockReturnValue(1);
   vi.mocked(classify.classifyLead).mockResolvedValue(interestedClassification);
+  // mockReset (not just a new default): a queued once-implementation must not leak into the next test.
+  vi.mocked(tripAnswer.judgeTripAnswer).mockReset().mockResolvedValue("unclear");
   vi.mocked(mondayService.createLeadRow).mockResolvedValue({ itemId: "new-item-123" });
   vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue(null);
   vi.mocked(mondayService.updateItemService).mockResolvedValue(undefined);
@@ -525,6 +540,7 @@ describe("handleIncomingMessage — pending lead answers with a service (Entry B
       reask_count: 0,
       stage: "service" as const,
       trip: null,
+      updated_at: ASKED_LONG_AGO,
     });
     vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
       boardId: CRM_BOARD,
@@ -561,6 +577,7 @@ describe("handleIncomingMessage — pending lead answers with a service (Entry B
       reask_count: 0,
       stage: "service" as const,
       trip: null,
+      updated_at: ASKED_LONG_AGO,
     });
     vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
       boardId: CRM_BOARD,
@@ -595,6 +612,7 @@ describe("handleIncomingMessage — pending lead answers with a service (Entry B
       reask_count: 0,
       stage: "service" as const,
       trip: null,
+      updated_at: ASKED_LONG_AGO,
     });
     vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
       boardId: CRM_BOARD,
@@ -635,6 +653,7 @@ describe("handleIncomingMessage — trip stage, she names a trip", () => {
       reask_count: 0,
       stage: "trip" as const,
       trip: null,
+      updated_at: ASKED_LONG_AGO,
     });
     vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
       boardId: CRM_BOARD,
@@ -668,6 +687,7 @@ describe("handleIncomingMessage — trip stage, she names a trip", () => {
       reask_count: 0,
       stage: "trip" as const,
       trip: null,
+      updated_at: ASKED_LONG_AGO,
     });
     vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
       boardId: CRM_BOARD,
@@ -699,6 +719,7 @@ describe("handleIncomingMessage — trip stage, she names a trip", () => {
       reask_count: 0,
       stage: "trip" as const,
       trip: null,
+      updated_at: ASKED_LONG_AGO,
     });
     vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
       boardId: CRM_BOARD,
@@ -730,6 +751,7 @@ describe("handleIncomingMessage — trip stage, unclear answer (no trip named)",
       reask_count: 1,
       stage: "trip" as const,
       trip: null,
+      updated_at: ASKED_LONG_AGO,
     });
     vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
       boardId: CRM_BOARD,
@@ -757,6 +779,7 @@ describe("handleIncomingMessage — trip stage, unclear answer (no trip named)",
       reask_count: 3,
       stage: "trip" as const,
       trip: null,
+      updated_at: ASKED_LONG_AGO,
     });
     vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
       boardId: CRM_BOARD,
@@ -776,13 +799,16 @@ describe("handleIncomingMessage — trip stage, unclear answer (no trip named)",
     expect(conversation.clearPendingClarification).not.toHaveBeenCalled();
   });
 
-  it("not interested and no trip named → clears pending, stays silent", async () => {
+  // Was "not interested and no trip named": the classifier's not-interested flag used to end
+  // the clarification. The decline decision now belongs to judgeTripAnswer, which sees the question.
+  it("she declines (judge: declined) → clears pending, stays silent", async () => {
     vi.mocked(conversation.getPendingClarification).mockReturnValue({
       monday_item_id: ITEM_ID,
       phone: null,
       reask_count: 0,
       stage: "trip" as const,
       trip: null,
+      updated_at: ASKED_LONG_AGO,
     });
     vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
       boardId: CRM_BOARD,
@@ -790,6 +816,7 @@ describe("handleIncomingMessage — trip stage, unclear answer (no trip named)",
       service: "טיסה לאומן",
     });
     vi.mocked(classify.classifyLead).mockResolvedValue(notInterestedClassification);
+    vi.mocked(tripAnswer.judgeTripAnswer).mockResolvedValue("declined");
 
     await handleIncomingMessage({
       messageText: "לא תודה",
@@ -797,9 +824,588 @@ describe("handleIncomingMessage — trip stage, unclear answer (no trip named)",
       messageId: "trip-decline-1",
     });
 
+    expect(tripAnswer.judgeTripAnswer).toHaveBeenCalledWith("לא תודה");
     expect(conversation.clearPendingClarification).toHaveBeenCalledWith("instagram", SENDER_ID);
     expect(outbound.sendTripAsk).not.toHaveBeenCalled();
     expect(outbound.sendTripReply).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Trip stage, her answer missed the keywords. judgeTripAnswer sees OUR question, so it,
+// not the context-free classifier, decides: one trip, both, a decline, or unclear.
+// 2026-10-11: "רביעי עד ראשון" (Wednesday-Sunday = Kislev) and "לחודש 11" classified
+// not-interested and the bot went silent on two real leads.
+// ---------------------------------------------------------------------------
+
+const NOW = new Date("2026-10-11T12:00:00Z");
+
+function sqliteUtc(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 19).replace("T", " ");
+}
+
+function givenTripStage(overrides: Partial<PendingClarification> = {}): void {
+  vi.mocked(conversation.getPendingClarification).mockReturnValue({
+    monday_item_id: ITEM_ID,
+    phone: null,
+    reask_count: 0,
+    stage: "trip",
+    trip: null,
+    updated_at: ASKED_LONG_AGO,
+    ...overrides,
+  });
+  vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+    boardId: CRM_BOARD,
+    groupId: NO_PHONE_GROUP,
+    service: "טיסה לאומן",
+  });
+}
+
+function judgeSays(verdict: TripVerdict): void {
+  vi.mocked(tripAnswer.judgeTripAnswer).mockResolvedValue(verdict);
+}
+
+function tripsReplied(): Trip[] {
+  return vi.mocked(outbound.sendTripReply).mock.calls.map(([, opts]) => opts.trip);
+}
+
+describe("handleIncomingMessage — trip stage, answers the keywords cannot settle", () => {
+  beforeEach(() => {
+    vi.mocked(mondayService.updateLastIgMessage).mockResolvedValue(undefined);
+    vi.mocked(mondayService.updateItemPhone).mockResolvedValue(undefined);
+    vi.mocked(mondayService.moveItemToGroup).mockResolvedValue(undefined);
+    // The failure mode being fixed: the context-free classifier calls these answers not-interested.
+    vi.mocked(classify.classifyLead).mockResolvedValue(notInterestedClassification);
+  });
+
+  describe("the judge picks one trip", () => {
+    it.each(["רביעי עד ראשון", "לחודש 11"])(
+      "%j → judge: kislev → the Kislev reply, pending cleared, welcome fired (was: silence)",
+      async (messageText) => {
+        expect(detectTrip(messageText)).toBeNull();
+        givenTripStage();
+        judgeSays("kislev");
+
+        const result = await handleIncomingMessage({
+          messageText,
+          senderId: SENDER_ID,
+          messageId: `judge-kislev-${messageText}`,
+        });
+
+        expect(tripAnswer.judgeTripAnswer).toHaveBeenCalledTimes(1);
+        expect(tripAnswer.judgeTripAnswer).toHaveBeenCalledWith(messageText);
+        expect(outbound.sendTripReply).toHaveBeenCalledTimes(1);
+        expect(outbound.sendTripReply).toHaveBeenCalledWith(SENDER_ID, { trip: "kislev", hasPhone: false });
+        expect(conversation.clearPendingClarification).toHaveBeenCalledWith("instagram", SENDER_ID);
+        expect(outbound.sendTripAsk).not.toHaveBeenCalled();
+        expect(conversation.incrementReaskCount).not.toHaveBeenCalled();
+        expect(umanWelcome.maybeSendUmanWelcome).toHaveBeenCalledTimes(1);
+        expect(umanWelcome.maybeSendUmanWelcome).toHaveBeenCalledWith(
+          expect.objectContaining({ senderId: SENDER_ID, mondayItemId: ITEM_ID, service: "uman", phone: null }),
+        );
+        expect(result.itemId).toBe(ITEM_ID);
+      },
+    );
+
+    it("a weekday range for the second trip → judge: hanukkah → the Hanukkah reply", async () => {
+      const messageText = "ראשון עד חמישי";
+      expect(detectTrip(messageText)).toBeNull();
+      givenTripStage();
+      judgeSays("hanukkah");
+
+      await handleIncomingMessage({ messageText, senderId: SENDER_ID, messageId: "judge-hanukkah-1" });
+
+      expect(outbound.sendTripReply).toHaveBeenCalledTimes(1);
+      expect(outbound.sendTripReply).toHaveBeenCalledWith(SENDER_ID, { trip: "hanukkah", hasPhone: false });
+      expect(conversation.clearPendingClarification).toHaveBeenCalledWith("instagram", SENDER_ID);
+    });
+
+    it("a phone already on her pending row → the judged trip gets the phone-present reply", async () => {
+      givenTripStage({ phone: "0501234567" });
+      judgeSays("kislev");
+
+      await handleIncomingMessage({ messageText: "רביעי עד ראשון", senderId: SENDER_ID, messageId: "judge-phone-1" });
+
+      expect(outbound.sendTripReply).toHaveBeenCalledWith(SENDER_ID, { trip: "kislev", hasPhone: true });
+      expect(umanWelcome.maybeSendUmanWelcome).toHaveBeenCalledWith(
+        expect.objectContaining({ phone: "0501234567" }),
+      );
+    });
+
+    it("a judged answer arriving WITH a new phone → hasPhone true, phone stored and the row re-filed", async () => {
+      const messageText = "לחודש 11, המספר שלי 0501234567";
+      expect(detectTrip(messageText)).toBeNull();
+      givenTripStage();
+      judgeSays("kislev");
+      vi.mocked(classify.classifyLead).mockResolvedValue({
+        ...notInterestedClassification,
+        extractedPhone: "0501234567",
+      });
+
+      await handleIncomingMessage({ messageText, senderId: SENDER_ID, messageId: "judge-phone-2" });
+
+      expect(mondayService.updateItemPhone).toHaveBeenCalledWith(ITEM_ID, "0501234567");
+      expect(mondayService.moveItemToGroup).toHaveBeenCalledWith(ITEM_ID, NEW_LEADS_GROUP);
+      expect(outbound.sendTripReply).toHaveBeenCalledWith(SENDER_ID, { trip: "kislev", hasPhone: true });
+    });
+  });
+
+  describe("the judge says both", () => {
+    it("sends the Kislev reply then the Hanukkah reply, clears pending once, fires the welcome once", async () => {
+      givenTripStage();
+      judgeSays("both");
+
+      const result = await handleIncomingMessage({
+        messageText: "שתיהן מתאימות לי",
+        senderId: SENDER_ID,
+        messageId: "judge-both-1",
+      });
+
+      expect(tripsReplied()).toEqual(["kislev", "hanukkah"]);
+      expect(outbound.sendTripReply).toHaveBeenNthCalledWith(1, SENDER_ID, { trip: "kislev", hasPhone: false });
+      expect(outbound.sendTripReply).toHaveBeenNthCalledWith(2, SENDER_ID, { trip: "hanukkah", hasPhone: false });
+      expect(db.claimTripReply).toHaveBeenCalledWith(SENDER_ID, "kislev");
+      expect(db.claimTripReply).toHaveBeenCalledWith(SENDER_ID, "hanukkah");
+      expect(conversation.clearPendingClarification).toHaveBeenCalledTimes(1);
+      expect(umanWelcome.maybeSendUmanWelcome).toHaveBeenCalledTimes(1);
+      expect(outbound.sendTripAsk).not.toHaveBeenCalled();
+      expect(result.itemId).toBe(ITEM_ID);
+    });
+
+    it("both replies share the phone state: a stored phone → both are the phone-present variant", async () => {
+      givenTripStage({ phone: "0501234567" });
+      judgeSays("both");
+
+      await handleIncomingMessage({ messageText: "שתיהן", senderId: SENDER_ID, messageId: "judge-both-2" });
+
+      expect(outbound.sendTripReply).toHaveBeenNthCalledWith(1, SENDER_ID, { trip: "kislev", hasPhone: true });
+      expect(outbound.sendTripReply).toHaveBeenNthCalledWith(2, SENDER_ID, { trip: "hanukkah", hasPhone: true });
+    });
+  });
+
+  describe("the judge says declined", () => {
+    it("clears pending and stays silent even when the classifier said interested", async () => {
+      givenTripStage();
+      judgeSays("declined");
+      vi.mocked(classify.classifyLead).mockResolvedValue({ ...interestedClassification, extractedPhone: null });
+
+      const result = await handleIncomingMessage({
+        messageText: "לא מתאים לי אף תאריך",
+        senderId: SENDER_ID,
+        messageId: "judge-declined-1",
+      });
+
+      expect(tripAnswer.judgeTripAnswer).toHaveBeenCalledWith("לא מתאים לי אף תאריך");
+      expect(conversation.clearPendingClarification).toHaveBeenCalledWith("instagram", SENDER_ID);
+      expect(outbound.sendTripReply).not.toHaveBeenCalled();
+      expect(outbound.sendTripAsk).not.toHaveBeenCalled();
+      expect(conversation.incrementReaskCount).not.toHaveBeenCalled();
+      expect(umanWelcome.maybeSendUmanWelcome).not.toHaveBeenCalled();
+      expect(result.itemId).toBe(ITEM_ID);
+    });
+  });
+
+  describe("the judge says unclear", () => {
+    // Date only: the 120 s window reads Date.now(), and nothing here waits on a timer.
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(NOW);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    });
+
+    const restatedUman = { ...interestedClassification, service: "uman" as const, extractedPhone: null };
+
+    it("the classifier says not-interested → she is re-asked and it is counted (was: silence — the 2026-10-11 bug)", async () => {
+      givenTripStage({ reask_count: 1 });
+
+      await handleIncomingMessage({ messageText: "אוקטובר", senderId: SENDER_ID, messageId: "unclear-1" });
+
+      expect(tripAnswer.judgeTripAnswer).toHaveBeenCalledWith("אוקטובר");
+      expect(outbound.sendTripAsk).toHaveBeenCalledWith(SENDER_ID);
+      expect(conversation.incrementReaskCount).toHaveBeenCalledWith("instagram", SENDER_ID);
+      expect(conversation.clearPendingClarification).not.toHaveBeenCalled();
+      expect(outbound.sendTripReply).not.toHaveBeenCalled();
+    });
+
+    it("at the re-ask cap a not-interested classifier no longer ends it: silent, pending kept", async () => {
+      givenTripStage({ reask_count: 3 });
+
+      await handleIncomingMessage({ messageText: "אוקטובר", senderId: SENDER_ID, messageId: "unclear-2" });
+
+      expect(outbound.sendTripAsk).not.toHaveBeenCalled();
+      expect(outbound.sendTripReply).not.toHaveBeenCalled();
+      expect(conversation.incrementReaskCount).not.toHaveBeenCalled();
+      expect(conversation.clearPendingClarification).not.toHaveBeenCalled();
+    });
+
+    it("AI outage: the REAL judge degrades to unclear when OpenRouter is unreachable → she is re-asked, never ignored", async () => {
+      const actual = await vi.importActual<typeof import("../../lib/trip-answer.js")>("../../lib/trip-answer.js");
+      vi.mocked(tripAnswer.judgeTripAnswer).mockImplementation(actual.judgeTripAnswer);
+      // Stubbed BEFORE the judge can run, so a real key in the local .env never reaches the network.
+      const unreachable = vi.fn().mockRejectedValue(new Error("OpenRouter unreachable"));
+      vi.stubGlobal("fetch", unreachable);
+      const savedKey = env.OPENROUTER_API_KEY;
+      env.OPENROUTER_API_KEY = "test-key";
+      givenTripStage();
+
+      try {
+        await handleIncomingMessage({ messageText: "לחודש 11", senderId: SENDER_ID, messageId: "unclear-outage" });
+      } finally {
+        env.OPENROUTER_API_KEY = savedKey;
+      }
+
+      expect(unreachable).toHaveBeenCalledTimes(1);
+      expect(outbound.sendTripAsk).toHaveBeenCalledWith(SENDER_ID);
+      expect(conversation.incrementReaskCount).toHaveBeenCalledWith("instagram", SENDER_ID);
+      expect(conversation.clearPendingClarification).not.toHaveBeenCalled();
+    });
+
+    it("a phone inside an unclear answer is still captured, stored and re-filed — and she is re-asked", async () => {
+      givenTripStage();
+      // A bare number classifies not-interested.
+      vi.mocked(classify.classifyLead).mockResolvedValue({
+        ...notInterestedClassification,
+        extractedPhone: "0501234567",
+      });
+
+      await handleIncomingMessage({ messageText: "0501234567", senderId: SENDER_ID, messageId: "unclear-phone" });
+
+      expect(dedup.updateSenderPhone).toHaveBeenCalledWith("instagram", SENDER_ID, "0501234567");
+      expect(mondayService.updateItemPhone).toHaveBeenCalledWith(ITEM_ID, "0501234567");
+      expect(mondayService.moveItemToGroup).toHaveBeenCalledWith(ITEM_ID, NEW_LEADS_GROUP);
+      expect(conversation.upsertPendingClarification).toHaveBeenCalledWith(
+        expect.objectContaining({ senderId: SENDER_ID, mondayItemId: ITEM_ID, phone: "0501234567", stage: "trip" }),
+      );
+      expect(outbound.sendTripAsk).toHaveBeenCalledWith(SENDER_ID);
+      expect(conversation.clearPendingClarification).not.toHaveBeenCalled();
+    });
+
+    describe("she just restated Uman while the trip question was still fresh", () => {
+      it.each([30, 119])(
+        "the question went out %i s ago → not repeated, not counted, pending kept (judge still consulted)",
+        async (secondsAgo) => {
+          givenTripStage({ updated_at: sqliteUtc(NOW.getTime() - secondsAgo * 1000) });
+          vi.mocked(classify.classifyLead).mockResolvedValue(restatedUman);
+
+          const result = await handleIncomingMessage({
+            messageText: "אומן",
+            senderId: SENDER_ID,
+            messageId: `fresh-${secondsAgo}`,
+          });
+
+          // Her message could have held the answer, so the judge runs first.
+          expect(tripAnswer.judgeTripAnswer).toHaveBeenCalledWith("אומן");
+          expect(outbound.sendTripAsk).not.toHaveBeenCalled();
+          expect(conversation.incrementReaskCount).not.toHaveBeenCalled();
+          expect(conversation.clearPendingClarification).not.toHaveBeenCalled();
+          expect(outbound.sendTripReply).not.toHaveBeenCalled();
+          expect(result.itemId).toBe(ITEM_ID);
+        },
+      );
+
+      it.each([120, 121, 600])(
+        "the question went out %i s ago → outside the window, re-asked and counted",
+        async (secondsAgo) => {
+          givenTripStage({ updated_at: sqliteUtc(NOW.getTime() - secondsAgo * 1000) });
+          vi.mocked(classify.classifyLead).mockResolvedValue(restatedUman);
+
+          await handleIncomingMessage({
+            messageText: "אומן",
+            senderId: SENDER_ID,
+            messageId: `stale-${secondsAgo}`,
+          });
+
+          expect(outbound.sendTripAsk).toHaveBeenCalledWith(SENDER_ID);
+          expect(conversation.incrementReaskCount).toHaveBeenCalledWith("instagram", SENDER_ID);
+        },
+      );
+
+      it("fresh question but she did NOT restate Uman (classifier service null) → still re-asked", async () => {
+        givenTripStage({ updated_at: sqliteUtc(NOW.getTime() - 30_000) });
+        vi.mocked(classify.classifyLead).mockResolvedValue(vagueClassification);
+
+        await handleIncomingMessage({ messageText: "מתי זה יוצא?", senderId: SENDER_ID, messageId: "fresh-vague" });
+
+        expect(outbound.sendTripAsk).toHaveBeenCalledWith(SENDER_ID);
+        expect(conversation.incrementReaskCount).toHaveBeenCalledWith("instagram", SENDER_ID);
+      });
+
+      it("fresh question and Uman restated, but the same message also names a trip → answered, not quiet", async () => {
+        givenTripStage({ updated_at: sqliteUtc(NOW.getTime() - 30_000) });
+        vi.mocked(classify.classifyLead).mockResolvedValue(restatedUman);
+        judgeSays("kislev");
+
+        await handleIncomingMessage({
+          messageText: "אומן, רביעי עד ראשון",
+          senderId: SENDER_ID,
+          messageId: "fresh-answer",
+        });
+
+        expect(outbound.sendTripReply).toHaveBeenCalledWith(SENDER_ID, { trip: "kislev", hasPhone: false });
+        expect(conversation.clearPendingClarification).toHaveBeenCalledWith("instagram", SENDER_ID);
+      });
+
+      it("fresh question, Uman restated WITH a new phone → the phone is still captured, the question is still not repeated", async () => {
+        givenTripStage({ updated_at: sqliteUtc(NOW.getTime() - 30_000) });
+        vi.mocked(classify.classifyLead).mockResolvedValue({ ...restatedUman, extractedPhone: "0501234567" });
+
+        await handleIncomingMessage({
+          messageText: "אומן 0501234567",
+          senderId: SENDER_ID,
+          messageId: "fresh-phone",
+        });
+
+        expect(mondayService.updateItemPhone).toHaveBeenCalledWith(ITEM_ID, "0501234567");
+        expect(dedup.updateSenderPhone).toHaveBeenCalledWith("instagram", SENDER_ID, "0501234567");
+        expect(outbound.sendTripAsk).not.toHaveBeenCalled();
+        expect(conversation.incrementReaskCount).not.toHaveBeenCalled();
+      });
+
+      it("the double-'אומן' incident end to end: two quick messages → the trip question goes out once", async () => {
+        // Message 1 lands on the service stage and advances her to the trip question.
+        vi.mocked(conversation.getPendingClarification).mockReturnValue({
+          monday_item_id: ITEM_ID,
+          phone: null,
+          reask_count: 0,
+          stage: "service",
+          trip: null,
+          updated_at: ASKED_LONG_AGO,
+        });
+        vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+          boardId: CRM_BOARD,
+          groupId: NO_PHONE_GROUP,
+          service: null,
+        });
+        vi.mocked(classify.classifyLead).mockResolvedValue(restatedUman);
+
+        await handleIncomingMessage({ messageText: "אומן", senderId: SENDER_ID, messageId: "double-1" });
+
+        expect(conversation.advanceToTripStage).toHaveBeenCalledWith("instagram", SENDER_ID);
+        expect(outbound.sendTripAsk).toHaveBeenCalledTimes(1);
+
+        // Message 2, 2 s later: the row is on the trip stage, stamped when the question went out.
+        givenTripStage({ updated_at: sqliteUtc(Date.now() - 2_000) });
+
+        await handleIncomingMessage({ messageText: "אומן", senderId: SENDER_ID, messageId: "double-2" });
+
+        expect(outbound.sendTripAsk).toHaveBeenCalledTimes(1);
+        expect(conversation.incrementReaskCount).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  // The keyword fast path used to be detectTrip alone, which checks Hanukkah first: it read
+  // "כסלו או חנוכה" and "לא חנוכה" as Hanukkah and sent her the trip she had just refused.
+  describe("the keyword fast path only trusts a clean single mention", () => {
+    it('"כסלו או חנוכה" names both trips → judged ("both"), not read as Hanukkah', async () => {
+      const messageText = "כסלו או חנוכה";
+      expect(detectTrip(messageText)).toBe("hanukkah"); // what the old fast path would have sent
+      givenTripStage();
+      judgeSays("both");
+
+      await handleIncomingMessage({ messageText, senderId: SENDER_ID, messageId: "fast-both-words" });
+
+      expect(tripAnswer.judgeTripAnswer).toHaveBeenCalledWith(messageText);
+      expect(tripsReplied()).toEqual(["kislev", "hanukkah"]);
+      expect(conversation.clearPendingClarification).toHaveBeenCalledWith("instagram", SENDER_ID);
+    });
+
+    it('"לא חנוכה" is negated → judged, and she gets the trip the judge picks, not the one she refused', async () => {
+      const messageText = "לא חנוכה";
+      expect(detectTrip(messageText)).toBe("hanukkah");
+      givenTripStage();
+      judgeSays("kislev");
+
+      await handleIncomingMessage({ messageText, senderId: SENDER_ID, messageId: "fast-negated" });
+
+      expect(tripAnswer.judgeTripAnswer).toHaveBeenCalledWith(messageText);
+      expect(tripsReplied()).toEqual(["kislev"]);
+    });
+
+    it('"חנוכה בכסלו" carries both words → judged', async () => {
+      const messageText = "חנוכה בכסלו";
+      givenTripStage();
+      judgeSays("hanukkah");
+
+      await handleIncomingMessage({ messageText, senderId: SENDER_ID, messageId: "fast-hanukkah-in-kislev" });
+
+      expect(tripAnswer.judgeTripAnswer).toHaveBeenCalledWith(messageText);
+      expect(tripsReplied()).toEqual(["hanukkah"]);
+    });
+
+    it("a mixed answer the judge cannot read still re-asks — the keywords do not paper over it", async () => {
+      givenTripStage();
+      judgeSays("unclear");
+
+      await handleIncomingMessage({ messageText: "כסלו או חנוכה", senderId: SENDER_ID, messageId: "fast-mixed-outage" });
+
+      expect(outbound.sendTripReply).not.toHaveBeenCalled();
+      expect(outbound.sendTripAsk).toHaveBeenCalledWith(SENDER_ID);
+      expect(conversation.clearPendingClarification).not.toHaveBeenCalled();
+    });
+
+    it('"חנוכה בבקשה" names one trip and negates nothing → fast path, the judge is NOT consulted', async () => {
+      givenTripStage();
+
+      await handleIncomingMessage({ messageText: "חנוכה בבקשה", senderId: SENDER_ID, messageId: "fast-please" });
+
+      expect(tripAnswer.judgeTripAnswer).not.toHaveBeenCalled();
+      expect(tripsReplied()).toEqual(["hanukkah"]);
+    });
+
+    it('"11-15" (a date range) → fast path, the judge is NOT consulted', async () => {
+      givenTripStage();
+
+      await handleIncomingMessage({ messageText: "11-15", senderId: SENDER_ID, messageId: "fast-dates" });
+
+      expect(tripAnswer.judgeTripAnswer).not.toHaveBeenCalled();
+      expect(tripsReplied()).toEqual(["kislev"]);
+    });
+
+    // Dates are day/month: 6-10/10 is 6-10 October. The keyword layer used to read the "6-10" and
+    // ignore the month, so an October date got Hanukkah's details.
+    it.each(["6-10/10", "11-15/12"])(
+      "%j is a range in another month, not a trip mention → judged, not fast-pathed to the wrong trip",
+      async (messageText) => {
+        givenTripStage();
+
+        await handleIncomingMessage({ messageText, senderId: SENDER_ID, messageId: `fast-month-${messageText}` });
+
+        expect(tripAnswer.judgeTripAnswer).toHaveBeenCalledWith(messageText);
+        expect(outbound.sendTripReply).not.toHaveBeenCalled();
+        expect(outbound.sendTripAsk).toHaveBeenCalledWith(SENDER_ID);
+      },
+    );
+
+    it.each([
+      ["6-10/12", "hanukkah"],
+      ["11-15/11", "kislev"],
+      ["6–10.12", "hanukkah"],
+    ] as const)("%j has the right month → still the fast path, the judge is NOT consulted", async (messageText, trip) => {
+      givenTripStage();
+
+      await handleIncomingMessage({ messageText, senderId: SENDER_ID, messageId: `fast-right-month-${messageText}` });
+
+      expect(tripAnswer.judgeTripAnswer).not.toHaveBeenCalled();
+      expect(tripsReplied()).toEqual([trip]);
+    });
+
+    it('"6-10/11-15" lists two ranges (the 11 opens the next one, it is not a month) → both mentioned → judged', async () => {
+      givenTripStage();
+      judgeSays("both");
+
+      await handleIncomingMessage({ messageText: "6-10/11-15", senderId: SENDER_ID, messageId: "fast-two-ranges" });
+
+      expect(tripAnswer.judgeTripAnswer).toHaveBeenCalledWith("6-10/11-15");
+      expect(tripsReplied()).toEqual(["kislev", "hanukkah"]);
+    });
+
+    it('"לאומן" (to Uman) is not a negation → "אני רוצה לאומן בחנוכה" stays on the fast path', async () => {
+      givenTripStage();
+
+      await handleIncomingMessage({
+        messageText: "אני רוצה לאומן בחנוכה",
+        senderId: SENDER_ID,
+        messageId: "fast-to-uman",
+      });
+
+      expect(tripAnswer.judgeTripAnswer).not.toHaveBeenCalled();
+      expect(tripsReplied()).toEqual(["hanukkah"]);
+    });
+
+    it("a tripHint still wins and skips the judge, even when the text itself is mixed or negated", async () => {
+      givenTripStage();
+
+      await recordTripCommentLead({
+        senderId: SENDER_ID,
+        senderUsername: "ig_handle",
+        commentText: "לא חנוכה",
+        trip: "kislev",
+      });
+
+      expect(tripAnswer.judgeTripAnswer).not.toHaveBeenCalled();
+      expect(conversation.clearPendingClarification).toHaveBeenCalledWith("instagram", SENDER_ID);
+    });
+  });
+
+  describe("the judge is NOT consulted", () => {
+    it("when a keyword already names the trip", async () => {
+      givenTripStage();
+      vi.mocked(classify.classifyLead).mockResolvedValue({ ...interestedClassification, extractedPhone: null });
+
+      await handleIncomingMessage({ messageText: "חנוכה מתאים לי", senderId: SENDER_ID, messageId: "no-judge-kw" });
+
+      expect(tripAnswer.judgeTripAnswer).not.toHaveBeenCalled();
+      expect(outbound.sendTripReply).toHaveBeenCalledWith(SENDER_ID, { trip: "hanukkah", hasPhone: false });
+    });
+
+    it("for the bare trip word (story-CTA trigger)", async () => {
+      givenTripStage();
+
+      await handleIncomingMessage({ messageText: "כסלו", senderId: SENDER_ID, messageId: "no-judge-trigger" });
+
+      expect(tripAnswer.judgeTripAnswer).not.toHaveBeenCalled();
+      expect(outbound.sendTripReply).toHaveBeenCalledWith(SENDER_ID, { trip: "kislev", hasPhone: false });
+    });
+
+    it("when a trip-word comment supplies the tripHint (recordTripCommentLead)", async () => {
+      givenTripStage();
+
+      await recordTripCommentLead({
+        senderId: SENDER_ID,
+        senderUsername: "ig_handle",
+        commentText: "🙏",
+        trip: "kislev",
+      });
+
+      expect(tripAnswer.judgeTripAnswer).not.toHaveBeenCalled();
+      expect(conversation.clearPendingClarification).toHaveBeenCalledWith("instagram", SENDER_ID);
+    });
+
+    it("when her DM follows a trip-word comment (owed mark → tripHint)", async () => {
+      seedOwed(SENDER_ID, "hanukkah");
+      givenTripStage();
+
+      await handleIncomingMessage({ messageText: "0501234567", senderId: SENDER_ID, messageId: "no-judge-owed" });
+
+      expect(tripAnswer.judgeTripAnswer).not.toHaveBeenCalled();
+      expect(conversation.clearPendingClarification).toHaveBeenCalledWith("instagram", SENDER_ID);
+    });
+
+    it("on the service stage: uman advances to the trip question without judging anything", async () => {
+      vi.mocked(conversation.getPendingClarification).mockReturnValue({
+        monday_item_id: ITEM_ID,
+        phone: null,
+        reask_count: 0,
+        stage: "service",
+        trip: null,
+        updated_at: ASKED_LONG_AGO,
+      });
+      vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+        boardId: CRM_BOARD,
+        groupId: NO_PHONE_GROUP,
+        service: null,
+      });
+      vi.mocked(classify.classifyLead).mockResolvedValue({ ...interestedClassification, extractedPhone: null });
+
+      await handleIncomingMessage({ messageText: "אומן", senderId: SENDER_ID, messageId: "no-judge-service" });
+
+      expect(conversation.advanceToTripStage).toHaveBeenCalledWith("instagram", SENDER_ID);
+      expect(tripAnswer.judgeTripAnswer).not.toHaveBeenCalled();
+    });
+
+    it("for a brand-new sender", async () => {
+      vi.mocked(classify.classifyLead).mockResolvedValue({ ...interestedClassification, extractedPhone: null });
+
+      await handleIncomingMessage({ messageText: "אני רוצה טיסה לאומן", senderId: SENDER_ID, messageId: "no-judge-new" });
+
+      expect(outbound.sendTripAsk).toHaveBeenCalledWith(SENDER_ID);
+      expect(tripAnswer.judgeTripAnswer).not.toHaveBeenCalled();
+    });
   });
 });
 
@@ -811,6 +1417,7 @@ describe("handleIncomingMessage — pending lead replies WITHOUT a service", () 
       reask_count: 1,
       stage: "service" as const,
       trip: null,
+      updated_at: ASKED_LONG_AGO,
     });
     vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
       boardId: CRM_BOARD,
@@ -838,6 +1445,7 @@ describe("handleIncomingMessage — pending lead replies WITHOUT a service", () 
       reask_count: 3,
       stage: "service" as const,
       trip: null,
+      updated_at: ASKED_LONG_AGO,
     });
     vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
       boardId: CRM_BOARD,
@@ -865,6 +1473,7 @@ describe("handleIncomingMessage — pending lead replies NOT interested", () => 
       reask_count: 0,
       stage: "service" as const,
       trip: null,
+      updated_at: ASKED_LONG_AGO,
     });
     vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
       boardId: CRM_BOARD,
@@ -896,6 +1505,7 @@ describe("handleIncomingMessage — pending mapping is stale", () => {
       reask_count: 0,
       stage: "service" as const,
       trip: null,
+      updated_at: ASKED_LONG_AGO,
     });
     vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue(null);
     vi.mocked(dedup.findKnownSender).mockReturnValue(null);
@@ -981,6 +1591,7 @@ describe("handleIncomingMessage — pending takes precedence over known-sender b
       reask_count: 0,
       stage: "service" as const,
       trip: null,
+      updated_at: ASKED_LONG_AGO,
     });
     vi.mocked(dedup.findKnownSender).mockReturnValue({
       monday_item_id: ITEM_ID,
@@ -1135,6 +1746,7 @@ describe("handleIncomingMessage — pending lead names service, still no phone �
       reask_count: 0,
       stage: "service" as const,
       trip: null,
+      updated_at: ASKED_LONG_AGO,
     });
     vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
       boardId: CRM_BOARD,
@@ -1518,6 +2130,7 @@ describe("handleIncomingMessage — phone survives even when the very first Mond
       reask_count: 0,
       stage: "service" as const,
       trip: null,
+      updated_at: ASKED_LONG_AGO,
     });
     vi.mocked(mondayService.getItemBoardAndGroup).mockRejectedValue(
       new MondayRateLimitError("minute", 45, "minute cap"),
@@ -1651,6 +2264,7 @@ describe("handleIncomingMessage — phone thank-you ack (uman only)", () => {
       reask_count: 0,
       stage: "service" as const,
       trip: null,
+      updated_at: ASKED_LONG_AGO,
     });
     vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
       boardId: CRM_BOARD,
@@ -2051,6 +2665,7 @@ describe("handleIncomingMessage — trip trigger word (story CTA)", () => {
         reask_count: 1,
         stage: "service" as const,
         trip: null,
+        updated_at: ASKED_LONG_AGO,
       });
       vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
         boardId: CRM_BOARD,
@@ -2082,6 +2697,7 @@ describe("handleIncomingMessage — trip trigger word (story CTA)", () => {
         reask_count: 2,
         stage: "trip" as const,
         trip: null,
+        updated_at: ASKED_LONG_AGO,
       });
       vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
         boardId: CRM_BOARD,
@@ -2110,6 +2726,7 @@ describe("handleIncomingMessage — trip trigger word (story CTA)", () => {
         reask_count: 0,
         stage: "trip" as const,
         trip: null,
+        updated_at: ASKED_LONG_AGO,
       });
       vi.mocked(mondayService.getItemBoardAndGroup).mockRejectedValue(
         new MondayRateLimitError("minute", 45, "minute cap"),
@@ -2542,6 +3159,7 @@ describe("recordTripCommentLead — comment-origin lead bookkeeping, every DM su
       reask_count: 1,
       stage: "service" as const,
       trip: null,
+      updated_at: ASKED_LONG_AGO,
     });
     vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
       boardId: CRM_BOARD,
@@ -2563,6 +3181,7 @@ describe("recordTripCommentLead — comment-origin lead bookkeeping, every DM su
       reask_count: 0,
       stage: "trip" as const,
       trip: null,
+      updated_at: ASKED_LONG_AGO,
     });
     vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
       boardId: CRM_BOARD,
@@ -2871,6 +3490,7 @@ describe("handleIncomingMessage — her reply after a trip-word comment (owed fl
         reask_count: 1,
         stage: "trip" as const,
         trip: null,
+        updated_at: ASKED_LONG_AGO,
       });
       vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
         boardId: CRM_BOARD,
@@ -2893,6 +3513,7 @@ describe("handleIncomingMessage — her reply after a trip-word comment (owed fl
         reask_count: 0,
         stage: "service" as const,
         trip: null,
+        updated_at: ASKED_LONG_AGO,
       });
       vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
         boardId: CRM_BOARD,

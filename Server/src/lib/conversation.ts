@@ -16,6 +16,8 @@ export interface PendingClarification {
   reask_count: number;
   stage: "service" | "trip";
   trip: Trip | null;
+  /** SQLite datetime('now'): UTC "YYYY-MM-DD HH:MM:SS" of the row's last write — a question going out, or her phone synced. */
+  updated_at: string;
 }
 
 export function getPendingClarification(
@@ -24,7 +26,7 @@ export function getPendingClarification(
 ): PendingClarification | null {
   const row = getDb()
     .prepare(
-      "SELECT monday_item_id, phone, reask_count, stage, trip FROM pending_clarifications WHERE platform = ? AND sender_id = ?",
+      "SELECT monday_item_id, phone, reask_count, stage, trip, updated_at FROM pending_clarifications WHERE platform = ? AND sender_id = ?",
     )
     .get(platform, senderId) as PendingClarification | undefined;
   return row ?? null;
