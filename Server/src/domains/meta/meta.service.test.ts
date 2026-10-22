@@ -433,6 +433,31 @@ describe("handleIncomingMessage — new lead names uman AND a trip (skips both q
     expect(conversation.upsertPendingClarification).not.toHaveBeenCalled();
     expect(result.itemId).toBe("new-item-123");
   });
+
+  // @shelidanan, 21 Oct: autocorrect wrote "רומן" for "אומן" and the classifier called it
+  // not interested. Once it reads the sentence as uman, the trip word must still route it.
+  it("her real autocorrected sentence, read as uman → the hanukkah trip reply, no question", async () => {
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      ...vagueClassification,
+      service: "uman",
+    });
+
+    await handleIncomingMessage({
+      messageText: "היי רציתי לקבל פרטים ומחיר על רומן חנוכה",
+      senderId: SENDER_ID,
+      messageId: "entryA-trip-typo",
+    });
+
+    expect(mondayService.createLeadRow).toHaveBeenCalledWith(
+      expect.objectContaining({ service: "uman" }),
+    );
+    expect(outbound.sendTripReply).toHaveBeenCalledWith(SENDER_ID, {
+      trip: "hanukkah",
+      hasPhone: false,
+    });
+    expect(outbound.sendTripAsk).not.toHaveBeenCalled();
+    expect(conversation.upsertPendingClarification).not.toHaveBeenCalled();
+  });
 });
 
 describe("handleIncomingMessage — new vague lead (Entry B step 1)", () => {

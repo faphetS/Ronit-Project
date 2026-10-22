@@ -164,6 +164,7 @@ Status of each integration. When a new decision is made, update this section and
 ### LLM (classification + summarization)
 - **Decision:** Implemented — OpenRouter (default model: `anthropic/claude-haiku-4.5`)
 - **What's done:** Lead classifier in `lib/classify.ts`. Takes message text + optional sender username, calls OpenRouter with Hebrew system prompt, returns `{interested, service, extractedName, extractedPhone, confidence, rawResponse}`. Handles JSON parsing (strips markdown backticks), validates response schema. Services: `uman` (pilgrimage flights) and `challah` (separation events).
+- **Trip names + autocorrect (2026-10-22):** the prompt knows Uman trips are named by holiday (ר"ח כסלו, חנוכה) — a question about the Hanukkah/Kislev trip is uman, a holiday greeting is not — and reads "רומן" as אומן when it sits in a details/price/trip request (phone autocorrect). Why: @shelidanan wrote "פרטים ומחיר על רומן חנוכה" on 2026-10-21, the classifier said not interested (0.95), and she got nothing until she wrote again. Side effect, measured: a bare "אמן" (amen) is no longer read as uman — before, story replies of "amen" got the trip pitch (a man answering a livelihood blessing; a woman already registered). Offline eval 31/31 × 3 runs before deploy; keep that set when touching the prompt.
 - **Not yet done:** Call-summary extraction, fallback model support.
 - **Env in use:** `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`.
 - **Env to add later:** `OPENROUTER_FALLBACK_MODEL` (when fallback logic is added).
