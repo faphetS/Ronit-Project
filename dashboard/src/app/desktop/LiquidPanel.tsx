@@ -20,9 +20,9 @@ interface Geometry {
   bump: { top: number; bottom: number } | null;
 }
 
-/** The panel and the current item, in px from the row's start edge (x) and its top (y). */
-function measure(row: HTMLElement, panel: HTMLElement, item: HTMLElement | undefined, rtl: boolean): Geometry {
-  const box = row.getBoundingClientRect();
+/** The panel and the current item, in px from the frame's start edge (x) and its top (y). */
+function measure(frame: Element, panel: HTMLElement, item: HTMLElement | undefined, rtl: boolean): Geometry {
+  const box = frame.getBoundingClientRect();
   const panelBox = panel.getBoundingClientRect();
   const fromStart = (x: number) => (rtl ? box.right - x : x - box.left);
   const itemBox = item?.getBoundingClientRect();
@@ -63,8 +63,6 @@ function outline(start: number, end: number, top: number, bottom: number, a: num
 }
 
 interface LiquidPanelProps<K extends string> {
-  /** The shell row that holds the rail and the panel. */
-  row: RefObject<HTMLElement | null>;
   /** The panel's content box: the shape is drawn around it. */
   panel: RefObject<HTMLElement | null>;
   /** The rail items by key. */
@@ -76,10 +74,14 @@ interface LiquidPanelProps<K extends string> {
 /**
  * The desktop content panel, drawn as one shape whose start edge reaches out around the current rail item.
  * When the item changes, the bump's edge in front springs ahead and the edge behind follows, so the bump
- * flows along the panel's edge, stretching on the way and settling with a wobble. Drawn from the start
- * edge and mirrored by CSS in RTL. Render it after the rail, so the rail's items exist when it measures.
+ * flows along the panel's edge, stretching on the way and settling with a wobble.
+ *
+ * The svg covers the shell row, so its own box is the frame everything is measured in (a parent's ref is
+ * not attached yet when a child's layout effect first runs). It draws from the start edge and is mirrored
+ * by CSS in RTL. Render it after the rail and the panel, so they exist when it measures.
  */
-export function LiquidPanel<K extends string>({ row, panel, items, target }: LiquidPanelProps<K>) {
+export function LiquidPanel<K extends string>({ panel, items, target }: LiquidPanelProps<K>) {
+  const frame = useRef<SVGSVGElement>(null);
   const rtl = useDirection() === "rtl";
   const reduceMotion = useReducedMotion();
   const start = useMotionValue(0);
@@ -98,10 +100,10 @@ export function LiquidPanel<K extends string>({ row, panel, items, target }: Liq
 
   useLayoutEffect(() => {
     current.current = target;
-    const rowElement = row.current;
+    const frameElement = frame.current;
     const panelElement = panel.current;
-    if (!rowElement || !panelElement) return;
-    const geometry = measure(rowElement, panelElement, target === null ? undefined : items.current.get(target), rtl);
+    if (!frameElement || !panelElement) return;
+    const geometry = measure(frameElement, panelElement, target === null ? undefined : items.current.get(target), rtl);
     start.jump(geometry.start);
     end.jump(geometry.end);
     top.jump(geometry.top);
@@ -125,17 +127,17 @@ export function LiquidPanel<K extends string>({ row, panel, items, target }: Liq
     if (travel) running.push(animate(reach, toReach, springs.surface));
     else reach.jump(toReach);
     return () => running.forEach((animation) => animation.stop());
-  }, [row, panel, items, target, rtl, reduceMotion, start, end, top, bottom, bumpTop, bumpBottom, rest, reach]);
+  }, [panel, items, target, rtl, reduceMotion, start, end, top, bottom, bumpTop, bumpBottom, rest, reach]);
 
   // A resize moves the panel and the items: follow them without travel.
   useLayoutEffect(() => {
-    const rowElement = row.current;
-    if (!rowElement || typeof ResizeObserver === "undefined") return;
+    const frameElement = frame.current;
+    if (!frameElement || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
       const panelElement = panel.current;
       if (!panelElement) return;
       const key = current.current;
-      const geometry = measure(rowElement, panelElement, key === null ? undefined : items.current.get(key), rtl);
+      const geometry = measure(frameElement, panelElement, key === null ? undefined : items.current.get(key), rtl);
       start.jump(geometry.start);
       end.jump(geometry.end);
       top.jump(geometry.top);
@@ -146,12 +148,12 @@ export function LiquidPanel<K extends string>({ row, panel, items, target }: Liq
       rest.jump(geometry.bump.bottom - geometry.bump.top);
       reach.jump(Math.max(0, geometry.start - EDGE));
     });
-    observer.observe(rowElement);
+    observer.observe(frameElement);
     return () => observer.disconnect();
-  }, [row, panel, items, rtl, start, end, top, bottom, bumpTop, bumpBottom, rest, reach]);
+  }, [panel, items, rtl, start, end, top, bottom, bumpTop, bumpBottom, rest, reach]);
 
   return (
-    <svg aria-hidden="true" className="pointer-events-none absolute inset-0 z-0 size-full rtl:-scale-x-100">
+    <svg ref={frame} aria-hidden="true" className="pointer-events-none absolute inset-0 z-0 size-full rtl:-scale-x-100">
       <motion.path d={d} className="liquid-panel" />
     </svg>
   );

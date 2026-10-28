@@ -37,7 +37,7 @@ function RailItem({ to, icon, label, name, badge, active, register, onHover }: R
       onPointerEnter={onHover}
       whileTap={{ scale: PRESS_SCALE }}
       transition={springs.ui}
-      className={cx("group relative grid size-[42px] place-items-center rounded-full transition-colors duration-300", active ? "text-ink" : "text-mute hover:text-ink")}
+      className={cx("group relative z-10 grid size-[42px] place-items-center rounded-full transition-colors duration-300", active ? "text-ink" : "text-mute hover:text-ink")}
     >
       <Icon name={icon} />
       {badge ? <CountBadge count={badge} /> : null}
@@ -91,7 +91,6 @@ export function Rail({ items, active, passportsToday, newLeads }: RailProps) {
     <div className="relative z-20 flex w-[76px] shrink-0 flex-col items-center py-5">
       <img src={logoUrl} alt={common.brandFull} className="mb-4 size-[50px] object-contain" />
       <div className="relative flex flex-col items-center" onPointerLeave={() => setHover((last) => last && { ...last, on: false })}>
-        <LiquidDrop axis="y" items={items} target={hover?.key ?? null} visible={hover?.on === true && hover.key !== active} className="liquid-bead rounded-full" />
         <nav aria-label={nav.main} className="flex flex-col items-center gap-0.5">
           {DESKTOP_NAV.map((section) => {
             const name = nav.items[section.key];
@@ -115,6 +114,7 @@ export function Rail({ items, active, passportsToday, newLeads }: RailProps) {
             <RailItem key={tool.key} to={tool.to} icon={tool.icon} label={tool.label} name={tool.label} badge={tool.badge} {...itemProps(tool.key)} />
           ))}
         </nav>
+        <LiquidDrop axis="y" items={items} target={hover?.key ?? null} visible={hover?.on === true && hover.key !== active} className="liquid-bead rounded-full" />
       </div>
       <span className="flex-1" />
       <motion.button

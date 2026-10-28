@@ -15,14 +15,13 @@ import { TopBar } from "./TopBar";
 export function DesktopShell() {
   const badges = useNavBadges();
   const { pathname } = useLocation();
-  const row = useRef<HTMLDivElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const items = useRef(new Map<RailKey, HTMLElement>());
   const active = railKeyFor(pathname);
   return (
     <div className="shell-frame relative h-dvh overflow-hidden">
       <Scene preset="app" />
-      <div ref={row} className="relative flex h-full">
+      <div className="relative flex h-full">
         <Rail items={items} active={active} passportsToday={badges.passportsToday} newLeads={badges.newLeads} />
         <div ref={panel} className="relative z-10 my-3 me-3 flex min-w-0 flex-1 flex-col">
           <div className="mx-auto flex min-h-0 w-full max-w-[1440px] flex-1 flex-col px-7 pt-5">
@@ -32,7 +31,7 @@ export function DesktopShell() {
             </main>
           </div>
         </div>
-        <LiquidPanel row={row} panel={panel} items={items} target={active} />
+        <LiquidPanel panel={panel} items={items} target={active} />
       </div>
     </div>
   );

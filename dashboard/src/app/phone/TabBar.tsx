@@ -16,7 +16,6 @@ export function TabBar() {
   const items = useRef(new Map<PhoneTabKey, HTMLElement>());
   return (
     <nav aria-label={nav.main} className="surface-glass absolute inset-x-3.5 bottom-4 z-20 flex gap-0.5 rounded-[32px] p-1.5" style={{ boxShadow: "var(--shadow-float)" }}>
-      <LiquidDrop axis="x" items={items} target={current} className="liquid-drop rounded-[26px]" />
       {PHONE_TABS.map((tab) => {
         const active = tab.key === current;
         return (
@@ -30,7 +29,7 @@ export function TabBar() {
             aria-current={active ? "page" : undefined}
             whileTap={{ scale: PRESS_SCALE }}
             transition={springs.ui}
-            className="relative flex h-14 flex-1 flex-col items-center justify-center rounded-[26px] text-[11.5px] font-medium"
+            className="relative z-10 flex h-14 flex-1 flex-col items-center justify-center rounded-[26px] text-[11.5px] font-medium"
           >
             <span className={cx("relative flex flex-col items-center gap-0.5 transition-colors duration-300", active ? "text-cream" : "text-copy")}>
               <Icon name={tab.icon} />
@@ -39,6 +38,7 @@ export function TabBar() {
           </MotionLink>
         );
       })}
+      <LiquidDrop axis="x" items={items} target={current} className="liquid-drop rounded-[26px]" />
     </nav>
   );
 }

@@ -1,5 +1,6 @@
 import { animate, motion, useMotionValue, useReducedMotion, useTransform } from "motion/react";
 import { useLayoutEffect, useRef, type RefObject } from "react";
+import { useDirection } from "../content/locale";
 import { cx } from "../lib/cx";
 import { springs } from "./springs";
 
@@ -8,7 +9,10 @@ type Axis = "x" | "y";
 interface LiquidDropProps<K extends string> {
   /** "y" for a column of items (the rail), "x" for a row (the tab bar). */
   axis: Axis;
-  /** The items by key. The drop must share their offsetParent: render it inside the same positioned container. */
+  /**
+   * The items by key. The drop must share their offsetParent: render it inside the same positioned container,
+   * after the items, so they are registered when it first measures (lift the items above it with a z-index).
+   */
   items: RefObject<Map<K, HTMLElement>>;
   /** The item the drop sits on. */
   target: K | null;
@@ -26,10 +30,12 @@ function measure(element: HTMLElement, axis: Axis) {
 /**
  * A liquid drop that marks an item. When the target changes, the edge in front springs ahead and the edge behind
  * follows, so the drop stretches toward the new item, thins a little, and settles with a wobble. It lands without
- * travel the first time, when it reappears, when the container resizes, and under Reduce Motion.
+ * travel the first time, when it reappears, when the language turns the layout around, when the container
+ * resizes, and under Reduce Motion.
  */
 export function LiquidDrop<K extends string>({ axis, items, target, visible = true, className }: LiquidDropProps<K>) {
   const drop = useRef<HTMLSpanElement>(null);
+  const direction = useDirection();
   const reduceMotion = useReducedMotion();
   const start = useMotionValue(0);
   const end = useMotionValue(0);
@@ -44,10 +50,13 @@ export function LiquidDrop<K extends string>({ axis, items, target, visible = tr
   const placed = useRef(false);
   const shown = useRef(visible);
   const current = useRef(target);
+  const turned = useRef(direction);
 
   useLayoutEffect(() => {
     current.current = target;
-    const travel = placed.current && shown.current && !reduceMotion;
+    const sameDirection = turned.current === direction;
+    turned.current = direction;
+    const travel = placed.current && shown.current && sameDirection && !reduceMotion;
     shown.current = visible;
     const element = target === null ? undefined : items.current.get(target);
     if (!element) return;
@@ -67,7 +76,7 @@ export function LiquidDrop<K extends string>({ axis, items, target, visible = tr
       leading.stop();
       trailing.stop();
     };
-  }, [axis, items, target, visible, reduceMotion, start, end, cross, thickness]);
+  }, [axis, items, target, visible, direction, reduceMotion, start, end, cross, thickness]);
 
   // A resize moves the items: follow them without travel.
   useLayoutEffect(() => {
