@@ -15,7 +15,11 @@ import { Scene } from "../../ui/Scene";
 import { Surface } from "../../ui/Surface";
 import { TodayCard } from "../shared/TodayCard";
 
-type Notice = "forgot" | "help" | null;
+type Notice = "help" | null;
+
+// The demo has no password: the button signs in as Ronit, with or without an email.
+const DEMO_EMAIL = "ronit@orhazadik.online";
+const DEMO_PASSWORD = "demo";
 
 /** Sign in, composed like the reference: the frosted card, the black card and the tall orb card. */
 export function SignInScreen() {
@@ -29,14 +33,11 @@ export function SignInScreen() {
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    signInMutation.mutate(
-      { email: String(form.get("email") ?? ""), password: String(form.get("password") ?? "") },
-      { onSuccess: () => navigate(returnTo, { replace: true }) },
-    );
+    const email = String(new FormData(event.currentTarget).get("email") ?? "").trim() || DEMO_EMAIL;
+    signInMutation.mutate({ email, password: DEMO_PASSWORD }, { onSuccess: () => navigate(returnTo, { replace: true }) });
   };
 
-  const message = signInMutation.isError ? copy.failed : notice === "forgot" ? copy.forgotNotice : notice === "help" ? copy.helpNotice : "";
+  const message = signInMutation.isError ? copy.failed : notice === "help" ? copy.helpNotice : "";
 
   return (
     <div className="relative min-h-dvh overflow-x-hidden">
@@ -58,21 +59,8 @@ export function SignInScreen() {
               </button>
             </div>
             <Headline title={copy.title} size="display-3" className="mt-7 mb-5" />
-            <form onSubmit={submit} className="flex flex-col gap-3">
-              <Field label={copy.email} icon="at" name="email" type="email" autoComplete="username" required />
-              <Field
-                label={copy.password}
-                icon="key"
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                required
-                trailing={
-                  <button type="button" onClick={() => setNotice("forgot")} className="inline-flex h-[42px] items-center rounded-full bg-paper px-4 text-small font-medium text-ink">
-                    {copy.forgot}
-                  </button>
-                }
-              />
+            <form onSubmit={submit} noValidate className="flex flex-col gap-3">
+              <Field label={copy.email} icon="at" name="email" type="email" autoComplete="username" />
               <label className="flex items-center gap-2.5 px-2 text-small text-mute-2">
                 <input type="checkbox" name="remember" defaultChecked className="size-[18px] accent-ink" />
                 {copy.remember}
