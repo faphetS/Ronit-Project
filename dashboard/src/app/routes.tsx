@@ -1,7 +1,15 @@
 import { Navigate, type RouteObject } from "react-router";
-import { Placeholder } from "../screens/Placeholder";
+import { CustomerProfileScreen } from "../screens/customers/CustomerProfileScreen";
+import { CustomersScreen } from "../screens/customers/CustomersScreen";
+import { BirthdaysScreen } from "../screens/greetings/BirthdaysScreen";
+import { HolidaysScreen } from "../screens/greetings/HolidaysScreen";
+import { GroupsScreen } from "../screens/groups/GroupsScreen";
+import { ImportScreen } from "../screens/import/ImportScreen";
+import { LeadDetailScreen } from "../screens/leads/LeadDetailScreen";
+import { LeadsScreen } from "../screens/leads/LeadsScreen";
 import { OverviewScreen } from "../screens/overview/OverviewScreen";
 import { SignInScreen } from "../screens/sign-in/SignInScreen";
+import { UsersScreen } from "../screens/users/UsersScreen";
 import { RequireSession } from "./RequireSession";
 import { Shell } from "./Shell";
 
@@ -16,17 +24,17 @@ export const routes: RouteObject[] = [
     ),
     children: [
       { index: true, element: <OverviewScreen /> },
-      { path: "leads", element: <Placeholder screen="leads" /> },
-      { path: "leads/:leadId", element: <Placeholder screen="lead" /> },
-      { path: "customers", element: <Placeholder screen="customers" /> },
-      { path: "customers/:customerId", element: <Placeholder screen="customer" /> },
-      { path: "groups", element: <Placeholder screen="groups" /> },
-      { path: "groups/:groupId", element: <Placeholder screen="groups" /> },
+      { path: "leads", element: <LeadsScreen /> },
+      { path: "leads/:leadId", element: <LeadDetailScreen /> },
+      { path: "customers", element: <CustomersScreen /> },
+      { path: "customers/:customerId", element: <CustomerProfileScreen /> },
+      { path: "groups", element: <GroupsScreen /> },
+      { path: "groups/:groupId", element: <GroupsScreen /> },
       { path: "greetings", element: <Navigate to="/greetings/holidays" replace /> },
-      { path: "greetings/holidays", element: <Placeholder screen="holidays" /> },
-      { path: "greetings/birthdays", element: <Placeholder screen="birthdays" /> },
-      { path: "users", element: <Placeholder screen="users" /> },
-      { path: "import", element: <Placeholder screen="import" /> },
+      { path: "greetings/holidays", element: <HolidaysScreen /> },
+      { path: "greetings/birthdays", element: <BirthdaysScreen /> },
+      { path: "users", element: <UsersScreen /> },
+      { path: "import", element: <ImportScreen /> },
       { path: "*", element: <Navigate to="/" replace /> },
     ],
   },

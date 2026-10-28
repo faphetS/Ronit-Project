@@ -16,6 +16,18 @@ import { states as statesEn } from "./states.en";
 import { states as statesHe } from "./states.he";
 import { time as timeEn } from "./time.en";
 import { time as timeHe } from "./time.he";
+import { customersCopy as customersHe } from "./customers.he";
+import { groupsCopy as groupsHe } from "./groups.he";
+import { greetingsCopy as greetingsHe } from "./greetings.he";
+import { usersCopy as usersHe } from "./users.he";
+import { importCopy as importHe } from "./import.he";
+import { uiCopy as uiHe } from "./ui.he";
+import { customersCopy as customersEn } from "./customers.en";
+import { groupsCopy as groupsEn } from "./groups.en";
+import { greetingsCopy as greetingsEn } from "./greetings.en";
+import { usersCopy as usersEn } from "./users.en";
+import { importCopy as importEn } from "./import.en";
+import { uiCopy as uiEn } from "./ui.en";
 import type { Widen } from "./types";
 
 export type Locale = "he" | "en";
@@ -45,6 +57,12 @@ const he = {
   signIn: signInHe,
   states: statesHe,
   time: timeHe,
+  customersCopy: customersHe,
+  groupsCopy: groupsHe,
+  greetingsCopy: greetingsHe,
+  usersCopy: usersHe,
+  importCopy: importHe,
+  uiCopy: uiHe,
 };
 
 /** All interface copy in one language. Each *.en.ts file has the shape of its *.he.ts twin. */
@@ -62,6 +80,12 @@ const en: Copy = {
   signIn: signInEn,
   states: statesEn,
   time: timeEn,
+  customersCopy: customersEn,
+  groupsCopy: groupsEn,
+  greetingsCopy: greetingsEn,
+  usersCopy: usersEn,
+  importCopy: importEn,
+  uiCopy: uiEn,
 };
 
 export const COPY: Record<Locale, Copy> = { he, en };
