@@ -1,5 +1,6 @@
 import { Navigate, type RouteObject } from "react-router";
 import { Placeholder } from "../screens/Placeholder";
+import { OverviewScreen } from "../screens/overview/OverviewScreen";
 import { SignInScreen } from "../screens/sign-in/SignInScreen";
 import { RequireSession } from "./RequireSession";
 import { Shell } from "./Shell";
@@ -14,7 +15,7 @@ export const routes: RouteObject[] = [
       </RequireSession>
     ),
     children: [
-      { index: true, element: <Placeholder screen="overview" /> },
+      { index: true, element: <OverviewScreen /> },
       { path: "leads", element: <Placeholder screen="leads" /> },
       { path: "leads/:leadId", element: <Placeholder screen="lead" /> },
       { path: "customers", element: <Placeholder screen="customers" /> },
