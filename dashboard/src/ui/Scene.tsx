@@ -22,7 +22,6 @@ const PRESETS = {
   app: [
     { kind: "glow", width: 680, at: { insetInlineStart: -240, top: -320 } },
     { kind: "dome", width: 560, at: { insetInlineEnd: -170, top: -250 } },
-    { kind: "pearl", width: 300, at: { insetInlineStart: -110, bottom: -130 } },
     { kind: "pebble", width: 170, height: 130, at: { insetInlineEnd: -50, bottom: -50 } },
   ],
   phone: [

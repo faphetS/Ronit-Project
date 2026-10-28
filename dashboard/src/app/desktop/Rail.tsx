@@ -88,10 +88,10 @@ export function Rail({ items, active, passportsToday, newLeads }: RailProps) {
   ];
 
   return (
-    <div className="relative z-20 flex w-[76px] shrink-0 flex-col items-center py-5">
-      <img src={logoUrl} alt={common.brandFull} className="mb-4 size-[50px] object-contain" />
+    <div className="relative z-20 flex w-16 shrink-0 flex-col items-center py-5">
+      <img src={logoUrl} alt={common.brandFull} className="mb-4 size-[46px] object-contain" />
       <div className="relative flex flex-col items-center" onPointerLeave={() => setHover((last) => last && { ...last, on: false })}>
-        <nav aria-label={nav.main} className="flex flex-col items-center gap-0.5">
+        <nav aria-label={nav.main} className="flex flex-col items-center gap-1">
           {DESKTOP_NAV.map((section) => {
             const name = nav.items[section.key];
             const count = section.key === "leads" && newLeads > 0 ? newLeads : undefined;
@@ -109,7 +109,7 @@ export function Rail({ items, active, passportsToday, newLeads }: RailProps) {
           })}
         </nav>
         <span aria-hidden="true" className="my-2.5 h-px w-7 bg-ink/10" />
-        <nav aria-label={nav.tools} className="flex flex-col items-center gap-0.5">
+        <nav aria-label={nav.tools} className="flex flex-col items-center gap-1">
           {tools.map((tool) => (
             <RailItem key={tool.key} to={tool.to} icon={tool.icon} label={tool.label} name={tool.label} badge={tool.badge} {...itemProps(tool.key)} />
           ))}
