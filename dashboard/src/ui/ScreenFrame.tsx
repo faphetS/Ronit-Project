@@ -10,7 +10,7 @@ export function ScreenFrame({ children, className }: { children: ReactNode; clas
       initial="initial"
       animate="enter"
       variants={staggerVariants}
-      className={cx("flex flex-col gap-3.5 px-4 pt-3.5 pb-[124px] lg:gap-[22px] lg:px-0 lg:pt-0 lg:pb-0", className)}
+      className={cx("flex flex-col gap-3.5 px-4 pt-3.5 pb-[124px] lg:gap-[18px] lg:px-0 lg:pt-0 lg:pb-0", className)}
     >
       {children}
     </motion.div>

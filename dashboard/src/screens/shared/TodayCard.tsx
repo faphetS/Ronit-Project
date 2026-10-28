@@ -10,7 +10,7 @@ type TodayCardSize = "tall" | "regular" | "compact";
 
 const LAYOUT: Record<TodayCardSize, { orb: { size: number; end: number; top: number }; stripBasis: string; dayClass: string }> = {
   tall: { orb: { size: 290, end: 28, top: 180 }, stripBasis: "55%", dayClass: "text-[76px] leading-none" },
-  regular: { orb: { size: 220, end: 66, top: 74 }, stripBasis: "55%", dayClass: "text-display" },
+  regular: { orb: { size: 180, end: 54, top: 60 }, stripBasis: "55%", dayClass: "text-display" },
   compact: { orb: { size: 170, end: 92, top: 40 }, stripBasis: "50%", dayClass: "text-[44px] leading-none" },
 };
 

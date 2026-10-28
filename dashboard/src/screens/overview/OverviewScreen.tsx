@@ -28,7 +28,7 @@ export function OverviewScreen() {
           {NUMBER_KEYS.map((key) => (
             <div key={key}>
               <dt className="text-caption text-mute">{copy.numbers[key]}</dt>
-              <dd className="mt-1 text-[38px] leading-none font-light text-ink">{data ? formatNumber(data[key]) : copy.pending}</dd>
+              <dd className="mt-1 text-[30px] leading-none font-light text-ink">{data ? formatNumber(data[key]) : copy.pending}</dd>
             </div>
           ))}
         </dl>
@@ -41,7 +41,7 @@ export function OverviewScreen() {
           {data ? (
             <>
               <div className="flex items-end gap-4">
-                <p className="text-[92px] leading-[0.95] font-light text-cream">{formatNumber(data.newLeadsThisWeek)}</p>
+                <p className="text-[68px] leading-[0.95] font-light text-cream">{formatNumber(data.newLeadsThisWeek)}</p>
                 <p className="pb-2.5 text-small text-ink-mute">{copy.breakdown(data.thisWeekByStatus)}</p>
               </div>
               <GooButton to="/leads" tone="light" size="sm" className="mt-auto self-end">
@@ -54,7 +54,7 @@ export function OverviewScreen() {
           day={today()}
           label={copy.today}
           size={phone ? "compact" : "regular"}
-          className="min-h-[300px] lg:col-span-4"
+          className="min-h-[250px] lg:col-span-4"
           side={<p className="text-small text-mute">{copy.sideNote}</p>}
         />
         <Surface variant="glass" compact={phone} aria-label={copy.restTitle} className="lg:col-span-3">

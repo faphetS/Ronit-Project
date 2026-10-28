@@ -23,7 +23,7 @@ export function Surface({ variant, compact = false, as = "section", className, .
   return (
     <Tag
       variants={cardVariants}
-      className={cx(VARIANT_CLASS[variant], compact ? "rounded-card-phone p-[18px]" : "rounded-card px-[26px] py-6", className)}
+      className={cx(VARIANT_CLASS[variant], compact ? "rounded-card-phone p-[18px]" : "rounded-card px-[22px] py-5", className)}
       {...rest}
     />
   );

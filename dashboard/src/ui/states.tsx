@@ -24,7 +24,7 @@ export function LoadingBlock({ lines = 3, onDark = false, className }: { lines?:
 /** Nothing to show: one line and the next step. */
 export function EmptyState({ message, action, onDark = false }: { message: string; action?: ReactNode; onDark?: boolean }) {
   return (
-    <div className="flex flex-col items-center gap-3 py-8 text-center">
+    <div className="flex flex-col items-center gap-3 py-6 text-center">
       <p className={cx("text-small", onDark ? "text-ink-mute" : "text-mute")}>{message}</p>
       {action}
     </div>

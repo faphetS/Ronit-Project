@@ -29,8 +29,8 @@
   --color-status-irrelevant: #c2b9b0;
   --color-status-warning: #bd4b2e;
 
-  --text-display: 60px;
-  --text-display--line-height: 1;
+  --text-display: 44px;
+  --text-display--line-height: 1.05;
   --text-display-2: 42px;
   --text-display-2--line-height: 1.05;
   --text-display-3: 30px;

@@ -190,7 +190,7 @@ One route tree serves both shells. `useShell()` returns `desktop` from 1024px wi
 
 | Role | Size | Weight |
 |---|---|---|
-| Display | 60px, 42px or 30px | 300 |
+| Display | 44px, 42px or 30px | 300 |
 | Card title | 17px | 500 |
 | Body | 15px | 400 |
 | Small | 13.5px | 400 |
