@@ -1,9 +1,40 @@
-import { AnimatePresence, motion } from "motion/react";
-import { useState } from "react";
+import { AnimatePresence, motion, useIsPresent } from "motion/react";
+import { useState, type ReactNode } from "react";
 import { useLocation, useNavigationType, useOutlet } from "react-router";
 import { cx } from "../lib/cx";
+import { ScreenPathContext } from "./screen-path";
 import { resolveScreenTransition, type ScreenTransition } from "./transitions";
 import { screenVariants } from "./variants";
+
+interface StackScreenProps {
+  pathname: string;
+  pushed: boolean;
+  transition: ScreenTransition;
+  children: ReactNode;
+}
+
+/**
+ * One screen in the stack. While it leaves, it keeps its own path (so its header does not
+ * turn into the next screen's) and it is hidden from assistive tech and from input.
+ */
+function StackScreen({ pathname, pushed, transition, children }: StackScreenProps) {
+  const isPresent = useIsPresent();
+  return (
+    <motion.div
+      custom={transition}
+      variants={screenVariants}
+      initial="initial"
+      animate="enter"
+      exit="exit"
+      aria-hidden={isPresent ? undefined : true}
+      inert={!isPresent}
+      className="no-scrollbar absolute inset-0 overflow-y-auto"
+      style={{ zIndex: pushed ? 2 : 1 }}
+    >
+      <ScreenPathContext value={pathname}>{children}</ScreenPathContext>
+    </motion.div>
+  );
+}
 
 interface StackOutletProps {
   isPushed: (pathname: string) => boolean;
@@ -35,18 +66,9 @@ export function StackOutlet({ isPushed, className }: StackOutletProps) {
   return (
     <div className={cx("relative overflow-hidden", className)}>
       <AnimatePresence custom={transition}>
-        <motion.div
-          key={location.pathname}
-          custom={transition}
-          variants={screenVariants}
-          initial="initial"
-          animate="enter"
-          exit="exit"
-          className="no-scrollbar absolute inset-0 overflow-y-auto"
-          style={{ zIndex: isPushed(location.pathname) ? 2 : 1 }}
-        >
+        <StackScreen key={location.pathname} pathname={location.pathname} pushed={isPushed(location.pathname)} transition={transition}>
           {outlet}
-        </motion.div>
+        </StackScreen>
       </AnimatePresence>
     </div>
   );
