@@ -1,6 +1,6 @@
 import { motion } from "motion/react";
-import { useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router";
+import { useState, type RefObject } from "react";
+import { useNavigate } from "react-router";
 import logoUrl from "../../assets/logo.png";
 import { useCopy } from "../../content/locale";
 import { useSession, useSignOut } from "../../data/queries";
@@ -12,7 +12,7 @@ import { CountBadge } from "../../ui/CountBadge";
 import { Icon } from "../../ui/Icon";
 import type { IconName } from "../../ui/icons";
 import { MotionLink } from "../../ui/MotionLink";
-import { DESKTOP_NAV, railKeyFor, type RailKey, type RailToolKey } from "../sections";
+import { DESKTOP_NAV, type RailKey, type RailToolKey } from "../sections";
 
 interface RailItemProps {
   to: string;
@@ -37,7 +37,7 @@ function RailItem({ to, icon, label, name, badge, active, register, onHover }: R
       onPointerEnter={onHover}
       whileTap={{ scale: PRESS_SCALE }}
       transition={springs.ui}
-      className={cx("group relative grid size-[42px] place-items-center rounded-full transition-colors duration-300", active ? "text-cream" : "text-copy hover:text-ink")}
+      className={cx("group relative grid size-[42px] place-items-center rounded-full transition-colors duration-300", active ? "text-ink" : "text-mute hover:text-ink")}
     >
       <Icon name={icon} />
       {badge ? <CountBadge count={badge} /> : null}
@@ -51,19 +51,24 @@ function RailItem({ to, icon, label, name, badge, active, register, onHover }: R
   );
 }
 
+interface RailProps {
+  /** Every item registers here, so the panel can find the current one. */
+  items: RefObject<Map<RailKey, HTMLElement>>;
+  active: RailKey | null;
+  passportsToday: number;
+  newLeads: number;
+}
+
 /**
- * The glass rail at the start side: the logo, the sections, the tools, and Ronit's avatar to sign out.
- * An ink drop flows to the current item, and a bead of water follows the pointer.
+ * The rail at the screen's start edge: the logo, the sections, the tools, and Ronit's avatar to sign out.
+ * The content panel reaches out to the current item (see LiquidPanel); a bead of water follows the pointer.
  */
-export function Rail({ passportsToday, newLeads }: { passportsToday: number; newLeads: number }) {
+export function Rail({ items, active, passportsToday, newLeads }: RailProps) {
   const { common, nav } = useCopy();
-  const { pathname } = useLocation();
   const session = useSession();
   const signOut = useSignOut();
   const navigate = useNavigate();
-  const items = useRef(new Map<RailKey, HTMLElement>());
   const [hover, setHover] = useState<{ key: RailKey; on: boolean } | null>(null);
-  const active = railKeyFor(pathname);
   const user = session.data?.user;
 
   const itemProps = (key: RailKey) => ({
@@ -83,11 +88,10 @@ export function Rail({ passportsToday, newLeads }: { passportsToday: number; new
   ];
 
   return (
-    <div className="surface-glass relative z-10 mb-5 flex w-[72px] shrink-0 flex-col items-center self-stretch rounded-[36px] py-3.5">
-      <img src={logoUrl} alt={common.brandFull} className="mb-3 w-[52px]" />
+    <div className="relative z-20 flex w-[76px] shrink-0 flex-col items-center py-5">
+      <img src={logoUrl} alt={common.brandFull} className="mb-4 size-[50px] object-contain" />
       <div className="relative flex flex-col items-center" onPointerLeave={() => setHover((last) => last && { ...last, on: false })}>
         <LiquidDrop axis="y" items={items} target={hover?.key ?? null} visible={hover?.on === true && hover.key !== active} className="liquid-bead rounded-full" />
-        <LiquidDrop axis="y" items={items} target={active} className="liquid-drop rounded-full" />
         <nav aria-label={nav.main} className="flex flex-col items-center gap-0.5">
           {DESKTOP_NAV.map((section) => {
             const name = nav.items[section.key];

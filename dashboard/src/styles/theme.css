@@ -208,3 +208,20 @@
     inset 0 -3px 8px -4px rgb(74 52 34 / 0.18),
     0 6px 14px -10px rgb(74 52 34 / 0.45);
 }
+
+/* The desktop shell's frame: a deeper sand than the content panel on it. */
+@utility shell-frame {
+  background:
+    radial-gradient(60% 50% at 100% 0%, rgb(224 171 87 / 0.14), rgb(224 171 87 / 0) 70%),
+    linear-gradient(170deg, #ebe3d8 0%, #e2d7ca 55%, #d8cbbc 100%);
+}
+
+/* The desktop content panel, one SVG shape with its bump (src/app/desktop/LiquidPanel.tsx). */
+@utility liquid-panel {
+  fill: rgb(250 247 243 / 0.8);
+  stroke: rgb(255 255 255 / 0.85);
+  stroke-width: 1px;
+  @media (prefers-reduced-transparency: reduce) {
+    fill: var(--color-sand-light);
+  }
+}
