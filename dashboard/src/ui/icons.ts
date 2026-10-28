@@ -32,6 +32,12 @@ export const ICONS = {
   phone: ["M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"],
   shield: ["M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z", "m9 12 2 2 4-4"],
   signOut: ["M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M9 16l-4-4 4-4M5 12h11"],
+  close: ["M6 6l12 12M18 6 6 18"],
+  chevronDown: ["m6 9 6 6 6-6"],
+  filter: ["M4 6h16M7 12h10M10 18h4"],
+  eye: ["M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z", { cx: 12, cy: 12, r: 3 }],
+  minus: ["M7 12h10"],
+  alert: [{ cx: 12, cy: 12, r: 8.5 }, "M12 7.5v5.5M12 16.2v.3"],
 } as const satisfies Record<string, readonly IconShape[]>;
 
 export type IconName = keyof typeof ICONS;

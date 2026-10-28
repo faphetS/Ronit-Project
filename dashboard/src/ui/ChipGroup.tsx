@@ -17,14 +17,20 @@ interface ChipGroupProps<T extends string> {
   value: T;
   onChange: (value: T) => void;
   onPaper?: boolean;
+  /** One line that scrolls sideways and runs to the screen edges, as on phones. Otherwise the chips wrap. */
+  scroll?: boolean;
   className?: string;
 }
 
-/** Single-choice filter chips. The dark highlight glides to the chosen chip. */
-export function ChipGroup<T extends string>({ id, label, options, value, onChange, onPaper = false, className }: ChipGroupProps<T>) {
+/** Single-choice filter chips. The dark highlight glides to the chosen chip. 44px tall on phones, 40px from lg. */
+export function ChipGroup<T extends string>({ id, label, options, value, onChange, onPaper = false, scroll = false, className }: ChipGroupProps<T>) {
   return (
     <LayoutGroup id={id}>
-      <div role="group" aria-label={label} className={cx("flex flex-wrap gap-2", className)}>
+      <div
+        role="group"
+        aria-label={label}
+        className={cx("flex gap-2", scroll ? "no-scrollbar -mx-4 overflow-x-auto px-4 pt-0.5 pb-1.5" : "flex-wrap", className)}
+      >
         {options.map((option) => {
           const selected = option.value === value;
           return (
@@ -36,7 +42,7 @@ export function ChipGroup<T extends string>({ id, label, options, value, onChang
               whileTap={{ scale: PRESS_SCALE }}
               transition={springs.ui}
               className={cx(
-                "relative inline-flex h-10 items-center gap-2 rounded-full px-4 text-[14px] font-medium whitespace-nowrap",
+                "relative inline-flex h-11 shrink-0 items-center gap-2 rounded-full px-4 text-[14px] font-medium whitespace-nowrap lg:h-10",
                 selected ? "text-cream" : cx("text-copy", onPaper ? "bg-sand-light" : "bg-white/55 ring-1 ring-inset ring-white/85 hover:bg-white"),
               )}
             >

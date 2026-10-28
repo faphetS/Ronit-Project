@@ -1,5 +1,5 @@
 import { motion } from "motion/react";
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 import { cx } from "../lib/cx";
 import { PRESS_SCALE, springs } from "../motion/springs";
 import { Icon } from "./Icon";
@@ -20,6 +20,8 @@ interface ButtonProps {
   type?: "button" | "submit";
   disabled?: boolean;
   className?: string;
+  /** Reaches the button element (not the link), e.g. to focus it first in a dialog. */
+  ref?: Ref<HTMLButtonElement>;
 }
 
 const SIZE = { md: "h-[46px] px-[22px] text-[15px]", sm: "h-[38px] px-4 text-[14px]" } as const;
@@ -37,11 +39,12 @@ const ON_DARK: Record<ButtonVariant, string> = {
 };
 
 /** Pill button. Renders a link when it has a destination. */
-export function Button({ children, variant = "solid", size = "md", icon, onDark = false, to, onClick, type = "button", disabled, className }: ButtonProps) {
+export function Button({ children, variant = "solid", size = "md", icon, onDark = false, to, onClick, type = "button", disabled, className, ref }: ButtonProps) {
   const classes = cx(
     "inline-flex items-center justify-center gap-2 rounded-full font-medium leading-none whitespace-nowrap transition-colors disabled:opacity-50",
     SIZE[size],
     (onDark ? ON_DARK : ON_LIGHT)[variant],
+    onDark && "focus-visible:outline-cream",
     className,
   );
   const content = (
@@ -58,7 +61,7 @@ export function Button({ children, variant = "solid", size = "md", icon, onDark 
     );
   }
   return (
-    <motion.button type={type} onClick={onClick} disabled={disabled} className={classes} whileTap={{ scale: PRESS_SCALE }} transition={springs.ui}>
+    <motion.button ref={ref} type={type} onClick={onClick} disabled={disabled} className={classes} whileTap={{ scale: PRESS_SCALE }} transition={springs.ui}>
       {content}
     </motion.button>
   );

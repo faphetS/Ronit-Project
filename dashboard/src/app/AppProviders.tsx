@@ -5,8 +5,9 @@ import { createMockServices, failingFromSearch } from "../data/mock/createMockSe
 import { createQueryClient } from "../data/queryClient";
 import { ServicesProvider } from "../data/ServicesProvider";
 import { MotionRoot } from "../motion/MotionRoot";
+import { ToastProvider } from "../ui/Toast";
 
-/** Data, the query cache, the language and motion defaults for the whole app. The shell runs on the mock services. */
+/** Data, the query cache, the language, motion defaults and toasts for the whole app. The shell runs on the mock services. */
 export function AppProviders({ children }: { children: ReactNode }) {
   const [client] = useState(createQueryClient);
   const [services] = useState(() =>
@@ -16,7 +17,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
     <QueryClientProvider client={client}>
       <ServicesProvider services={services}>
         <LocaleProvider>
-          <MotionRoot>{children}</MotionRoot>
+          <MotionRoot>
+            <ToastProvider>{children}</ToastProvider>
+          </MotionRoot>
         </LocaleProvider>
       </ServicesProvider>
     </QueryClientProvider>
