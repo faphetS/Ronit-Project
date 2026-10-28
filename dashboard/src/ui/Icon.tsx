@@ -1,5 +1,4 @@
 import { cx } from "../lib/cx";
-import { rem } from "../lib/rem";
 import { ICONS, type IconName, type IconShape } from "./icons";
 
 // "forward" and "back" are drawn for Hebrew. In English they point the other way.
@@ -17,8 +16,8 @@ export function Icon({ name, size = 20, className }: IconProps) {
   return (
     <svg
       viewBox="0 0 24 24"
-      width={rem(size)}
-      height={rem(size)}
+      width={size}
+      height={size}
       aria-hidden="true"
       focusable="false"
       className={cx(FLIP_IN_LTR.has(name) && "ltr:-scale-x-100", className)}

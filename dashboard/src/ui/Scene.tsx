@@ -1,18 +1,13 @@
 import type { CSSProperties } from "react";
 import { cx } from "../lib/cx";
-import { rem } from "../lib/rem";
 
 type PieceKind = "glow" | "dome" | "pearl" | "pebble";
-type Edge = "insetInlineStart" | "insetInlineEnd" | "top" | "bottom";
-
-const EDGES: Edge[] = ["insetInlineStart", "insetInlineEnd", "top", "bottom"];
 
 interface Piece {
   kind: PieceKind;
   width: number;
   height?: number;
-  /** Distances from the scene's edges, in px. */
-  at: Partial<Record<Edge, number>>;
+  at: CSSProperties;
 }
 
 const KIND_CLASS: Record<PieceKind, string> = {
@@ -49,16 +44,6 @@ const PRESETS = {
 
 export type ScenePreset = keyof typeof PRESETS;
 
-/** Size and edges in rem, so the scene follows the desktop UI scale. */
-function pieceStyle({ width, height = width, at }: Piece): CSSProperties {
-  const style: CSSProperties = { width: rem(width), height: rem(height) };
-  for (const edge of EDGES) {
-    const px = at[edge];
-    if (px !== undefined) style[edge] = rem(px);
-  }
-  return style;
-}
-
 /** The sculpted background behind the glass: gold glow, glass dome, pearls and pebbles. */
 export function Scene({ preset }: { preset: ScenePreset }) {
   const pieces: Piece[] = PRESETS[preset];
@@ -68,7 +53,7 @@ export function Scene({ preset }: { preset: ScenePreset }) {
         <span
           key={index}
           className={cx("absolute block", KIND_CLASS[piece.kind])}
-          style={pieceStyle(piece)}
+          style={{ width: piece.width, height: piece.height ?? piece.width, ...piece.at }}
         />
       ))}
     </div>

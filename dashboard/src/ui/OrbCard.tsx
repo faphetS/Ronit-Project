@@ -1,7 +1,6 @@
 import { motion } from "motion/react";
 import type { ReactNode } from "react";
 import { cx } from "../lib/cx";
-import { rem } from "../lib/rem";
 import { cardVariants } from "../motion/variants";
 
 interface OrbCardProps {
@@ -34,7 +33,7 @@ export function OrbCard({
       variants={cardVariants}
       className={cx("surface-card relative flex overflow-hidden", compact ? "rounded-card-phone p-2.5" : "rounded-card p-3", className)}
     >
-      <span aria-hidden="true" className="orb absolute" style={{ width: rem(orb.size), height: rem(orb.size), insetInlineEnd: rem(orb.end), top: rem(orb.top) }} />
+      <span aria-hidden="true" className="orb absolute" style={{ width: orb.size, height: orb.size, insetInlineEnd: orb.end, top: orb.top }} />
       <div
         className={cx("frost relative flex shrink-0 flex-col gap-1.5", compact ? "rounded-[19px] p-[18px]" : "rounded-inner p-[22px]")}
         style={{ flexBasis: stripBasis }}

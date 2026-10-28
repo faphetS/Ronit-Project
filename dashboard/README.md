@@ -45,7 +45,6 @@ Conventions:
 - Direction: use only logical utilities. Hebrew runs right to left and English left to right; motion that moves sideways reads `useDirection()`.
 - Motion: springs only from `src/motion/springs.ts`.
 - Colors: only theme tokens.
-- Sizes: write px as usual. The build turns CSS px into rem, and `theme.css` sets the desktop scale (87.5%) as the root font size. Sizes set in code go through `rem()` from `src/lib/rem.ts`.
 - Numbers: phone and passport numbers go inside `<Ltr>`.
 
 ## Connecting the real API
