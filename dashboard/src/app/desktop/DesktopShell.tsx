@@ -1,7 +1,6 @@
 import { useRef } from "react";
 import { useLocation } from "react-router";
 import { AnimatedOutlet } from "../../motion/AnimatedOutlet";
-import { Scene } from "../../ui/Scene";
 import { desktopPageKey, railKeyFor, type RailKey } from "../sections";
 import { useNavBadges } from "../useNavBadges";
 import { LiquidPanel } from "./LiquidPanel";
@@ -20,9 +19,8 @@ export function DesktopShell() {
   const active = railKeyFor(pathname);
   return (
     <div className="shell-frame relative h-dvh overflow-hidden">
-      <Scene preset="app" />
       <div className="relative flex h-full">
-        <Rail items={items} active={active} passportsToday={badges.passportsToday} newLeads={badges.newLeads} />
+        <Rail items={items} active={active} newLeads={badges.newLeads} />
         <div ref={panel} className="relative z-10 my-3 me-3 flex min-w-0 flex-1 flex-col">
           <div className="mx-auto flex min-h-0 w-full max-w-[1440px] flex-1 flex-col px-7 pt-5">
             <TopBar notifications={badges.notifications} />

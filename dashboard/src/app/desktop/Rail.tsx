@@ -8,26 +8,26 @@ import { cx } from "../../lib/cx";
 import { LiquidDrop } from "../../motion/LiquidDrop";
 import { PRESS_SCALE, springs } from "../../motion/springs";
 import { Avatar } from "../../ui/Avatar";
-import { CountBadge } from "../../ui/CountBadge";
 import { Icon } from "../../ui/Icon";
 import type { IconName } from "../../ui/icons";
 import { MotionLink } from "../../ui/MotionLink";
-import { DESKTOP_NAV, type RailKey, type RailToolKey } from "../sections";
+import { DESKTOP_NAV, type RailKey } from "../sections";
 
 interface RailItemProps {
   to: string;
   icon: IconName;
-  /** Accessible name. Include any count the badge shows. */
+  /** Accessible name. Include whatever the dot stands for. */
   label: string;
   /** The name that appears beside the rail on hover. */
   name: string;
-  badge?: number;
+  /** A small gold dot for something new. */
+  dot?: boolean;
   active: boolean;
   register: (element: HTMLElement | null) => void;
   onHover: () => void;
 }
 
-function RailItem({ to, icon, label, name, badge, active, register, onHover }: RailItemProps) {
+function RailItem({ to, icon, label, name, dot = false, active, register, onHover }: RailItemProps) {
   return (
     <MotionLink
       ref={register}
@@ -37,13 +37,13 @@ function RailItem({ to, icon, label, name, badge, active, register, onHover }: R
       onPointerEnter={onHover}
       whileTap={{ scale: PRESS_SCALE }}
       transition={springs.ui}
-      className={cx("group relative z-10 grid size-[42px] place-items-center rounded-full transition-colors duration-300", active ? "text-ink" : "text-mute hover:text-ink")}
+      className={cx("group relative z-10 grid size-10 place-items-center rounded-full transition-colors duration-300", active ? "text-ink" : "text-cream/55 hover:text-cream")}
     >
       <Icon name={icon} />
-      {badge ? <CountBadge count={badge} /> : null}
+      {dot ? <span aria-hidden="true" className="absolute end-1.5 top-1.5 size-[7px] rounded-full bg-gold" /> : null}
       <span
         aria-hidden="true"
-        className="pointer-events-none absolute start-full top-1/2 ms-3 -translate-y-1/2 rounded-full bg-paper px-3 py-1.5 text-small font-medium whitespace-nowrap text-ink opacity-0 shadow-button transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100 motion-reduce:transition-none"
+        className="pointer-events-none absolute start-full top-1/2 ms-4 -translate-y-1/2 rounded-full bg-paper px-3 py-1.5 text-small font-medium whitespace-nowrap text-ink opacity-0 shadow-button transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100 motion-reduce:transition-none"
       >
         {name}
       </span>
@@ -55,15 +55,15 @@ interface RailProps {
   /** Every item registers here, so the panel can find the current one. */
   items: RefObject<Map<RailKey, HTMLElement>>;
   active: RailKey | null;
-  passportsToday: number;
   newLeads: number;
 }
 
 /**
- * The rail at the screen's start edge: the logo, the sections, the tools, and Ronit's avatar to sign out.
- * The content panel reaches out to the current item (see LiquidPanel); a bead of water follows the pointer.
+ * The rail on the dark frame at the screen's start edge, as in the reference: the logo, the six sections,
+ * settings at the foot, and Ronit's avatar to sign out. The content panel reaches out to the current item
+ * (see LiquidPanel); a bead of water follows the pointer.
  */
-export function Rail({ items, active, passportsToday, newLeads }: RailProps) {
+export function Rail({ items, active, newLeads }: RailProps) {
   const { common, nav } = useCopy();
   const session = useSession();
   const signOut = useSignOut();
@@ -80,43 +80,33 @@ export function Rail({ items, active, passportsToday, newLeads }: RailProps) {
     onHover: () => setHover({ key, on: true }),
   });
 
-  const tools: Array<{ key: RailToolKey; to: string; icon: IconName; label: string; badge?: number }> = [
-    { key: "whatsapp", to: "/customers?filter=whatsapp", icon: "chat", label: nav.whatsappPassports(passportsToday), badge: passportsToday },
-    { key: "import", to: "/import", icon: "import", label: nav.import },
-    { key: "history", to: "/greetings/holidays#history", icon: "history", label: nav.history },
-    { key: "users", to: "/users", icon: "users", label: nav.users },
-  ];
-
   return (
-    <div className="relative z-20 flex w-16 shrink-0 flex-col items-center py-5">
-      <img src={logoUrl} alt={common.brandFull} className="mb-4 size-[46px] object-contain" />
-      <div className="relative flex flex-col items-center" onPointerLeave={() => setHover((last) => last && { ...last, on: false })}>
-        <nav aria-label={nav.main} className="flex flex-col items-center gap-1">
+    <div className="relative z-20 flex w-[60px] shrink-0 flex-col items-center py-5">
+      <img src={logoUrl} alt={common.brandFull} className="size-11 object-contain" />
+      <div className="relative mt-14 mb-5 flex flex-1 flex-col items-center" onPointerLeave={() => setHover((last) => last && { ...last, on: false })}>
+        <nav aria-label={nav.main} className="flex flex-col items-center gap-3.5">
           {DESKTOP_NAV.map((section) => {
             const name = nav.items[section.key];
-            const count = section.key === "leads" && newLeads > 0 ? newLeads : undefined;
+            const fresh = section.key === "leads" && newLeads > 0;
             return (
               <RailItem
                 key={section.key}
                 to={section.to}
                 icon={section.icon}
-                label={count ? nav.withNew(name, count) : name}
+                label={fresh ? nav.withNew(name, newLeads) : name}
                 name={name}
-                badge={count}
+                dot={fresh}
                 {...itemProps(section.key)}
               />
             );
           })}
         </nav>
-        <span aria-hidden="true" className="my-2.5 h-px w-7 bg-ink/10" />
-        <nav aria-label={nav.tools} className="flex flex-col items-center gap-1">
-          {tools.map((tool) => (
-            <RailItem key={tool.key} to={tool.to} icon={tool.icon} label={tool.label} name={tool.label} badge={tool.badge} {...itemProps(tool.key)} />
-          ))}
+        <span className="flex-1" />
+        <nav aria-label={nav.tools}>
+          <RailItem to="/users" icon="settings" label={nav.users} name={nav.users} {...itemProps("settings")} />
         </nav>
         <LiquidDrop axis="y" items={items} target={hover?.key ?? null} visible={hover?.on === true && hover.key !== active} className="liquid-bead rounded-full" />
       </div>
-      <span className="flex-1" />
       <motion.button
         type="button"
         aria-label={nav.signOut(user?.name ?? common.owner)}

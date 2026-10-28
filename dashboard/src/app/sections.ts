@@ -11,15 +11,13 @@ export const DESKTOP_NAV: Array<{ key: DesktopNavKey; to: string; end?: boolean;
   { key: "birthdays", to: "/greetings/birthdays", icon: "cake" },
 ];
 
-export type RailToolKey = "whatsapp" | "import" | "history" | "users";
-export type RailKey = DesktopNavKey | RailToolKey;
+export type RailKey = DesktopNavKey | "settings";
 
-/** The rail item to mark: the section that owns the path, or the import and users tools on their own pages. */
+/** The rail item to mark: the section that owns the path, or settings for users and the import. */
 export function railKeyFor(pathname: string): RailKey | null {
   const section = DESKTOP_NAV.find((item) => (item.end ? pathname === item.to : pathname === item.to || pathname.startsWith(`${item.to}/`)));
   if (section) return section.key;
-  if (pathname === "/import") return "import";
-  if (pathname === "/users") return "users";
+  if (pathname === "/users" || pathname === "/import") return "settings";
   return null;
 }
 

@@ -6,9 +6,9 @@ import { springs } from "../../motion/springs";
 /** The panel's corner radius. */
 const CORNER = 28;
 /** The bulb that holds the current item: a circle around the item's center. */
-const BULB = 25;
+const BULB = 22;
 /** The concave curves that join the bulb to the panel's edge. */
-const FILLET = 16;
+const FILLET = 22;
 
 interface Geometry {
   start: number;
