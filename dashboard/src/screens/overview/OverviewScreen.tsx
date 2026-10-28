@@ -2,64 +2,55 @@ import { PhoneTopBar } from "../../app/phone/PhoneTopBar";
 import { useShell } from "../../app/useShell";
 import { useCopy } from "../../content/locale";
 import { useOverview } from "../../data/queries";
-import { today } from "../../lib/clock";
-import { formatNumber } from "../../lib/format";
-import { GooButton } from "../../ui/GooButton";
 import { Headline } from "../../ui/Headline";
 import { ScreenFrame } from "../../ui/ScreenFrame";
-import { EmptyState, ErrorState, LoadingBlock } from "../../ui/states";
-import { Surface } from "../../ui/Surface";
-import { TodayCard } from "../shared/TodayCard";
+import { ActivityCard } from "./ActivityCard";
+import { GreetingCard } from "./GreetingCard";
+import { GroupsCard, GroupsCarousel } from "./GroupsCards";
+import { KeyNumbers } from "./KeyNumbers";
+import { OverviewTodayCard } from "./OverviewTodayCard";
+import { PassportsCard } from "./PassportsCard";
+import { RecentLeadsCard } from "./RecentLeadsCard";
+import { WeekCard } from "./WeekCard";
 
-const NUMBER_KEYS = ["openLeads", "customers", "activeGroups"] as const;
-
-/** The overview, first version: greeting, key numbers, this week's leads and today. The rest comes later. */
+/**
+ * The overview, as on the Main and Mobile-Home boards. Desktop: the greeting with three key numbers over a bento
+ * grid (5/4/3, 8/4, 4/8 columns from xl; two columns between lg and xl, packed densely so no card stands alone).
+ * Phones: stacked cards with the groups as a sideways carousel; no key numbers, leads table or passports, as designed.
+ */
 export function OverviewScreen() {
   const { overview: copy } = useCopy();
   const phone = useShell() === "phone";
   const stats = useOverview();
-  const data = stats.data;
+
+  if (phone) {
+    return (
+      <ScreenFrame>
+        <PhoneTopBar />
+        <Headline title={copy.title} soft={copy.softPhone} size="display-2" className="mx-0.5 mt-1.5 mb-1" />
+        <OverviewTodayCard phone />
+        <WeekCard phone />
+        <GreetingCard phone />
+        <GroupsCarousel />
+        <ActivityCard phone />
+      </ScreenFrame>
+    );
+  }
+
   return (
     <ScreenFrame>
-      {phone ? <PhoneTopBar /> : null}
-      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
-        <Headline title={copy.title} soft={phone ? copy.softPhone : copy.soft} size={phone ? "display-2" : "display"} />
-        <dl aria-label={copy.numbersLabel} className="flex gap-8 pb-1.5">
-          {NUMBER_KEYS.map((key) => (
-            <div key={key}>
-              <dt className="text-caption text-mute">{copy.numbers[key]}</dt>
-              <dd className="mt-1 text-[30px] leading-none font-light text-ink">{data ? formatNumber(data[key]) : copy.pending}</dd>
-            </div>
-          ))}
-        </dl>
+      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4 px-1 pt-1.5 pb-0.5">
+        <Headline title={copy.title} soft={copy.soft} size="display" />
+        <KeyNumbers stats={stats.data} loading={stats.isPending} />
       </div>
-      <div className="grid gap-3.5 lg:grid-cols-12 lg:gap-5">
-        <Surface variant="ink" compact={phone} aria-label={copy.weekTitle} className="flex flex-col gap-4 lg:col-span-5">
-          <h2 className="text-title font-medium text-cream">{copy.weekTitle}</h2>
-          {stats.isPending ? <LoadingBlock lines={2} onDark /> : null}
-          {stats.isError ? <ErrorState onDark onRetry={() => void stats.refetch()} /> : null}
-          {data ? (
-            <>
-              <div className="flex items-end gap-4">
-                <p className="text-[68px] leading-[0.95] font-light text-cream">{formatNumber(data.newLeadsThisWeek)}</p>
-                <p className="pb-2.5 text-small text-ink-mute">{copy.breakdown(data.thisWeekByStatus)}</p>
-              </div>
-              <GooButton to="/leads" tone="light" size="sm" className="mt-auto self-end">
-                {copy.allLeads}
-              </GooButton>
-            </>
-          ) : null}
-        </Surface>
-        <TodayCard
-          day={today()}
-          label={copy.today}
-          size={phone ? "compact" : "regular"}
-          className="min-h-[250px] lg:col-span-4"
-          side={<p className="text-small text-mute">{copy.sideNote}</p>}
-        />
-        <Surface variant="glass" compact={phone} aria-label={copy.restTitle} className="lg:col-span-3">
-          <EmptyState message={copy.rest} />
-        </Surface>
+      <div className="grid grid-cols-12 grid-flow-dense gap-5">
+        <WeekCard phone={false} className="col-span-7 xl:col-span-5" />
+        <OverviewTodayCard phone={false} className="col-span-5 xl:col-span-4" />
+        <GreetingCard phone={false} className="col-span-5 xl:col-span-3" />
+        <RecentLeadsCard className="col-span-12 xl:col-span-8" />
+        <GroupsCard className="col-span-7 xl:col-span-4" />
+        <PassportsCard className="col-span-5 xl:col-span-4" />
+        <ActivityCard phone={false} className="col-span-7 xl:col-span-8" />
       </div>
     </ScreenFrame>
   );
