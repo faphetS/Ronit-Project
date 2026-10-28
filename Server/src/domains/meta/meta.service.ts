@@ -2,7 +2,14 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { logger } from "../../config/logger.js";
 import { env } from "../../config/env.js";
 import { classifyLead, extractPhoneFallback, type Classification } from "../../lib/classify.js";
-import { detectTrip, detectTripTrigger, hasNegationWord, tripMentions, type Trip } from "../../lib/trip.js";
+import {
+  detectTrip,
+  detectTripName,
+  detectTripTrigger,
+  hasNegationWord,
+  tripMentions,
+  type Trip,
+} from "../../lib/trip.js";
 import { judgeTripAnswer, type TripVerdict } from "../../lib/trip-answer.js";
 import {
   isMessageProcessed,
@@ -305,6 +312,20 @@ async function resolvePendingTripStage(
   const knownTrip = keywordTrip ?? tripHint ?? null;
   const hasPhone = !!currentPhone;
 
+  // She was asked which trip but says she wants challah (a date she asked about can be a challah
+  // event's): without this exit she is re-asked the trip question forever. A message that also
+  // mentions a trip stays on the trip path.
+  if (classification.interested && classification.service === "challah" && mentioned.length === 0) {
+    await safeUpdateService(pending.monday_item_id, "challah");
+    await safeSendReplyDM(input.senderId!, { service: "challah", hasPhone, answered: true });
+    clearPendingClarification("instagram", input.senderId!);
+    logger.info(
+      { senderId: input.senderId, mondayItemId: pending.monday_item_id },
+      "Pending trip clarification — she wants challah, service switched",
+    );
+    return { itemId: pending.monday_item_id, classification };
+  }
+
   const verdict: TripVerdict = knownTrip ?? (await judgeTripAnswer(input.messageText));
 
   if (verdict === "kislev" || verdict === "hanukkah" || verdict === "both") {
@@ -487,8 +508,9 @@ async function processClassifiedMessage(
             return { itemId: pending.monday_item_id, classification };
           }
 
-          // uman — ask WHICH trip, unless she already named one in this message.
-          const trip = detectTrip(input.messageText) ?? opts.tripHint ?? null;
+          // uman — ask WHICH trip, unless she already named one in this message or gave a date
+          // earlier (remembered on the pending). Her answer's own trip wins over the remembered one.
+          const trip = detectTrip(input.messageText) ?? opts.tripHint ?? pending.trip ?? null;
           if (trip !== null) {
             await safeSendTripReply(input.senderId!, { trip, hasPhone });
             clearPendingClarification("instagram", input.senderId!);
@@ -517,6 +539,9 @@ async function processClassifiedMessage(
 
         // (b) Still no service. Capture a phone if she offered one, then re-ask
         // (under the cap). If she ghosts we never get here — no proactive sends.
+        // A date she mentions meanwhile is remembered for her eventual "uman"; the upsert
+        // overwrites the whole row, so every write below must carry the remembered trip along.
+        const rememberedTrip = detectTrip(input.messageText) ?? pending.trip;
         if (classification.interested && capturedPhone) {
           await updateItemPhone(pending.monday_item_id, capturedPhone);
           upsertPendingClarification({
@@ -524,10 +549,19 @@ async function processClassifiedMessage(
             senderId: input.senderId!,
             mondayItemId: pending.monday_item_id,
             phone: capturedPhone,
+            trip: rememberedTrip,
           });
           if (live.groupId !== env.MONDAY_GROUP_NEW_LEADS_ID) {
             await moveItemToGroup(pending.monday_item_id, env.MONDAY_GROUP_NEW_LEADS_ID);
           }
+        } else if (rememberedTrip !== pending.trip) {
+          upsertPendingClarification({
+            platform: "instagram",
+            senderId: input.senderId!,
+            mondayItemId: pending.monday_item_id,
+            phone: pending.phone,
+            trip: rememberedTrip,
+          });
         }
 
         if (pending.reask_count < MAX_REASKS) {
@@ -714,20 +748,22 @@ async function processClassifiedMessage(
 
   // New-sender path (existing === null, interested).
 
-  // Detect a named trip BEFORE deciding effective service — a message naming a
-  // trip ("מעוניינת בחנוכה") with no explicit service word still means uman.
+  // Decide the effective service BEFORE the clarification. Only a trip's NAME ("מעוניינת בחנוכה"),
+  // or a trip word she commented, says uman by itself; a date or a month alone may be a challah
+  // event's date, so it waits for the "challah or uman?" question and is remembered for her answer.
   const trip = detectTrip(input.messageText) ?? opts.tripHint ?? null;
-  const treatAsUman = classification.service === "uman" || (classification.service === null && trip !== null);
+  const namedTrip = detectTripName(input.messageText) ?? opts.tripHint ?? null;
+  const treatAsUman = classification.service === "uman" || (classification.service === null && namedTrip !== null);
   const effectiveService: "uman" | "challah" | null = treatAsUman ? "uman" : classification.service;
 
   // A vague ("challah or uman?") message from someone we recently DMed the
   // knife-sale pitch to is more likely a knife-order follow-up than a fresh
   // service inquiry — suppress the ask-service question and create nothing.
-  // Only the genuinely vague case (no service AND no trip) is suppressed —
-  // an explicit service or trip mention is unaffected.
+  // Only the genuinely vague case (no service AND no trip name) is suppressed —
+  // an explicit service or a named trip is unaffected; a bare date is as vague as any.
   if (
     classification.service === null &&
-    trip === null &&
+    namedTrip === null &&
     input.senderId &&
     wasKnifeDmSentRecently(input.senderId)
   ) {
@@ -793,15 +829,17 @@ async function processClassifiedMessage(
         phone,
       });
 
-      // Entry B step 1 — vague lead (no service, no trip). Open a clarification
+      // Entry B step 1 — vague lead (no service, no trip name). Open a clarification
       // right after the row + mapping (both synchronous below) and before any
       // further await, to shrink the window where a fast second message misses it.
+      // The date she gave, if any, rides along for her answer to the service question.
       if (effectiveService === null) {
         upsertPendingClarification({
           platform: "instagram",
           senderId: input.senderId,
           mondayItemId: itemId,
           phone,
+          trip,
         });
       } else if (effectiveService === "uman" && trip === null) {
         // Service is known (uman) but the trip is not — ask which trip.
@@ -826,8 +864,9 @@ async function processClassifiedMessage(
     if (err instanceof MondayRateLimitError && input.senderId) {
       // Pending needs opening whenever the trip question or the service question
       // is still outstanding — i.e. whenever we're not already fully answered
-      // (challah, or uman + known trip).
-      const openClarification = trip === null && effectiveService !== "challah";
+      // (challah, or uman + known trip). A vague lead can carry a date-trip, so the
+      // service question is outstanding regardless of `trip`.
+      const openClarification = effectiveService === null || (effectiveService === "uman" && trip === null);
       const openClarificationStage: "service" | "trip" = effectiveService === "uman" ? "trip" : "service";
 
       enqueueMondayLead({

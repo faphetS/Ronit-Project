@@ -9,6 +9,7 @@ import {
 } from "../../config/db.js";
 import { findKnownSender, upsertKnownSender, deleteKnownSenderByItemId } from "../../lib/dedup.js";
 import { upsertPendingClarification } from "../../lib/conversation.js";
+import { detectTrip } from "../../lib/trip.js";
 import {
   createLeadRow,
   updateLastIgMessage,
@@ -199,7 +200,8 @@ async function drainIgRow(row: QueuedLead): Promise<void> {
   // their clarification opened here (it needs a mondayItemId). The WA welcome
   // is NOT fired here — Monday's own create_item lead-ready webhook fires it
   // once this create lands, under the itemId dedup key; firing it again here
-  // would double-send.
+  // would double-send. A service-stage lead keeps the date she gave (the stored
+  // message), as the live path does; a trip-stage one has no use for it.
   if (row.open_clarification) {
     upsertPendingClarification({
       platform: row.platform,
@@ -207,6 +209,7 @@ async function drainIgRow(row: QueuedLead): Promise<void> {
       mondayItemId: itemId,
       phone: row.phone,
       stage: row.open_clarification_stage,
+      trip: row.open_clarification_stage === "service" ? detectTrip(row.message_text) : null,
     });
   }
 

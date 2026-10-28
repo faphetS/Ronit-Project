@@ -289,6 +289,65 @@ describe("drainMondayLeadQueue — open_clarification", () => {
     );
   });
 
+  it("stage 'service': the trip she gave by date while Monday was down is remembered on the pending", async () => {
+    vi.mocked(db.getDueQueuedLeads).mockReturnValue([
+      queuedLead({
+        service: null,
+        message_text: "יהיה בסוף דצמבר?",
+        open_clarification: 1,
+        open_clarification_stage: "service",
+      }),
+    ]);
+
+    await drainMondayLeadQueue();
+
+    expect(conversation.upsertPendingClarification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        platform: "instagram",
+        senderId: "sender-1",
+        mondayItemId: "new-item-1",
+        stage: "service",
+        trip: "hanukkah",
+      }),
+    );
+  });
+
+  it("stage 'service' with no date in the message → nothing remembered (trip stays null)", async () => {
+    vi.mocked(db.getDueQueuedLeads).mockReturnValue([
+      queuedLead({
+        service: null,
+        message_text: "היי אני מעוניינת",
+        open_clarification: 1,
+        open_clarification_stage: "service",
+      }),
+    ]);
+
+    await drainMondayLeadQueue();
+
+    expect(conversation.upsertPendingClarification).toHaveBeenCalledTimes(1);
+    const [pending] = vi.mocked(conversation.upsertPendingClarification).mock.calls[0] ?? [];
+    expect(pending?.stage).toBe("service");
+    expect(pending?.trip ?? null).toBeNull();
+  });
+
+  it("stage 'trip' → trip stays null even when the stored message names a month", async () => {
+    vi.mocked(db.getDueQueuedLeads).mockReturnValue([
+      queuedLead({
+        service: "uman",
+        message_text: "אולי בנובמבר",
+        open_clarification: 1,
+        open_clarification_stage: "trip",
+      }),
+    ]);
+
+    await drainMondayLeadQueue();
+
+    expect(conversation.upsertPendingClarification).toHaveBeenCalledTimes(1);
+    const [pending] = vi.mocked(conversation.upsertPendingClarification).mock.calls[0] ?? [];
+    expect(pending?.stage).toBe("trip");
+    expect(pending?.trip ?? null).toBeNull();
+  });
+
   it("does NOT open a clarification when open_clarification is 0 (e.g. uman + known trip, or challah)", async () => {
     vi.mocked(db.getDueQueuedLeads).mockReturnValue([
       queuedLead({ service: "uman", open_clarification: 0 }),

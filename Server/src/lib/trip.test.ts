@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { detectTrip, detectTripTrigger, hasNegationWord, tripMentions, type Trip } from "./trip.js";
+import {
+  detectTrip,
+  detectTripName,
+  detectTripTrigger,
+  hasNegationWord,
+  tripMentions,
+  type Trip,
+} from "./trip.js";
 
 // כסלו / חנוכה written with niqqud, spelled out as code points so an editor can't
 // normalise the combining marks away. The self-check below guards the same thing.
@@ -200,6 +207,13 @@ describe("tripMentions — every trip a message names", () => {
     ["6-10/12", ["hanukkah"]],
     ["06.12", ["hanukkah"]],
     [VOCALISED_HANUKKAH, ["hanukkah"]],
+    // a month number and a single day inside a trip window
+    ["לחודש 11", ["kislev"]],
+    ["לחודש 12", ["hanukkah"]],
+    ["12/11", ["kislev"]],
+    ["15/11/26", ["kislev"]],
+    ["7/12", ["hanukkah"]],
+    ["10/12/26", ["hanukkah"]],
   ];
 
   it.each(SINGLE)("%j → exactly %j", (text, expected) => {
@@ -213,7 +227,7 @@ describe("tripMentions — every trip a message names", () => {
     },
   );
 
-  it.each(["", "אני מעוניינת", "לחודש 11", "אוקטובר", "06/10-12/10/26", "הראשון", "0501234567", "אומן"])(
+  it.each(["", "אני מעוניינת", "לחודש 1", "אוקטובר", "06/10-12/10/26", "הראשון", "0501234567", "אומן"])(
     "%j names no trip",
     (text) => {
       expect(tripMentions(text)).toEqual([]);
@@ -417,5 +431,292 @@ describe("detectTripTrigger — unchanged by the month fix", () => {
   it('"כסלו 6-10/10": the digits are an October date, no longer Hanukkah, so detectTrip agrees with the word and the trigger fires', () => {
     expect(detectTrip("כסלו 6-10/10")).toBe("kislev");
     expect(detectTripTrigger("כסלו 6-10/10")).toBe("kislev");
+  });
+});
+
+// A trip's NAME is the only thing that says "Uman" without the lead saying so. A month, a month
+// number or a date does not: "פנויה ב30/11?" can be the date of a challah event.
+describe("detectTripName — a trip named by its NAME only", () => {
+  it.each<[string, Trip]>([
+    ["חנוכה", "hanukkah"],
+    ["מעוניינת בנסיעת חנוכה", "hanukkah"],
+    [VOCALISED_HANUKKAH, "hanukkah"],
+    ["כסלו", "kislev"],
+    ["כסליו", "kislev"],
+    ["כיסלו", "kislev"],
+    ["כיסליו", "kislev"],
+    ['ר"ח כסלו', "kislev"],
+    ['מעוניינת בנסיעה של ר"ח כסלו', "kislev"],
+    [VOCALISED_KISLEV, "kislev"],
+    ["מעוניינת בכסלו", "kislev"],
+  ])("%j → %s", (text, trip) => {
+    expect(detectTripName(text)).toBe(trip);
+  });
+
+  // Same reason as detectTrip's own order: the Hanukkah trip falls in the month of Kislev.
+  it.each(["חנוכה בכסלו", "כסלו או חנוכה", "נסיעת חנוכה שיוצאת בכסלו"])(
+    "%j carries both words → hanukkah (checked first)",
+    (text) => {
+      expect(detectTripName(text)).toBe("hanukkah");
+    },
+  );
+
+  it.each([
+    "נובמבר",
+    "דצמבר",
+    "לחודש 11",
+    "לחודש 12",
+    "חדש 11",
+    "11-15",
+    "6-10",
+    "11-15/11",
+    "6-10/12",
+    "12/11",
+    "7/12",
+    "11.11",
+    "06.12",
+    "יהיה בסוף דצמבר?",
+    "היי אפשר פרטים על הטיסה בנובמבר?",
+    "פנויה ב30/11",
+    "אומן",
+    "הראשון",
+    "השני",
+    "0501234567",
+    "אני מעוניינת",
+    "",
+    "   ",
+  ])("%j → null: a month, a month number or a date is not a name", (text) => {
+    expect(detectTripName(text)).toBeNull();
+  });
+
+  describe("a Hebrew-calendar day of Kislev is a DATE, not the trip's name", () => {
+    // 2026-10: a real lead asked whether Ronit was free for a birthday challah event on 25 Kislev.
+    // Reading the כסלו in it as the trip would have sent her the flight pitch.
+    const BIRTHDAY_SENTENCE = "רציתי לשאול אם את פנויה בתאריך 5.12, כ״ה בכסלו. אני חוגגת יום הולדת";
+
+    it.each([
+      "כ״ה בכסלו",
+      'כ"ה בכסלו',
+      "ג׳ בכסלו",
+      "ג' כסלו",
+      "י״ב בכסלו",
+      "ט״ו בכסלו",
+      'ט"ז בכסלו',
+      "ל׳ בכסלו",
+      "כה בכסלו",
+      "5 בכסלו",
+      "25 בכסליו",
+      "25 כסלו",
+      "ב-25 בכסלו",
+      "ביום כ״ה בכסלו",
+      "מה עם כ״ה בכסלו?",
+      // the preposition written onto the day
+      "בכ״ה בכסלו",
+      'בכ"ה בכסלו',
+      "בג׳ בכסלו",
+      "ב25 בכסלו",
+      "לכ״ה בכסלו",
+      BIRTHDAY_SENTENCE,
+    ])("%j → null: a calendar date", (text) => {
+      expect(detectTripName(text)).toBeNull();
+    });
+
+    it.each<[string, Trip]>([
+      ["ר״ח כסלו", "kislev"], // the ח follows ״ — it is not "8 Kislev"
+      ['ר"ח כסלו', "kislev"],
+      ["ר'ח כסלו", "kislev"],
+      ["רח כסלו", "kislev"],
+      ["ראש חודש כסלו", "kislev"],
+      ["מעוניינת בכסלו", "kislev"],
+      ["נסיעה בכסלו", "kislev"], // the ה is the end of "נסיעה", not "5"
+      ["כסלו", "kislev"],
+      ["מה המחיר לכסלו?", "kislev"],
+      ["חנוכה או כסלו", "hanukkah"], // hanukkah is checked first
+      ["11-15/11 ר״ח כסלו", "kislev"],
+      ["ר״ח כסלו — יש מקום בג׳ בכסלו?", "kislev"], // the name AND a date: the name stays
+      // ordinary words that end in a letter which is also a numeral
+      ["רשמי לי כסלו", "kislev"],
+      ["לא כסלו", "kislev"],
+      ["מה כסלו", "kislev"],
+      ["בא כסלו", "kislev"],
+      ["אני רוצה את כסלו", "kislev"],
+    ])("%j → %s: still the trip's name", (text, trip) => {
+      expect(detectTripName(text)).toBe(trip);
+    });
+
+    it("only detectTripName drops the date — once she has chosen Uman, detectTrip, tripMentions and the trigger are unchanged", () => {
+      expect(detectTrip("כ״ה בכסלו")).toBe("kislev");
+      expect(tripMentions("כ״ה בכסלו")).toEqual(["kislev"]);
+      expect(detectTrip(BIRTHDAY_SENTENCE)).toBe("kislev");
+      expect(detectTripTrigger("כסלו")).toBe("kislev");
+    });
+  });
+
+  it("looks at the name alone, whatever dates sit beside it: detectTrip reads כסלו 6-10 as hanukkah, the name is kislev", () => {
+    expect(detectTrip("כסלו 6-10")).toBe("hanukkah");
+    expect(detectTripName("כסלו 6-10")).toBe("kislev");
+    expect(detectTripName("חנוכה 11-15")).toBe("hanukkah");
+  });
+
+  it("every name is also a mention: whatever detectTripName finds, detectTrip and tripMentions see too", () => {
+    const corpus = [
+      ...TRIGGER_POSITIVES.map(([text]) => text),
+      ...TRIGGER_NEGATIVES,
+      "חנוכה בכסלו",
+      "כסלו 6-10",
+      "חנוכה 11-15",
+      "לחודש 11",
+      "יהיה בסוף דצמבר?",
+      "12/11",
+    ];
+    for (const text of corpus) {
+      const name = detectTripName(text);
+      if (name === null) continue;
+      expect(detectTrip(text), text).not.toBeNull();
+      expect(tripMentions(text), text).toContain(name);
+    }
+  });
+});
+
+// A lead who answers "לחודש 11" means November (the Kislev trip), "לחודש 12" December (the
+// Hanukkah trip). 2026-10-11: @lihi_lugasi wrote exactly that and the keyword layer missed it.
+describe("detectTrip — a month NUMBER", () => {
+  it.each([
+    "חודש 11",
+    "לחודש 11",
+    "בחודש 11",
+    "חדש 11", // the defective spelling
+    "לחדש 11",
+    "בחדש 11",
+    "חודש11",
+    "לחודש 011",
+    "ולחודש 11",
+    "אני פנויה לחודש 11 אם אפשר",
+    "לחודש 11, המספר שלי 0501234567",
+    "יש משהו בחודש 11?",
+  ])("%j → kislev", (text) => {
+    expect(detectTrip(text)).toBe("kislev");
+    expect(tripMentions(text)).toEqual(["kislev"]);
+  });
+
+  it.each([
+    "חודש 12",
+    "לחודש 12",
+    "בחודש 12",
+    "חדש 12",
+    "לחדש 12",
+    "בחדש 12",
+    "חודש12",
+    "לחודש 012",
+    "ולחודש 12",
+    "אני פנויה לחודש 12 אם אפשר",
+    "לחודש 12, המספר שלי 0501234567",
+    "יש משהו בחודש 12?",
+  ])("%j → hanukkah", (text) => {
+    expect(detectTrip(text)).toBe("hanukkah");
+    expect(tripMentions(text)).toEqual(["hanukkah"]);
+  });
+
+  it.each([
+    "חודש 1",
+    "חודש 10",
+    "לחודש 13",
+    "חודש 112", // part of a longer number
+    "לחודש 110",
+    "חודש 1111",
+    "חודש 121",
+    "לחודש 120",
+    "חודש",
+    "11 לחודש", // the number BEFORE the word is a day of the month
+    "מחדש 11", // "anew" — the prefix מ is not read as "of the month"
+    "החודש הבא",
+  ])("%j → no trip", (text) => {
+    expect(detectTrip(text)).toBeNull();
+    expect(tripMentions(text)).toEqual([]);
+  });
+
+  it("names both trips when she writes both month numbers", () => {
+    expect(tripMentions("לחודש 11 או לחודש 12")).toEqual(["kislev", "hanukkah"]);
+    expect(tripMentions("לחודש 11 ולחודש 12")).toEqual(["kislev", "hanukkah"]);
+  });
+});
+
+// Israeli order, day/month. A single day inside a trip window picks that trip — 11..15 of month
+// 11 is Kislev, 6..10 of month 12 is Hanukkah, with or without a year. Another day, another month,
+// a time or a phone number stays out.
+describe("detectTrip — a single day inside a trip window", () => {
+  it.each([
+    "12/11",
+    "13.11",
+    "14/11",
+    "15/11",
+    "11/11",
+    "15/11/26",
+    "14/11/2026",
+    "יוצאים ב-12.11",
+    "יום חמישי 12/11",
+    "012.11", // zero padding, as the range and 11.11 forms allow
+    "13/011",
+  ])("%j → kislev", (text) => {
+    expect(detectTrip(text)).toBe("kislev");
+    expect(tripMentions(text)).toEqual(["kislev"]);
+  });
+
+  it.each([
+    "6/12",
+    "7/12",
+    "8/12",
+    "9/12",
+    "10/12",
+    "08.12",
+    "10/12/26",
+    "06.12.2026",
+    "יום שני 7/12",
+    "06/012",
+    "010.12",
+  ])("%j → hanukkah", (text) => {
+    expect(detectTrip(text)).toBe("hanukkah");
+    expect(tripMentions(text)).toEqual(["hanukkah"]);
+  });
+
+  it.each([
+    "30/11", // a day after the Kislev window
+    "5/11",
+    "16/11",
+    "10/11",
+    "6/11",
+    "21/11",
+    "1/12", // a day outside the Hanukkah window
+    "5.12",
+    "11/12",
+    "15/12",
+    "16.12",
+    "31/12",
+    "6/10", // the right days in October
+    "12/10",
+    "11/10",
+    "29.6",
+    "111/11", // part of a longer number
+    "11.15",
+    "11:15", // a time
+    "10:12",
+    "0501112345", // a phone number
+    "050-111-2345",
+    "הטלפון שלי 0501112345",
+    "חודש 1",
+  ])("%j → no trip", (text) => {
+    expect(detectTrip(text)).toBeNull();
+    expect(tripMentions(text)).toEqual([]);
+  });
+
+  it("names both trips when she gives a day of each", () => {
+    expect(tripMentions("12/11 או 7/12")).toEqual(["kislev", "hanukkah"]);
+    expect(detectTrip("12/11 או 7/12")).toBe("hanukkah");
+  });
+
+  it("a single day agrees with the range that holds it", () => {
+    expect(detectTrip("11-15/11")).toBe("kislev");
+    expect(detectTrip("8-12/11")).toBe("kislev");
+    expect(detectTrip("7-10/12")).toBe("hanukkah");
   });
 });

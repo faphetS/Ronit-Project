@@ -82,7 +82,7 @@ vi.mock("./meta.profile.service.js", () => ({
 }));
 
 import { handleIncomingMessage, recordTripCommentLead } from "./meta.service.js";
-import { detectTrip, type Trip } from "../../lib/trip.js";
+import { detectTrip, detectTripName, type Trip } from "../../lib/trip.js";
 import { env } from "../../config/env.js";
 import * as dedup from "../../lib/dedup.js";
 import * as conversation from "../../lib/conversation.js";
@@ -482,6 +482,164 @@ describe("handleIncomingMessage — new vague lead (Entry B step 1)", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// A DATE alone is not a service. "פנויה ב30/11?" can be the date of a challah event, so only a
+// trip's NAME (or a commented trip word) means uman by itself; a date or a month waits for the
+// "challah or uman?" question and is remembered for her answer.
+// ---------------------------------------------------------------------------
+
+function lastPendingUpsert(): Parameters<typeof conversation.upsertPendingClarification>[0] {
+  const call = vi.mocked(conversation.upsertPendingClarification).mock.calls.at(-1);
+  if (!call) throw new Error("expected upsertPendingClarification to have been called");
+  return call[0];
+}
+
+describe("handleIncomingMessage — new sender asks about a DATE only (no service named)", () => {
+  beforeEach(() => {
+    vi.mocked(mondayService.updateLastIgMessage).mockResolvedValue(undefined);
+    vi.mocked(classify.classifyLead).mockResolvedValue(vagueClassification);
+  });
+
+  it('"יהיה בסוף דצמבר?" → a service-less row, the SERVICE question, the Hanukkah date remembered; no trip reply, no trip question', async () => {
+    const messageText = "יהיה בסוף דצמבר?";
+    expect(detectTripName(messageText)).toBeNull();
+    expect(detectTrip(messageText)).toBe("hanukkah");
+
+    const result = await handleIncomingMessage({ messageText, senderId: SENDER_ID, messageId: "date-1" });
+
+    expect(mondayService.createLeadRow).toHaveBeenCalledWith(expect.objectContaining({ service: null }));
+    expect(outbound.sendServiceQuestion).toHaveBeenCalledWith(SENDER_ID);
+    expect(conversation.upsertPendingClarification).toHaveBeenCalledTimes(1);
+    expect(lastPendingUpsert()).toMatchObject({
+      senderId: SENDER_ID,
+      mondayItemId: "new-item-123",
+      trip: "hanukkah",
+    });
+    expect(lastPendingUpsert().stage ?? "service").toBe("service");
+    expect(outbound.sendTripReply).not.toHaveBeenCalled();
+    expect(outbound.sendTripAsk).not.toHaveBeenCalled();
+    expect(outbound.sendReplyDM).not.toHaveBeenCalled();
+    expect(result.itemId).toBe("new-item-123");
+  });
+
+  it('"היי אשמח לדעת אם פנויה ב30/11" (a day outside both trips) → the service question, nothing remembered', async () => {
+    const messageText = "היי אשמח לדעת אם פנויה ב30/11";
+    expect(detectTrip(messageText)).toBeNull();
+
+    await handleIncomingMessage({ messageText, senderId: SENDER_ID, messageId: "date-2" });
+
+    expect(mondayService.createLeadRow).toHaveBeenCalledWith(expect.objectContaining({ service: null }));
+    expect(outbound.sendServiceQuestion).toHaveBeenCalledWith(SENDER_ID);
+    expect(lastPendingUpsert().trip ?? null).toBeNull();
+    expect(outbound.sendTripReply).not.toHaveBeenCalled();
+    expect(outbound.sendTripAsk).not.toHaveBeenCalled();
+  });
+
+  it('"היי אפשר פרטים על הטיסה בנובמבר?" → a month is a date, not a name: the service question, the Kislev date remembered', async () => {
+    const messageText = "היי אפשר פרטים על הטיסה בנובמבר?";
+    expect(detectTripName(messageText)).toBeNull();
+    expect(detectTrip(messageText)).toBe("kislev");
+
+    await handleIncomingMessage({ messageText, senderId: SENDER_ID, messageId: "date-3" });
+
+    expect(mondayService.createLeadRow).toHaveBeenCalledWith(expect.objectContaining({ service: null }));
+    expect(outbound.sendServiceQuestion).toHaveBeenCalledWith(SENDER_ID);
+    expect(lastPendingUpsert()).toMatchObject({ senderId: SENDER_ID, trip: "kislev" });
+    expect(outbound.sendTripReply).not.toHaveBeenCalled();
+    expect(outbound.sendTripAsk).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["פנויה ב-12/11?", "kislev"],
+    ["יהיה ב7/12?", "hanukkah"],
+    ["יש משהו בחודש 11?", "kislev"],
+    ["אפשר לחודש 12?", "hanukkah"],
+  ] as const)("%j → the service question, with the %s trip remembered", async (messageText, trip) => {
+    expect(detectTripName(messageText)).toBeNull();
+
+    await handleIncomingMessage({ messageText, senderId: SENDER_ID, messageId: `date-each-${trip}` });
+
+    expect(mondayService.createLeadRow).toHaveBeenCalledWith(expect.objectContaining({ service: null }));
+    expect(outbound.sendServiceQuestion).toHaveBeenCalledWith(SENDER_ID);
+    expect(lastPendingUpsert()).toMatchObject({ trip });
+    expect(outbound.sendTripReply).not.toHaveBeenCalled();
+  });
+
+  it("a phone in the same message is stored on the row and in the pending, together with the remembered date", async () => {
+    vi.mocked(classify.classifyLead).mockResolvedValue({ ...vagueClassification, extractedPhone: "0501234567" });
+
+    await handleIncomingMessage({
+      messageText: "פנויה ב-12/11? 0501234567",
+      senderId: SENDER_ID,
+      messageId: "date-phone",
+    });
+
+    expect(mondayService.createLeadRow).toHaveBeenCalledWith(
+      expect.objectContaining({ service: null, phone: "0501234567" }),
+    );
+    expect(lastPendingUpsert()).toMatchObject({ phone: "0501234567", trip: "kislev" });
+    expect(outbound.sendServiceQuestion).toHaveBeenCalledWith(SENDER_ID);
+  });
+
+  // 2026-10: a lead asked whether Ronit was free "בתאריך 5.12, כ״ה בכסלו" for her birthday. The
+  // כסלו in it is the Hebrew-calendar day, not the Rosh Chodesh trip: she is asking about a
+  // challah event, and must be asked "challah or uman?" rather than pitched a flight.
+  it("a Hebrew-calendar day of Kislev is not a trip name: the real birthday sentence gets the service question, not the Kislev pitch", async () => {
+    const messageText = "רציתי לשאול אם את פנויה בתאריך 5.12, כ״ה בכסלו. אני חוגגת יום הולדת";
+    expect(detectTripName(messageText)).toBeNull();
+
+    const result = await handleIncomingMessage({ messageText, senderId: SENDER_ID, messageId: "date-birthday" });
+
+    expect(mondayService.createLeadRow).toHaveBeenCalledWith(expect.objectContaining({ service: null }));
+    expect(outbound.sendServiceQuestion).toHaveBeenCalledWith(SENDER_ID);
+    expect(outbound.sendTripReply).not.toHaveBeenCalled();
+    expect(outbound.sendTripAsk).not.toHaveBeenCalled();
+    expect(outbound.sendReplyDM).not.toHaveBeenCalled();
+    expect(lastPendingUpsert().stage ?? "service").toBe("service");
+    expect(result.itemId).toBe("new-item-123");
+  });
+
+  it("uman named explicitly + a date → the trip reply goes out directly, no question, no pending (unchanged)", async () => {
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      ...interestedClassification,
+      service: "uman",
+      extractedPhone: null,
+    });
+
+    await handleIncomingMessage({ messageText: "אומן 11-15/11", senderId: SENDER_ID, messageId: "date-uman" });
+
+    expect(mondayService.createLeadRow).toHaveBeenCalledWith(expect.objectContaining({ service: "uman" }));
+    expect(outbound.sendTripReply).toHaveBeenCalledWith(SENDER_ID, { trip: "kislev", hasPhone: false });
+    expect(outbound.sendTripAsk).not.toHaveBeenCalled();
+    expect(outbound.sendServiceQuestion).not.toHaveBeenCalled();
+    expect(conversation.upsertPendingClarification).not.toHaveBeenCalled();
+  });
+
+  it("challah named explicitly on a day that falls in a trip window → still the challah reply (unchanged)", async () => {
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      ...interestedClassification,
+      service: "challah",
+      extractedPhone: null,
+    });
+
+    await handleIncomingMessage({
+      messageText: "הפרשת חלה ב-12/11",
+      senderId: SENDER_ID,
+      messageId: "date-challah",
+    });
+
+    expect(mondayService.createLeadRow).toHaveBeenCalledWith(expect.objectContaining({ service: "challah" }));
+    expect(outbound.sendReplyDM).toHaveBeenCalledWith(SENDER_ID, {
+      service: "challah",
+      hasPhone: false,
+      answered: false,
+    });
+    expect(outbound.sendTripReply).not.toHaveBeenCalled();
+    expect(outbound.sendTripAsk).not.toHaveBeenCalled();
+    expect(conversation.upsertPendingClarification).not.toHaveBeenCalled();
+  });
+});
+
 describe("handleIncomingMessage — knife-DM recipient suppression", () => {
   it("vague-interested new sender WITH a recent knife-DM mark → no ask-service, no row created", async () => {
     vi.mocked(classify.classifyLead).mockResolvedValue(vagueClassification);
@@ -554,6 +712,27 @@ describe("handleIncomingMessage — knife-DM recipient suppression", () => {
       hasPhone: true,
     });
     expect(result.itemId).toBe("new-item-123");
+  });
+
+  it("vague message that only gives a DATE WITH the knife mark → suppressed like any vague message (a date is not a named trip)", async () => {
+    vi.mocked(classify.classifyLead).mockResolvedValue(vagueClassification);
+    vi.mocked(db.wasKnifeDmSentRecently).mockReturnValue(true);
+
+    const messageText = "פנויה ב-12/11?";
+    expect(detectTrip(messageText)).toBe("kislev");
+    expect(detectTripName(messageText)).toBeNull();
+
+    const result = await handleIncomingMessage({
+      messageText,
+      senderId: SENDER_ID,
+      messageId: "knife-suppress-5",
+    });
+
+    expect(outbound.sendServiceQuestion).not.toHaveBeenCalled();
+    expect(conversation.upsertPendingClarification).not.toHaveBeenCalled();
+    expect(mondayService.createLeadRow).not.toHaveBeenCalled();
+    expect(outbound.sendTripReply).not.toHaveBeenCalled();
+    expect(result.itemId).toBeNull();
   });
 });
 
@@ -661,6 +840,223 @@ describe("handleIncomingMessage — pending lead answers with a service (Entry B
     expect(outbound.sendTripAsk).not.toHaveBeenCalled();
     expect(conversation.clearPendingClarification).toHaveBeenCalledWith("instagram", SENDER_ID);
     expect(result.itemId).toBe(ITEM_ID);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Service stage with a date she gave BEFORE choosing a service ("פנויה ב-12/11?" → the service
+// question went out with the date remembered). Answering Uman uses that date to pick the trip.
+// ---------------------------------------------------------------------------
+
+function givenServiceStage(overrides: Partial<PendingClarification> = {}): void {
+  vi.mocked(conversation.getPendingClarification).mockReturnValue({
+    monday_item_id: ITEM_ID,
+    phone: null,
+    reask_count: 0,
+    stage: "service",
+    trip: null,
+    updated_at: ASKED_LONG_AGO,
+    ...overrides,
+  });
+  vi.mocked(mondayService.getItemBoardAndGroup).mockResolvedValue({
+    boardId: CRM_BOARD,
+    groupId: NO_PHONE_GROUP,
+    service: null,
+  });
+}
+
+describe("handleIncomingMessage — service stage, she answers after giving a date", () => {
+  beforeEach(() => {
+    vi.mocked(mondayService.updateLastIgMessage).mockResolvedValue(undefined);
+    vi.mocked(mondayService.updateItemPhone).mockResolvedValue(undefined);
+    vi.mocked(mondayService.moveItemToGroup).mockResolvedValue(undefined);
+  });
+
+  it("Uman → the REMEMBERED trip's reply goes out directly, pending cleared, no trip question", async () => {
+    givenServiceStage({ trip: "hanukkah" });
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      ...interestedClassification,
+      service: "uman",
+      extractedPhone: null,
+    });
+
+    const result = await handleIncomingMessage({ messageText: "אומן", senderId: SENDER_ID, messageId: "svc-date-1" });
+
+    expect(mondayService.updateItemService).toHaveBeenCalledWith(ITEM_ID, "uman");
+    expect(outbound.sendTripReply).toHaveBeenCalledTimes(1);
+    expect(outbound.sendTripReply).toHaveBeenCalledWith(SENDER_ID, { trip: "hanukkah", hasPhone: false });
+    expect(conversation.clearPendingClarification).toHaveBeenCalledWith("instagram", SENDER_ID);
+    expect(conversation.advanceToTripStage).not.toHaveBeenCalled();
+    expect(outbound.sendTripAsk).not.toHaveBeenCalled();
+    expect(umanWelcome.maybeSendUmanWelcome).toHaveBeenCalledWith(
+      expect.objectContaining({ senderId: SENDER_ID, mondayItemId: ITEM_ID, service: "uman" }),
+    );
+    expect(result.itemId).toBe(ITEM_ID);
+  });
+
+  it("Uman with a phone in the answer → the remembered trip's PHONE-present reply", async () => {
+    givenServiceStage({ trip: "kislev" });
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      ...interestedClassification,
+      service: "uman",
+      extractedPhone: "0501234567",
+    });
+
+    await handleIncomingMessage({ messageText: "אומן 0501234567", senderId: SENDER_ID, messageId: "svc-date-phone" });
+
+    expect(mondayService.updateItemPhone).toHaveBeenCalledWith(ITEM_ID, "0501234567");
+    expect(outbound.sendTripReply).toHaveBeenCalledWith(SENDER_ID, { trip: "kislev", hasPhone: true });
+    expect(outbound.sendTripAsk).not.toHaveBeenCalled();
+  });
+
+  it("her answer's own trip wins over the remembered one", async () => {
+    givenServiceStage({ trip: "hanukkah" });
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      ...interestedClassification,
+      service: "uman",
+      extractedPhone: null,
+    });
+
+    await handleIncomingMessage({ messageText: "אומן בכסלו", senderId: SENDER_ID, messageId: "svc-date-2" });
+
+    expect(outbound.sendTripReply).toHaveBeenCalledTimes(1);
+    expect(outbound.sendTripReply).toHaveBeenCalledWith(SENDER_ID, { trip: "kislev", hasPhone: false });
+    expect(conversation.clearPendingClarification).toHaveBeenCalledWith("instagram", SENDER_ID);
+    expect(outbound.sendTripAsk).not.toHaveBeenCalled();
+  });
+
+  it("Challah → the challah answer goes out and the pending is cleared; the remembered date is simply unused", async () => {
+    givenServiceStage({ trip: "hanukkah" });
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      ...interestedClassification,
+      service: "challah",
+      extractedPhone: null,
+    });
+
+    await handleIncomingMessage({ messageText: "חלה", senderId: SENDER_ID, messageId: "svc-date-3" });
+
+    expect(mondayService.updateItemService).toHaveBeenCalledWith(ITEM_ID, "challah");
+    expect(outbound.sendReplyDM).toHaveBeenCalledWith(SENDER_ID, {
+      service: "challah",
+      hasPhone: false,
+      answered: true,
+    });
+    expect(conversation.clearPendingClarification).toHaveBeenCalledWith("instagram", SENDER_ID);
+    expect(outbound.sendTripReply).not.toHaveBeenCalled();
+    expect(outbound.sendTripAsk).not.toHaveBeenCalled();
+  });
+
+  it("Uman with NOTHING remembered → the trip question, as before", async () => {
+    givenServiceStage({ trip: null });
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      ...interestedClassification,
+      service: "uman",
+      extractedPhone: null,
+    });
+
+    await handleIncomingMessage({ messageText: "אומן", senderId: SENDER_ID, messageId: "svc-date-4" });
+
+    expect(conversation.advanceToTripStage).toHaveBeenCalledWith("instagram", SENDER_ID);
+    expect(outbound.sendTripAsk).toHaveBeenCalledWith(SENDER_ID);
+    expect(outbound.sendTripReply).not.toHaveBeenCalled();
+    expect(conversation.clearPendingClarification).not.toHaveBeenCalled();
+  });
+});
+
+describe("handleIncomingMessage — service stage, still no service: a date she mentions is remembered", () => {
+  beforeEach(() => {
+    vi.mocked(mondayService.updateLastIgMessage).mockResolvedValue(undefined);
+    vi.mocked(mondayService.updateItemPhone).mockResolvedValue(undefined);
+    vi.mocked(mondayService.moveItemToGroup).mockResolvedValue(undefined);
+    vi.mocked(classify.classifyLead).mockResolvedValue(vagueClassification);
+  });
+
+  it('pending trip null, "בנובמבר" → re-asks the service question (counted) and remembers Kislev; the pending phone is kept', async () => {
+    givenServiceStage({ reask_count: 1, phone: "0509999999" });
+
+    await handleIncomingMessage({ messageText: "בנובמבר", senderId: SENDER_ID, messageId: "remember-1" });
+
+    expect(outbound.sendServiceQuestion).toHaveBeenCalledWith(SENDER_ID);
+    expect(conversation.incrementReaskCount).toHaveBeenCalledWith("instagram", SENDER_ID);
+    expect(conversation.upsertPendingClarification).toHaveBeenCalledTimes(1);
+    expect(lastPendingUpsert()).toMatchObject({
+      senderId: SENDER_ID,
+      mondayItemId: ITEM_ID,
+      phone: "0509999999",
+      trip: "kislev",
+    });
+    expect(lastPendingUpsert().stage ?? "service").toBe("service");
+  });
+
+  it("pending trip null and no phone yet, a date → the upsert carries phone null", async () => {
+    givenServiceStage();
+
+    await handleIncomingMessage({ messageText: "פנויה ב-7/12?", senderId: SENDER_ID, messageId: "remember-2" });
+
+    expect(lastPendingUpsert()).toMatchObject({ phone: null, trip: "hanukkah" });
+  });
+
+  it("a remembered Hanukkah date + a phone-only message → the phone upsert KEEPS trip hanukkah", async () => {
+    givenServiceStage({ trip: "hanukkah" });
+    vi.mocked(classify.classifyLead).mockResolvedValue({ ...vagueClassification, extractedPhone: "0501234567" });
+
+    await handleIncomingMessage({ messageText: "0501234567", senderId: SENDER_ID, messageId: "remember-3" });
+
+    expect(mondayService.updateItemPhone).toHaveBeenCalledWith(ITEM_ID, "0501234567");
+    expect(conversation.upsertPendingClarification).toHaveBeenCalledTimes(1);
+    expect(lastPendingUpsert()).toMatchObject({ phone: "0501234567", trip: "hanukkah" });
+    expect(outbound.sendServiceQuestion).toHaveBeenCalledWith(SENDER_ID);
+  });
+
+  it("a phone AND a new date in one message → ONE upsert carrying both", async () => {
+    givenServiceStage();
+    vi.mocked(classify.classifyLead).mockResolvedValue({ ...vagueClassification, extractedPhone: "0501234567" });
+
+    await handleIncomingMessage({
+      messageText: "אולי בנובמבר 0501234567",
+      senderId: SENDER_ID,
+      messageId: "remember-4",
+    });
+
+    expect(conversation.upsertPendingClarification).toHaveBeenCalledTimes(1);
+    expect(lastPendingUpsert()).toMatchObject({ phone: "0501234567", trip: "kislev" });
+  });
+
+  it("a later date replaces the remembered one", async () => {
+    givenServiceStage({ trip: "hanukkah" });
+
+    await handleIncomingMessage({ messageText: "אולי בנובמבר?", senderId: SENDER_ID, messageId: "remember-5" });
+
+    expect(lastPendingUpsert()).toMatchObject({ trip: "kislev" });
+  });
+
+  it("nothing new (no date, no phone) → no upsert: the remembered date stays and the re-ask is unchanged", async () => {
+    givenServiceStage({ trip: "hanukkah", reask_count: 1 });
+
+    await handleIncomingMessage({ messageText: "מתי זה?", senderId: SENDER_ID, messageId: "remember-6" });
+
+    expect(conversation.upsertPendingClarification).not.toHaveBeenCalled();
+    expect(outbound.sendServiceQuestion).toHaveBeenCalledWith(SENDER_ID);
+    expect(conversation.incrementReaskCount).toHaveBeenCalledWith("instagram", SENDER_ID);
+  });
+
+  it("the SAME date again and no phone → no needless upsert", async () => {
+    givenServiceStage({ trip: "hanukkah" });
+
+    await handleIncomingMessage({ messageText: "שוב, בדצמבר", senderId: SENDER_ID, messageId: "remember-7" });
+
+    expect(conversation.upsertPendingClarification).not.toHaveBeenCalled();
+    expect(outbound.sendServiceQuestion).toHaveBeenCalledWith(SENDER_ID);
+  });
+
+  it("at the re-ask cap the date is still remembered, and she stays unanswered", async () => {
+    givenServiceStage({ reask_count: 3 });
+
+    await handleIncomingMessage({ messageText: "בדצמבר", senderId: SENDER_ID, messageId: "remember-8" });
+
+    expect(lastPendingUpsert()).toMatchObject({ trip: "hanukkah" });
+    expect(outbound.sendServiceQuestion).not.toHaveBeenCalled();
+    expect(conversation.incrementReaskCount).not.toHaveBeenCalled();
   });
 });
 
@@ -860,7 +1256,9 @@ describe("handleIncomingMessage — trip stage, unclear answer (no trip named)",
 // Trip stage, her answer missed the keywords. judgeTripAnswer sees OUR question, so it,
 // not the context-free classifier, decides: one trip, both, a decline, or unclear.
 // 2026-10-11: "רביעי עד ראשון" (Wednesday-Sunday = Kislev) and "לחודש 11" classified
-// not-interested and the bot went silent on two real leads.
+// not-interested and the bot went silent on two real leads. (The keyword layer now reads "לחודש 11"
+// and in-window days itself — see "the keyword fast path" below — so the judge cases here use
+// answers only the judge can read: weekday ranges, ordinals.)
 // ---------------------------------------------------------------------------
 
 const NOW = new Date("2026-10-11T12:00:00Z");
@@ -904,7 +1302,7 @@ describe("handleIncomingMessage — trip stage, answers the keywords cannot sett
   });
 
   describe("the judge picks one trip", () => {
-    it.each(["רביעי עד ראשון", "לחודש 11"])(
+    it.each(["רביעי עד ראשון", "הראשון"])(
       "%j → judge: kislev → the Kislev reply, pending cleared, welcome fired (was: silence)",
       async (messageText) => {
         expect(detectTrip(messageText)).toBeNull();
@@ -958,7 +1356,7 @@ describe("handleIncomingMessage — trip stage, answers the keywords cannot sett
     });
 
     it("a judged answer arriving WITH a new phone → hasPhone true, phone stored and the row re-filed", async () => {
-      const messageText = "לחודש 11, המספר שלי 0501234567";
+      const messageText = "רביעי עד ראשון, המספר שלי 0501234567";
       expect(detectTrip(messageText)).toBeNull();
       givenTripStage();
       judgeSays("kislev");
@@ -1078,7 +1476,7 @@ describe("handleIncomingMessage — trip stage, answers the keywords cannot sett
       givenTripStage();
 
       try {
-        await handleIncomingMessage({ messageText: "לחודש 11", senderId: SENDER_ID, messageId: "unclear-outage" });
+        await handleIncomingMessage({ messageText: "רביעי עד ראשון", senderId: SENDER_ID, messageId: "unclear-outage" });
       } finally {
         env.OPENROUTER_API_KEY = savedKey;
       }
@@ -1291,6 +1689,38 @@ describe("handleIncomingMessage — trip stage, answers the keywords cannot sett
       expect(tripsReplied()).toEqual(["kislev"]);
     });
 
+    // 2026-10-11 @lihi_lugasi answered "לחודש 11" and the keywords missed it; they read it now,
+    // and a single day of a trip's window, so the judge is not needed for them.
+    it.each([
+      ["לחודש 11", "kislev"],
+      ["בחודש 12", "hanukkah"],
+      ["12/11", "kislev"],
+      ["7/12", "hanukkah"],
+    ] as const)("%j (a month number / a day of the window) → fast path, the judge is NOT consulted", async (messageText, trip) => {
+      expect(detectTrip(messageText)).toBe(trip);
+      givenTripStage();
+
+      await handleIncomingMessage({ messageText, senderId: SENDER_ID, messageId: `fast-window-${messageText}` });
+
+      expect(tripAnswer.judgeTripAnswer).not.toHaveBeenCalled();
+      expect(tripsReplied()).toEqual([trip]);
+      expect(conversation.clearPendingClarification).toHaveBeenCalledWith("instagram", SENDER_ID);
+    });
+
+    it('"לחודש 11 או לחודש 12" names both month numbers → judged, not fast-pathed', async () => {
+      givenTripStage();
+      judgeSays("both");
+
+      await handleIncomingMessage({
+        messageText: "לחודש 11 או לחודש 12",
+        senderId: SENDER_ID,
+        messageId: "fast-two-months",
+      });
+
+      expect(tripAnswer.judgeTripAnswer).toHaveBeenCalledWith("לחודש 11 או לחודש 12");
+      expect(tripsReplied()).toEqual(["kislev", "hanukkah"]);
+    });
+
     // Dates are day/month: 6-10/10 is 6-10 October. The keyword layer used to read the "6-10" and
     // ignore the month, so an October date got Hanukkah's details.
     it.each(["6-10/10", "11-15/12"])(
@@ -1431,6 +1861,132 @@ describe("handleIncomingMessage — trip stage, answers the keywords cannot sett
       expect(outbound.sendTripAsk).toHaveBeenCalledWith(SENDER_ID);
       expect(tripAnswer.judgeTripAnswer).not.toHaveBeenCalled();
     });
+  });
+});
+
+// A woman who was asked WHICH TRIP may have wanted challah all along ("פנויה ב30/11?" was a challah
+// event's date). Without an exit she was re-asked the trip question forever; the classifier saying
+// challah is the way out, unless the same message also names a trip.
+describe("handleIncomingMessage — trip stage, she asks for challah instead", () => {
+  beforeEach(() => {
+    vi.mocked(mondayService.updateLastIgMessage).mockResolvedValue(undefined);
+    vi.mocked(mondayService.updateItemPhone).mockResolvedValue(undefined);
+    vi.mocked(mondayService.moveItemToGroup).mockResolvedValue(undefined);
+    vi.mocked(mondayService.updateItemService).mockResolvedValue(undefined);
+  });
+
+  const wantsChallah = { ...interestedClassification, service: "challah" as const, extractedPhone: null };
+
+  it("interested + challah, no trip named → service switched, the challah answer goes out, pending cleared; the judge is never asked, no trip question", async () => {
+    givenTripStage();
+    vi.mocked(classify.classifyLead).mockResolvedValue(wantsChallah);
+
+    const result = await handleIncomingMessage({
+      messageText: "לא, רציתי הפרשת חלה",
+      senderId: SENDER_ID,
+      messageId: "trip-challah-1",
+    });
+
+    expect(tripAnswer.judgeTripAnswer).not.toHaveBeenCalled();
+    expect(mondayService.updateItemService).toHaveBeenCalledWith(ITEM_ID, "challah");
+    expect(outbound.sendReplyDM).toHaveBeenCalledTimes(1);
+    expect(outbound.sendReplyDM).toHaveBeenCalledWith(SENDER_ID, {
+      service: "challah",
+      hasPhone: false,
+      answered: true,
+    });
+    expect(conversation.clearPendingClarification).toHaveBeenCalledWith("instagram", SENDER_ID);
+    expect(outbound.sendTripAsk).not.toHaveBeenCalled();
+    expect(outbound.sendTripReply).not.toHaveBeenCalled();
+    expect(conversation.incrementReaskCount).not.toHaveBeenCalled();
+    expect(result.itemId).toBe(ITEM_ID);
+  });
+
+  it("a phone already on her pending → the phone-present challah answer", async () => {
+    givenTripStage({ phone: "0501234567" });
+    vi.mocked(classify.classifyLead).mockResolvedValue(wantsChallah);
+
+    await handleIncomingMessage({ messageText: "הפרשת חלה", senderId: SENDER_ID, messageId: "trip-challah-2" });
+
+    expect(outbound.sendReplyDM).toHaveBeenCalledWith(SENDER_ID, {
+      service: "challah",
+      hasPhone: true,
+      answered: true,
+    });
+  });
+
+  it("a phone in the same message is captured and re-files her, and the answer counts it", async () => {
+    givenTripStage();
+    vi.mocked(classify.classifyLead).mockResolvedValue({ ...wantsChallah, extractedPhone: "0501234567" });
+
+    await handleIncomingMessage({
+      messageText: "הפרשת חלה 0501234567",
+      senderId: SENDER_ID,
+      messageId: "trip-challah-3",
+    });
+
+    expect(mondayService.updateItemPhone).toHaveBeenCalledWith(ITEM_ID, "0501234567");
+    expect(mondayService.moveItemToGroup).toHaveBeenCalledWith(ITEM_ID, NEW_LEADS_GROUP);
+    expect(outbound.sendReplyDM).toHaveBeenCalledWith(SENDER_ID, {
+      service: "challah",
+      hasPhone: true,
+      answered: true,
+    });
+    expect(conversation.clearPendingClarification).toHaveBeenCalledWith("instagram", SENDER_ID);
+  });
+
+  it("the service update failing is non-fatal: the answer still goes out and the pending is still cleared", async () => {
+    givenTripStage();
+    vi.mocked(classify.classifyLead).mockResolvedValue(wantsChallah);
+    vi.mocked(mondayService.updateItemService).mockRejectedValue(new Error("Monday 500"));
+
+    await handleIncomingMessage({ messageText: "הפרשת חלה", senderId: SENDER_ID, messageId: "trip-challah-4" });
+
+    expect(outbound.sendReplyDM).toHaveBeenCalledWith(SENDER_ID, {
+      service: "challah",
+      hasPhone: false,
+      answered: true,
+    });
+    expect(conversation.clearPendingClarification).toHaveBeenCalledWith("instagram", SENDER_ID);
+  });
+
+  it("challah but NOT interested → no exit: the judge is consulted as before and she is re-asked", async () => {
+    givenTripStage();
+    vi.mocked(classify.classifyLead).mockResolvedValue({ ...notInterestedClassification, service: "challah" });
+
+    await handleIncomingMessage({ messageText: "חלה", senderId: SENDER_ID, messageId: "trip-challah-5" });
+
+    expect(tripAnswer.judgeTripAnswer).toHaveBeenCalledWith("חלה");
+    expect(mondayService.updateItemService).not.toHaveBeenCalled();
+    expect(outbound.sendReplyDM).not.toHaveBeenCalled();
+    expect(outbound.sendTripAsk).toHaveBeenCalledWith(SENDER_ID);
+  });
+
+  it("challah AND a trip word in the same message → no exit: it stays on the trip path", async () => {
+    givenTripStage();
+    vi.mocked(classify.classifyLead).mockResolvedValue(wantsChallah);
+
+    await handleIncomingMessage({ messageText: "חנוכה או חלה", senderId: SENDER_ID, messageId: "trip-challah-6" });
+
+    expect(mondayService.updateItemService).not.toHaveBeenCalled();
+    expect(outbound.sendReplyDM).not.toHaveBeenCalled();
+    expect(tripsReplied()).toEqual(["hanukkah"]);
+    expect(conversation.clearPendingClarification).toHaveBeenCalledWith("instagram", SENDER_ID);
+  });
+
+  it("uman restated (service uman, no trip named) is not an exit: the judge is still consulted", async () => {
+    givenTripStage();
+    vi.mocked(classify.classifyLead).mockResolvedValue({
+      ...interestedClassification,
+      service: "uman",
+      extractedPhone: null,
+    });
+
+    await handleIncomingMessage({ messageText: "אומן", senderId: SENDER_ID, messageId: "trip-challah-8" });
+
+    expect(tripAnswer.judgeTripAnswer).toHaveBeenCalledWith("אומן");
+    expect(mondayService.updateItemService).not.toHaveBeenCalled();
+    expect(outbound.sendReplyDM).not.toHaveBeenCalled();
   });
 });
 
@@ -1985,6 +2541,59 @@ describe("handleIncomingMessage — createLeadRow rate-limited (daily)", () => {
     // once the queue eventually creates the row (single dedup key).
     expect(umanWelcome.maybeSendUmanWelcome).not.toHaveBeenCalled();
     expect(dedup.unmarkMessageProcessed).not.toHaveBeenCalled();
+  });
+
+  it("service null + a date only → deferred WITH a service-stage clarification (a date is not a trip name), the service question still goes out", async () => {
+    vi.mocked(classify.classifyLead).mockResolvedValue(vagueClassification);
+    vi.mocked(mondayService.createLeadRow).mockRejectedValue(
+      new MondayRateLimitError("daily", 9000, "daily cap"),
+    );
+
+    const result = await handleIncomingMessage({
+      messageText: "יהיה בסוף דצמבר?",
+      senderId: SENDER_ID,
+      messageId: "ratelimit-date-1",
+    });
+
+    expect(result.itemId).toBeNull();
+    expect(db.enqueueMondayLead).toHaveBeenCalledWith(
+      expect.objectContaining({
+        platform: "instagram",
+        senderId: SENDER_ID,
+        service: null,
+        messageText: "יהיה בסוף דצמבר?",
+        openClarification: true,
+        openClarificationStage: "service",
+      }),
+    );
+    expect(outbound.sendServiceQuestion).toHaveBeenCalledWith(SENDER_ID);
+    expect(outbound.sendTripReply).not.toHaveBeenCalled();
+    expect(outbound.sendTripAsk).not.toHaveBeenCalled();
+    expect(dedup.unmarkMessageProcessed).not.toHaveBeenCalled();
+  });
+
+  it("uman + a known trip needs no clarification (unchanged); uman with no trip opens the trip stage (unchanged)", async () => {
+    vi.mocked(mondayService.createLeadRow).mockRejectedValue(
+      new MondayRateLimitError("daily", 9000, "daily cap"),
+    );
+
+    await handleIncomingMessage({
+      messageText: "אני רוצה טיסה לאומן בחנוכה",
+      senderId: SENDER_ID,
+      messageId: "ratelimit-date-2",
+    });
+    expect(db.enqueueMondayLead).toHaveBeenLastCalledWith(
+      expect.objectContaining({ service: "uman", openClarification: false }),
+    );
+
+    await handleIncomingMessage({
+      messageText: "אני רוצה טיסה לאומן",
+      senderId: SENDER_ID,
+      messageId: "ratelimit-date-3",
+    });
+    expect(db.enqueueMondayLead).toHaveBeenLastCalledWith(
+      expect.objectContaining({ service: "uman", openClarification: true, openClarificationStage: "trip" }),
+    );
   });
 });
 
