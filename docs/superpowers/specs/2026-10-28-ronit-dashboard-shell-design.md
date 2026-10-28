@@ -150,6 +150,8 @@ One route tree serves both shells. `useShell()` returns `desktop` from 1024px wi
 
 ## 7. Design system
 
+**Scale:** desktop renders at 87.5% of the artboard sizes. The build turns every CSS px into rem, and `theme.css` sets the root font size from 1024px up. The target laptop viewport (about 1536×730 at Windows' 125% scaling) is shorter than the 1440×900 artboards, and at full size the desktop felt zoomed in.
+
 ### Tokens (ported from `or-theme.css`)
 
 **Colors**
