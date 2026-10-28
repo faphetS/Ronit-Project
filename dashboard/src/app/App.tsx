@@ -1,9 +1,14 @@
-import { common } from "../content/common.he";
+import { createBrowserRouter } from "react-router";
+import { RouterProvider } from "react-router/dom";
+import { AppProviders } from "./AppProviders";
+import { routes } from "./routes";
+
+const router = createBrowserRouter(routes);
 
 export function App() {
   return (
-    <main>
-      <h1>{common.brandFull}</h1>
-    </main>
+    <AppProviders>
+      <RouterProvider router={router} />
+    </AppProviders>
   );
 }
