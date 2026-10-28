@@ -8,7 +8,10 @@ import type { Trip } from "./trip.js";
  *
  * `stage` tracks WHICH question is outstanding: 'service' (challah or uman?)
  * or 'trip' (kislev or hanukkah?, uman-only, asked after the service is known).
- * `trip` is set once she has answered the trip question; null until then.
+ * `trip` is the trip a SERVICE-stage lead pointed at by a date or a month ("פנויה ב-12/11?")
+ * before choosing a service. A date alone may be a challah event's date, so it is only
+ * remembered; if she then answers uman it picks the trip and the trip question is skipped.
+ * null = no usable date.
  */
 export interface PendingClarification {
   monday_item_id: string;
