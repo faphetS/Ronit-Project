@@ -1,3 +1,4 @@
+import type { Locale } from "../content/copy";
 import { TIME_ZONE } from "./clock";
 
 const HUNDREDS: Array<[number, string]> = [[300, "ש"], [200, "ר"], [100, "ק"]];
@@ -64,8 +65,20 @@ export function hebrewDateParts(date: Date): HebrewDate {
   return { day: Number(parts.day), month: String(parts.month), year: Number(parts.year) };
 }
 
-/** 2026-10-28 becomes "י״ז בחשוון תשפ״ז". */
-export function formatHebrewDate(date: Date): string {
+// English month names come from ICU as well ("Heshvan", "Adar II").
+const hebrewCalendarEnglish = new Intl.DateTimeFormat("en-GB-u-ca-hebrew", {
+  timeZone: TIME_ZONE,
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+});
+
+/** 2026-10-28 becomes "י״ז בחשוון תשפ״ז", or "17 Heshvan 5787" in English. */
+export function formatHebrewDate(date: Date, locale: Locale = "he"): string {
+  if (locale === "en") {
+    const { day, month, year } = Object.fromEntries(hebrewCalendarEnglish.formatToParts(date).map((part) => [part.type, part.value]));
+    return [day, month, year].join(" ");
+  }
   const { day, month, year } = hebrewDateParts(date);
   return `${toHebrewNumeral(day)} ב${month} ${toHebrewNumeral(year % 1000)}`;
 }

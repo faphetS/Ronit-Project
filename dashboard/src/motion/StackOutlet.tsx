@@ -1,15 +1,16 @@
 import { AnimatePresence, motion, useIsPresent } from "motion/react";
 import { useState, type ReactNode } from "react";
 import { useLocation, useNavigationType, useOutlet } from "react-router";
+import { useDirection } from "../content/locale";
 import { cx } from "../lib/cx";
 import { ScreenPathContext } from "./screen-path";
 import { resolveScreenTransition, type ScreenTransition } from "./transitions";
-import { screenVariants } from "./variants";
+import { screenVariants, type ScreenMotion } from "./variants";
 
 interface StackScreenProps {
   pathname: string;
   pushed: boolean;
-  transition: ScreenTransition;
+  transition: ScreenMotion;
   children: ReactNode;
 }
 
@@ -49,6 +50,7 @@ export function StackOutlet({ isPushed, className }: StackOutletProps) {
   const location = useLocation();
   const navigationType = useNavigationType();
   const outlet = useOutlet();
+  const rtl = useDirection() === "rtl";
   const backHint = (location.state as { direction?: string } | null)?.direction === "back";
 
   const [shown, setShown] = useState<{ path: string; transition: ScreenTransition }>(() => ({
@@ -62,11 +64,12 @@ export function StackOutlet({ isPushed, className }: StackOutletProps) {
     transition = resolveScreenTransition({ from: shown.path, to: location.pathname, navigationType, backHint, isPushed });
     setShown({ path: location.pathname, transition });
   }
+  const screenMotion: ScreenMotion = { ...transition, rtl };
 
   return (
     <div className={cx("relative overflow-hidden", className)}>
-      <AnimatePresence custom={transition}>
-        <StackScreen key={location.pathname} pathname={location.pathname} pushed={isPushed(location.pathname)} transition={transition}>
+      <AnimatePresence custom={screenMotion}>
+        <StackScreen key={location.pathname} pathname={location.pathname} pushed={isPushed(location.pathname)} transition={screenMotion}>
           {outlet}
         </StackScreen>
       </AnimatePresence>

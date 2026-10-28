@@ -1,6 +1,6 @@
 import { PhoneTopBar } from "../../app/phone/PhoneTopBar";
 import { useShell } from "../../app/useShell";
-import { overview as copy } from "../../content/overview.he";
+import { useCopy } from "../../content/locale";
 import { useOverview } from "../../data/queries";
 import { today } from "../../lib/clock";
 import { formatNumber } from "../../lib/format";
@@ -15,6 +15,7 @@ const NUMBER_KEYS = ["openLeads", "customers", "activeGroups"] as const;
 
 /** The overview, first version: greeting, key numbers, this week's leads and today. The rest comes later. */
 export function OverviewScreen() {
+  const { overview: copy } = useCopy();
   const phone = useShell() === "phone";
   const stats = useOverview();
   const data = stats.data;

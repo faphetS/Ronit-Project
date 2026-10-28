@@ -1,6 +1,6 @@
 import { LayoutGroup, motion } from "motion/react";
 import { useLocation } from "react-router";
-import { nav } from "../../content/nav.he";
+import { useCopy } from "../../content/locale";
 import { cx } from "../../lib/cx";
 import { PRESS_SCALE, springs } from "../../motion/springs";
 import { Icon } from "../../ui/Icon";
@@ -9,6 +9,7 @@ import { PHONE_TABS, phoneTabFor } from "../sections";
 
 /** Floating glass tab bar. The dark highlight glides to the current tab. */
 export function TabBar() {
+  const { nav } = useCopy();
   const { pathname } = useLocation();
   const current = phoneTabFor(pathname);
   return (

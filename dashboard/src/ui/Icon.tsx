@@ -1,4 +1,8 @@
+import { cx } from "../lib/cx";
 import { ICONS, type IconName, type IconShape } from "./icons";
+
+// "forward" and "back" are drawn for Hebrew. In English they point the other way.
+const FLIP_IN_LTR: ReadonlySet<IconName> = new Set<IconName>(["forward", "back"]);
 
 interface IconProps {
   name: IconName;
@@ -16,7 +20,7 @@ export function Icon({ name, size = 20, className }: IconProps) {
       height={size}
       aria-hidden="true"
       focusable="false"
-      className={className}
+      className={cx(FLIP_IN_LTR.has(name) && "ltr:-scale-x-100", className)}
       fill="none"
       stroke="currentColor"
       strokeWidth={1.5}

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { holidayCountdown, holidayNames } from "../../content/holidays.he";
+import { useCopy, useLocale } from "../../content/locale";
 import { cx } from "../../lib/cx";
 import { formatDayMonth, formatWeekday } from "../../lib/format";
 import { formatHebrewDate } from "../../lib/hebrew";
@@ -28,6 +28,8 @@ interface TodayCardProps {
 /** The orb card with the weekday, the date, the Hebrew date and the next holiday. */
 export function TodayCard({ day, label, size = "regular", footer, side, className }: TodayCardProps) {
   const layout = LAYOUT[size];
+  const { locale } = useLocale();
+  const { holidayCountdown, holidayNames } = useCopy();
   const holiday = nextHoliday(day);
   return (
     <OrbCard
@@ -40,11 +42,11 @@ export function TodayCard({ day, label, size = "regular", footer, side, classNam
       strip={
         <>
           <p className={cx("font-light text-ink", layout.dayClass)}>
-            {formatWeekday(day)}{" "}
+            {formatWeekday(day, locale)}{" "}
             <br />
-            <span className="text-faint">{formatDayMonth(day)}</span>
+            <span className="text-faint">{formatDayMonth(day, locale)}</span>
           </p>
-          <p className="mt-2 text-small text-mute-2">{formatHebrewDate(day)}</p>
+          <p className="mt-2 text-small text-mute-2">{formatHebrewDate(day, locale)}</p>
           <span className="flex-1" />
           <p className="font-medium text-ink">{holidayCountdown(holidayNames[holiday.key], holiday.daysToEve)}</p>
           {footer}

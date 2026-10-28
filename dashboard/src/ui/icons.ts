@@ -1,6 +1,6 @@
 export type IconShape = string | { cx: number; cy: number; r: number };
 
-/** 24×24 stroke icons from the approved canvas. "forward" and "back" are already mirrored for RTL. */
+/** 24×24 stroke icons from the approved canvas. "forward" and "back" are drawn for RTL; Icon flips them in LTR. */
 export const ICONS = {
   home: ["M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z"],
   leads: [{ cx: 9, cy: 8, r: 3.5 }, "M3 20a6 6 0 0 1 12 0M18 8v6M15 11h6"],

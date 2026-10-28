@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { states } from "../content/states.he";
+import { useCopy } from "../content/locale";
 import { cx } from "../lib/cx";
 import { Button } from "./Button";
 
@@ -10,6 +10,7 @@ export function Skeleton({ onDark = false, className }: { onDark?: boolean; clas
 
 /** Loading region: tells screen readers it is loading, and shows skeleton lines. */
 export function LoadingBlock({ lines = 3, onDark = false, className }: { lines?: number; onDark?: boolean; className?: string }) {
+  const { states } = useCopy();
   return (
     <div role="status" aria-busy="true" className={cx("flex flex-col gap-3", className)}>
       <span className="sr-only">{states.loading}</span>
@@ -31,10 +32,11 @@ export function EmptyState({ message, action, onDark = false }: { message: strin
 }
 
 /** Something failed: say so inside the card and offer a retry. Never a blocking alert. */
-export function ErrorState({ message = states.error, onRetry, onDark = false }: { message?: string; onRetry: () => void; onDark?: boolean }) {
+export function ErrorState({ message, onRetry, onDark = false }: { message?: string; onRetry: () => void; onDark?: boolean }) {
+  const { states } = useCopy();
   return (
     <div role="alert" className="flex flex-col items-center gap-3 py-6 text-center">
-      <p className={cx("text-small", onDark ? "text-ink-mute" : "text-mute")}>{message}</p>
+      <p className={cx("text-small", onDark ? "text-ink-mute" : "text-mute")}>{message ?? states.error}</p>
       <Button variant="outline" size="sm" onDark={onDark} onClick={onRetry}>
         {states.retry}
       </Button>

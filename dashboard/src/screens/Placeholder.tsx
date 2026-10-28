@@ -1,7 +1,8 @@
 import { PhoneTopBar } from "../app/phone/PhoneTopBar";
 import { isPushedRoute } from "../app/sections";
 import { useShell } from "../app/useShell";
-import { comingSoon, screens, type ScreenKey } from "../content/screens.he";
+import { useCopy } from "../content/locale";
+import type { ScreenKey } from "../content/screens.he";
 import { useScreenPath } from "../motion/screen-path";
 import { Headline } from "../ui/Headline";
 import { ScreenFrame } from "../ui/ScreenFrame";
@@ -12,6 +13,7 @@ import { Surface } from "../ui/Surface";
 export function Placeholder({ screen }: { screen: ScreenKey }) {
   const phone = useShell() === "phone";
   const pathname = useScreenPath();
+  const { comingSoon, screens } = useCopy();
   const copy = screens[phone && screen === "users" ? "account" : screen];
   return (
     <ScreenFrame>

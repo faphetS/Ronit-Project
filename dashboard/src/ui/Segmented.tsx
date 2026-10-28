@@ -8,6 +8,10 @@ export interface SegmentOption<T extends string> {
   label: string;
   /** With a destination on every option, the control is navigation. */
   to?: string;
+  /** The label's language, when it differs from the page's. */
+  lang?: string;
+  /** Accessible name, when the visible label is an abbreviation. */
+  ariaLabel?: string;
 }
 
 interface SegmentedProps<T extends string> {
@@ -36,11 +40,11 @@ export function Segmented<T extends string>({ id, label, options, value, onChang
       </>
     );
     return option.to ? (
-      <Link key={option.value} to={option.to} aria-current={selected ? "page" : undefined} className={itemClass}>
+      <Link key={option.value} to={option.to} lang={option.lang} aria-label={option.ariaLabel} aria-current={selected ? "page" : undefined} className={itemClass}>
         {inner}
       </Link>
     ) : (
-      <button key={option.value} type="button" aria-pressed={selected} onClick={() => onChange?.(option.value)} className={itemClass}>
+      <button key={option.value} type="button" lang={option.lang} aria-label={option.ariaLabel} aria-pressed={selected} onClick={() => onChange?.(option.value)} className={itemClass}>
         {inner}
       </button>
     );

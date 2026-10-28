@@ -1,12 +1,13 @@
 import { LayoutGroup, motion } from "motion/react";
 import { NavLink } from "react-router";
-import { nav } from "../../content/nav.he";
+import { useCopy } from "../../content/locale";
 import { cx } from "../../lib/cx";
 import { springs } from "../../motion/springs";
 import { DESKTOP_NAV } from "../sections";
 
 /** Glass pill menu. The dark pill glides to the current section. */
 export function PillNav({ newLeads }: { newLeads: number }) {
+  const { nav } = useCopy();
   return (
     <LayoutGroup id="desktop-nav">
       <nav aria-label={nav.main} className="surface-glass flex flex-wrap items-center gap-0.5 rounded-full p-1.5">

@@ -1,5 +1,6 @@
 import { motion } from "motion/react";
 import type { ReactNode } from "react";
+import { useDirection } from "../content/locale";
 import { cx } from "../lib/cx";
 import { PRESS_SCALE, springs } from "../motion/springs";
 import { Icon } from "./Icon";
@@ -18,17 +19,21 @@ interface GooButtonProps {
   className?: string;
 }
 
-// On hover the circle leans forward. Forward is to the left in RTL.
-const circleMotion = { rest: { x: 0 }, hover: { x: -4 } };
+// On hover the circle leans forward: to the left in Hebrew, to the right in English.
+const CIRCLE_MOTION = {
+  rtl: { rest: { x: 0 }, hover: { x: -4 } },
+  ltr: { rest: { x: 0 }, hover: { x: 4 } },
+};
 
 /** The primary action: a pill joined to a circle with an arrow, like the reference. */
 export function GooButton({ children, to, onClick, type = "button", tone = "dark", size = "md", icon = "forward", disabled, className }: GooButtonProps) {
+  const direction = useDirection();
   const fill = tone === "dark" ? "bg-ink text-cream group-hover:bg-black" : "bg-cream text-ink group-hover:bg-white";
   const content = (
     <>
       <span className={cx("inline-flex items-center rounded-full transition-colors", size === "md" ? "h-[46px] px-[22px]" : "h-[38px] px-4", fill)}>{children}</span>
       <motion.span
-        variants={circleMotion}
+        variants={CIRCLE_MOTION[direction]}
         transition={springs.ui}
         className={cx("goo-neck grid shrink-0 place-items-center rounded-full transition-colors", size === "md" ? "size-[52px]" : "size-11", fill)}
       >

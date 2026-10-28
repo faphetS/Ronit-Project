@@ -14,7 +14,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5180. Any email and password signs in.
+Open http://localhost:5180. Any email and password signs in. The switch on the sign-in screen and in the top bar flips the app between Hebrew and English.
 
 | Script | What it does |
 |---|---|
@@ -34,7 +34,7 @@ In development, add `?mock-error=leads,customers` to the address to see those se
 
 ## How it is built
 
-- `src/content/`: all Hebrew UI copy. Components contain no Hebrew strings.
+- `src/content/`: all UI copy, Hebrew in `*.he.ts` and English in `*.en.ts` (same shape, checked by TypeScript). Components read it with `useCopy()` and hold no copy of their own.
 - `src/styles/theme.css`: design tokens and the surface, orb and scene utilities, from the canvas theme.
 - `src/ui/`: components. `src/motion/`: springs and transitions.
 - `src/data/`: `services.ts` is the contract with the backend, `mock/` implements it, and screens read data through the hooks in `queries.ts`.
@@ -42,7 +42,7 @@ In development, add `?mock-error=leads,customers` to the address to see those se
 
 Conventions:
 
-- RTL: use only logical utilities.
+- Direction: use only logical utilities. Hebrew runs right to left and English left to right; motion that moves sideways reads `useDirection()`.
 - Motion: springs only from `src/motion/springs.ts`.
 - Colors: only theme tokens.
 - Numbers: phone and passport numbers go inside `<Ltr>`.

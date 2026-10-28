@@ -21,18 +21,28 @@ export const cardVariants: Variants = {
   enter: { opacity: 1, y: 0, scale: 1, transition: springs.surface },
 };
 
-/** Phone screens: fade between tabs; push and pop detail screens (RTL: forward enters from the left). */
+/** A phone screen transition, plus the reading direction that decides which side "forward" comes from. */
+export interface ScreenMotion extends ScreenTransition {
+  rtl: boolean;
+}
+
+/**
+ * Phone screens: fade between tabs; push and pop detail screens. A pushed screen comes in from
+ * the end side: from the left in Hebrew, from the right in English.
+ */
 export const screenVariants: Variants = {
-  initial: ({ kind, direction }: ScreenTransition) => {
+  initial: ({ kind, direction, rtl }: ScreenMotion) => {
     if (kind === "fade") return { opacity: 0, y: 12 };
-    return direction === "forward" ? { x: "-100%", opacity: 1 } : { x: "30%", opacity: 0.6 };
+    const side = rtl ? -1 : 1;
+    return direction === "forward" ? { x: `${100 * side}%`, opacity: 1 } : { x: `${-30 * side}%`, opacity: 0.6 };
   },
-  enter: ({ kind }: ScreenTransition) =>
+  enter: ({ kind }: ScreenMotion) =>
     kind === "fade" ? { opacity: 1, y: 0, transition: springs.surface } : { x: 0, opacity: 1, transition: springs.surface },
-  exit: ({ kind, direction }: ScreenTransition) => {
+  exit: ({ kind, direction, rtl }: ScreenMotion) => {
     if (kind === "fade") return { opacity: 0, transition: fadeOut };
+    const side = rtl ? -1 : 1;
     return direction === "forward"
-      ? { x: "30%", opacity: 0.6, transition: springs.surface }
-      : { x: "-100%", opacity: 1, transition: springs.surface };
+      ? { x: `${-30 * side}%`, opacity: 0.6, transition: springs.surface }
+      : { x: `${100 * side}%`, opacity: 1, transition: springs.surface };
   },
 };

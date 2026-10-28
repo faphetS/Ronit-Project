@@ -1,8 +1,7 @@
 import { motion } from "motion/react";
 import { useLocation, useNavigate } from "react-router";
 import logoUrl from "../../assets/logo.png";
-import { common } from "../../content/common.he";
-import { nav } from "../../content/nav.he";
+import { useCopy } from "../../content/locale";
 import { useSession, useSignOut } from "../../data/queries";
 import { cx } from "../../lib/cx";
 import { PRESS_SCALE, springs } from "../../motion/springs";
@@ -41,6 +40,7 @@ function RailLink({ to, icon, label, badge, showActive = false }: RailLinkProps)
 
 /** Glass rail on the right: the logo, tools, and Ronit's avatar to sign out. */
 export function Rail({ passportsToday }: { passportsToday: number }) {
+  const { common, nav } = useCopy();
   const session = useSession();
   const signOut = useSignOut();
   const navigate = useNavigate();

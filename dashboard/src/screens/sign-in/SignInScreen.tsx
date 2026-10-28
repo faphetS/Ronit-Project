@@ -3,14 +3,14 @@ import { useState, type FormEvent } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { useShell } from "../../app/useShell";
 import logoUrl from "../../assets/logo.png";
-import { common } from "../../content/common.he";
-import { signIn as copy } from "../../content/signIn.he";
+import { useCopy } from "../../content/locale";
 import { useSignIn } from "../../data/queries";
 import { today } from "../../lib/clock";
 import { staggerVariants } from "../../motion/variants";
 import { Field } from "../../ui/Field";
 import { GooButton } from "../../ui/GooButton";
 import { Headline } from "../../ui/Headline";
+import { LanguageSwitch } from "../../ui/LanguageSwitch";
 import { Scene } from "../../ui/Scene";
 import { Surface } from "../../ui/Surface";
 import { TodayCard } from "../shared/TodayCard";
@@ -19,6 +19,7 @@ type Notice = "forgot" | "help" | null;
 
 /** Sign in, composed like the reference: the frosted card, the black card and the tall orb card. */
 export function SignInScreen() {
+  const { common, signIn: copy } = useCopy();
   const phone = useShell() === "phone";
   const navigate = useNavigate();
   const location = useLocation();
@@ -40,6 +41,7 @@ export function SignInScreen() {
   return (
     <div className="relative min-h-dvh overflow-x-hidden">
       <Scene preset={phone ? "phone" : "login"} />
+      <LanguageSwitch className="absolute end-4 top-4 z-10 lg:end-6 lg:top-6" />
       <motion.main
         initial="initial"
         animate="enter"
