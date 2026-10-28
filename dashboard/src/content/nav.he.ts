@@ -25,6 +25,7 @@ export const nav = {
   settings: "הגדרות",
   search: "חיפוש מהיר",
   notifications: (count: number) => `התראות, ${count} חדשות`,
+  withNew: (label: string, count: number) => `${label}, ${count} חדשים`,
   signOut: (name: string) => `${name}, יציאה מהמערכת`,
   account: (name: string) => `${name}, חשבון וניהול`,
   back: "חזרה",

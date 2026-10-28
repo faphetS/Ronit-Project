@@ -102,16 +102,16 @@ One route tree serves both shells. `useShell()` returns `desktop` from 1024px wi
 
 **DesktopShell**
 
-- **Rail (glass, on the right):**
+- **Rail (glass, on the right in Hebrew and on the left in English):**
   - The logo.
+  - The six sections as icons: סקירה, לידים (with the new-leads count), לקוחות ודרכונים, קבוצות וטיסות, ברכות לחגים, ימי הולדת. Their names appear beside the rail on hover.
   - WhatsApp passports, with a count badge, linking to `/customers?filter=whatsapp`.
   - Monday import.
   - Message history, linking to the history on `/greetings/holidays`.
-  - Users and settings.
+  - Users and permissions.
   - Ronit's avatar, which signs out.
 - **Top bar:**
-  - A glass pill menu: סקירה, לידים (with the new-leads count), לקוחות ודרכונים, קבוצות וטיסות, ברכות לחגים, ימי הולדת.
-  - A search field and a notifications button on the left.
+  - The search field at the start; the language switch and notifications at the end.
 - **Scrolling:** the rail and top bar stay fixed and only the content area scrolls.
 
 **PhoneShell**
@@ -222,7 +222,7 @@ Every component has typed props, an accessible name and correct RTL behavior.
 | `Switch` | Settings toggles |
 | `ChatPreview` | WhatsApp-style message preview |
 | `Toast`, `Skeleton`, `EmptyState`, `ErrorState` | Feedback and states |
-| `RailNav`, `PillNav`, `TabBar`, `PushStack` | Navigation |
+| `Rail`, `TabBar`, `LiquidDrop`, `StackOutlet` | Navigation |
 
 ## 8. Motion
 
@@ -239,13 +239,15 @@ Motion is a first-class requirement: it should feel like macOS.
 
 | Name | Settings | Used for |
 |---|---|---|
-| `ui` | `{ type: "spring", visualDuration: 0.25, bounce: 0.15 }` | Menu pill, tab highlight, segmented control, presses |
+| `ui` | `{ type: "spring", visualDuration: 0.25, bounce: 0.15 }` | Segmented control, presses, showing and hiding |
 | `surface` | `{ type: "spring", visualDuration: 0.4, bounce: 0.1 }` | Pages, cards, panels, sheets |
 | `gentle` | `{ type: "spring", visualDuration: 0.6, bounce: 0 }` | Charts, meters, number count-ups |
+| `liquidLead`, `liquidTrail` | `visualDuration` 0.3 and 0.5, `bounce` 0.3 and 0.2 | The navigation drop: the edge in front leads, the edge behind follows |
 
 **Choreography**
 
-- **Shared highlights:** the top-menu pill, the tab-bar highlight, the segmented controls and the selected filter chip move between items through `layoutId`.
+- **Liquid navigation:** the rail's and the tab bar's ink drop flows to the current item on two springs. The edge in front leads and the edge behind follows, so the drop stretches on the way, thins a little and settles with a wobble. On the rail a bead of water follows the pointer. Under Reduce Motion both move without travel.
+- **Shared highlights:** the segmented controls and the selected filter chip move between items through `layoutId`.
 - **Which transition:** switching between top-level sections (menu items, tabs) uses the page change. Opening a lead, a customer, the account or the import on a phone uses the push.
 - **Page change:**
   - Pages are wrapped in `AnimatePresence`, keyed by route.

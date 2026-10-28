@@ -27,7 +27,7 @@ describe("DesktopShell", () => {
 
   it("shows this week's new leads in the menu and today's passports on the rail", async () => {
     renderApp(routes, { services: await signedInServices() });
-    expect(await screen.findByRole("link", { name: "לידים 14" })).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "לידים, 14 חדשים" })).toBeInTheDocument();
     expect(await screen.findByRole("link", { name: "דרכונים מוואטסאפ, 3 חדשים" })).toHaveAttribute("href", "/customers?filter=whatsapp");
     expect(await screen.findByRole("button", { name: "התראות, 2 חדשות" })).toBeInTheDocument();
   });

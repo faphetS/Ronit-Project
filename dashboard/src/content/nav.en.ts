@@ -27,6 +27,7 @@ export const nav: Widen<typeof he> = {
   settings: "Settings",
   search: "Quick search",
   notifications: (count) => `Notifications, ${count} new`,
+  withNew: (label, count) => `${label}, ${count} new`,
   signOut: (name) => `${name}, sign out`,
   account: (name) => `${name}, account and settings`,
   back: "Back",

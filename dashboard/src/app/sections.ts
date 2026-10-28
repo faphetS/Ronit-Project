@@ -2,14 +2,26 @@ import type { IconName } from "../ui/icons";
 
 export type DesktopNavKey = "overview" | "leads" | "customers" | "groups" | "holidays" | "birthdays";
 
-export const DESKTOP_NAV: Array<{ key: DesktopNavKey; to: string; end?: boolean }> = [
-  { key: "overview", to: "/", end: true },
-  { key: "leads", to: "/leads" },
-  { key: "customers", to: "/customers" },
-  { key: "groups", to: "/groups" },
-  { key: "holidays", to: "/greetings/holidays" },
-  { key: "birthdays", to: "/greetings/birthdays" },
+export const DESKTOP_NAV: Array<{ key: DesktopNavKey; to: string; end?: boolean; icon: IconName }> = [
+  { key: "overview", to: "/", end: true, icon: "home" },
+  { key: "leads", to: "/leads", icon: "leads" },
+  { key: "customers", to: "/customers", icon: "customers" },
+  { key: "groups", to: "/groups", icon: "groups" },
+  { key: "holidays", to: "/greetings/holidays", icon: "greetings" },
+  { key: "birthdays", to: "/greetings/birthdays", icon: "cake" },
 ];
+
+export type RailToolKey = "whatsapp" | "import" | "history" | "users";
+export type RailKey = DesktopNavKey | RailToolKey;
+
+/** The rail item to mark: the section that owns the path, or the import and users tools on their own pages. */
+export function railKeyFor(pathname: string): RailKey | null {
+  const section = DESKTOP_NAV.find((item) => (item.end ? pathname === item.to : pathname === item.to || pathname.startsWith(`${item.to}/`)));
+  if (section) return section.key;
+  if (pathname === "/import") return "import";
+  if (pathname === "/users") return "users";
+  return null;
+}
 
 export type PhoneTabKey = "home" | "leads" | "customers" | "groups" | "greetings";
 
