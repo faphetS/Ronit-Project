@@ -445,7 +445,7 @@ These are approving a greeting, sending a test and closing Monday. Each opens a 
 ## 12. Accessibility, RTL and copy
 
 **Document**
-- `<html lang="he" dir="rtl">` and `<meta name="google" content="notranslate">`.
+- `<html lang="he" dir="rtl">` by default (English switches both, see **English** below) and `<meta name="google" content="notranslate">`.
 - Logical CSS only.
 - Phone numbers, passport numbers and other LTR runs go in `<bdi dir="ltr">`.
 
@@ -466,6 +466,12 @@ These are approving a greeting, sending a test and closing Monday. Each opens a 
 - Customers and staff get gender-neutral wording, such as "גיל 45" and "בקשה לפרטים".
 
 **Dates:** Hebrew dates come from `Intl.DateTimeFormat` with the Hebrew calendar and Hebrew numerals. A unit test pins the exact string that ICU produces for 2026-10-28, which is 17 Cheshvan 5787, written in Hebrew letters (י״ז בחשוון תשפ״ז, in whatever spelling ICU uses).
+
+**English**
+- A switch on the sign-in screen and in the top bar (desktop and phone) flips the app between Hebrew and English. Hebrew is the default, and each device remembers the choice.
+- English sets `<html lang="en" dir="ltr">`. Logical CSS mirrors the layout. The forward and back arrows, the push and pop slide, and the action button's hover lean follow the direction.
+- Every `src/content/*.he.ts` file has a `*.en.ts` twin of the same shape, checked by TypeScript. Components read copy with `useCopy()`. Data, such as customer names, shows as stored.
+- English dates: the short weekday ("Wed"), day before month ("28/10"), the Hebrew date from ICU ("17 Heshvan 5787"), and holiday names in English ("Hanukkah in 37 days").
 
 ## 13. Testing
 
