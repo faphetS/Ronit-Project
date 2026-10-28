@@ -1,0 +1,195 @@
+@import "tailwindcss";
+
+/*
+ * Or HaTzadik design tokens, ported from design/canvas/assets/or-theme.css.
+ * Components use them through Tailwind utilities (bg-ink, text-mute, rounded-card...).
+ */
+@theme {
+  --font-sans: "Rubik Variable", system-ui, sans-serif;
+
+  --color-ink: #1c1a18;
+  --color-ink-text: #ece6df;
+  --color-ink-soft: #a39b93;
+  --color-ink-mute: #b9b1a9;
+  --color-copy: #36312d;
+  --color-mute: #635b55;
+  --color-mute-2: #4f4843;
+  --color-faint: #7d756e;
+  --color-line: #efe9e2;
+  --color-paper: #ffffff;
+  --color-cream: #f7f3ee;
+  --color-sand: #f3ede6;
+  --color-sand-light: #f6f2ed;
+  --color-gold: #e0ab57;
+
+  --color-status-new: #d39c43;
+  --color-status-talking: #b46c46;
+  --color-status-sent: #8a7867;
+  --color-status-registered: #5b8753;
+  --color-status-irrelevant: #c2b9b0;
+  --color-status-warning: #bd4b2e;
+
+  --text-display: 60px;
+  --text-display--line-height: 1;
+  --text-display-2: 42px;
+  --text-display-2--line-height: 1.05;
+  --text-display-3: 30px;
+  --text-display-3--line-height: 1.1;
+  --text-title: 17px;
+  --text-title--line-height: 1.3;
+  --text-body: 15px;
+  --text-body--line-height: 1.5;
+  --text-small: 13.5px;
+  --text-small--line-height: 1.45;
+  --text-caption: 12.5px;
+  --text-caption--line-height: 1.4;
+
+  --radius-card: 30px;
+  --radius-card-phone: 26px;
+  --radius-inner: 22px;
+
+  --shadow-card: 0 1px 2px rgb(74 52 34 / 0.04), 0 34px 70px -46px rgb(74 52 34 / 0.4);
+  --shadow-card-hover: 0 1px 2px rgb(74 52 34 / 0.05), 0 40px 80px -44px rgb(74 52 34 / 0.5);
+  --shadow-ink: 0 34px 70px -40px rgb(28 26 24 / 0.6);
+  --shadow-float: 0 24px 50px -24px rgb(74 52 34 / 0.5);
+  --shadow-button: 0 8px 20px -14px rgb(74 52 34 / 0.55);
+  --shadow-knob: 0 2px 6px rgb(0 0 0 / 0.22);
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+  body {
+    margin: 0;
+    min-height: 100dvh;
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    line-height: 1.5;
+    color: var(--color-copy);
+    background:
+      radial-gradient(90% 60% at 92% 0%, #f8f4ef 0%, rgb(248 244 239 / 0) 70%),
+      linear-gradient(170deg, #f3eee8 0%, #ece4db 55%, #e3d9ce 100%);
+    background-attachment: fixed;
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-ink);
+    outline-offset: 3px;
+  }
+}
+
+/* The three surfaces. Glass turns solid under Reduce Transparency. */
+@utility surface-glass {
+  position: relative;
+  background-color: rgb(251 248 244 / 0.5);
+  border: 1px solid rgb(255 255 255 / 0.75);
+  -webkit-backdrop-filter: blur(28px) saturate(1.3);
+  backdrop-filter: blur(28px) saturate(1.3);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.85), 0 34px 70px -48px rgb(74 52 34 / 0.45);
+  @media (prefers-reduced-transparency: reduce) {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background-color: var(--color-sand-light);
+  }
+}
+
+@utility surface-card {
+  position: relative;
+  background-color: var(--color-paper);
+  box-shadow: var(--shadow-card);
+}
+
+@utility surface-ink {
+  position: relative;
+  overflow: hidden;
+  color: var(--color-ink-text);
+  background:
+    radial-gradient(320px 300px at 0% 100%, rgb(224 171 87 / 0.28), rgb(224 171 87 / 0) 70%),
+    var(--color-ink);
+  box-shadow: var(--shadow-ink);
+}
+
+/* The frosted strip that sits over the gold orb. */
+@utility frost {
+  background-color: rgb(245 240 234 / 0.5);
+  border: 1px solid rgb(255 255 255 / 0.65);
+  -webkit-backdrop-filter: blur(30px) saturate(1.35);
+  backdrop-filter: blur(30px) saturate(1.35);
+  @media (prefers-reduced-transparency: reduce) {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background-color: var(--color-sand-light);
+  }
+}
+
+/* The gold light, taken from the flame in the logo. */
+@utility orb {
+  border-radius: 9999px;
+  background: radial-gradient(circle at 34% 28%, #fdf0cc 0%, #f4d18a 20%, #e3ad59 50%, #c98f40 78%, #ad7832 100%);
+  box-shadow: 0 0 60px rgb(227 173 89 / 0.25);
+}
+
+@utility avatar-gold {
+  background: radial-gradient(circle at 34% 28%, #fdf0cc, #e8b968 55%, #c18a3e);
+  color: var(--color-ink);
+}
+
+/* The bridge that joins the pill and the circle of a GooButton. Put it on the circle. */
+@utility goo-neck {
+  position: relative;
+  &::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    inset-inline-start: -14px;
+    width: 20px;
+    height: 30px;
+    margin-top: -15px;
+    background: inherit;
+    -webkit-mask:
+      radial-gradient(circle 12px at 50% -5px, #0000 96%, #000) top / 100% 50% no-repeat,
+      radial-gradient(circle 12px at 50% calc(100% + 5px), #0000 96%, #000) bottom / 100% 50% no-repeat;
+    mask:
+      radial-gradient(circle 12px at 50% -5px, #0000 96%, #000) top / 100% 50% no-repeat,
+      radial-gradient(circle 12px at 50% calc(100% + 5px), #0000 96%, #000) bottom / 100% 50% no-repeat;
+  }
+}
+
+/* Background scene pieces. */
+@utility scene-glow {
+  border-radius: 9999px;
+  background: radial-gradient(closest-side, rgb(232 176 92 / 0.42), rgb(232 176 92 / 0.12) 58%, rgb(232 176 92 / 0));
+}
+
+@utility scene-dome {
+  border-radius: 9999px;
+  border: 1px solid rgb(255 255 255 / 0.6);
+  background:
+    radial-gradient(circle at 30% 22%, rgb(255 255 255 / 0.9) 0, rgb(255 255 255 / 0.28) 9%, rgb(255 255 255 / 0) 26%),
+    radial-gradient(circle at 72% 80%, rgb(255 255 255 / 0.45) 0, rgb(255 255 255 / 0) 18%),
+    radial-gradient(closest-side, rgb(255 255 255 / 0) 80%, rgb(255 255 255 / 0.26) 93%, rgb(255 255 255 / 0.62) 99%, rgb(255 255 255 / 0) 100%),
+    radial-gradient(circle at 50% 85%, rgb(150 118 92 / 0.1), rgb(150 118 92 / 0) 60%);
+  box-shadow: inset 0 -50px 90px rgb(255 255 255 / 0.2), 0 70px 120px -70px rgb(74 52 34 / 0.3);
+}
+
+@utility scene-pearl {
+  border-radius: 9999px;
+  background:
+    radial-gradient(70% 42% at 50% 100%, rgb(236 158 70 / 0.55), rgb(236 158 70 / 0) 72%),
+    radial-gradient(circle at 34% 26%, #fff 0, #fbf8f4 15%, #ece4db 45%, #d7cabd 74%, #c3b3a4 100%);
+  box-shadow: 0 70px 90px -60px rgb(74 52 34 / 0.55);
+}
+
+@utility scene-pebble {
+  border-radius: 56% 44% 52% 48% / 62% 58% 42% 38%;
+  background: radial-gradient(circle at 32% 24%, #fdfbf8 0, #efe8e0 40%, #d9cdc0 80%, #c7b9aa 100%);
+  box-shadow: 0 34px 44px -28px rgb(74 52 34 / 0.5);
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
