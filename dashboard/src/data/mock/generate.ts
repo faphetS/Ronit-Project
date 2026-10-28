@@ -1,7 +1,11 @@
 import { addDays, dayAt, daysBetween, isoDay, today as demoToday, weekStart } from "../../lib/clock";
 import { EXPIRING_WITHIN_DAYS, isOpenLead } from "../rules";
 import type { Customer, Database, Lead, LeadSource, LeadStatus, Passport } from "../types";
-import { ACTIVITY, CUSTOMERS, GROUP_REGISTRATIONS, GROUPS, INTAKES, LEADS, USERS } from "./fixtures";
+import { ACTIVITY, CUSTOMERS, GROUP_REGISTRATIONS, GROUPS, INTAKES, LEADS, MONDAY_BOARD_FOR_GROUP, PARTICIPANT_NOTES, USERS } from "./fixtures";
+import { AUDIENCES, BIRTHDAY_SETTINGS, CAMPAIGNS, MESSAGES } from "./fixtures-greetings";
+import { IMPORT_RUN, MONDAY_BOARDS } from "./fixtures-import";
+import { AUDIT, INVITES, PERMISSIONS, SECURITY } from "./fixtures-users";
+import { generateMessages } from "./generateMessages";
 import { FIRST_NAMES, LAST_NAMES } from "./names";
 import { createRng, type Rng } from "./rng";
 
@@ -17,12 +21,18 @@ export const TARGETS = {
   customers: 412,
   missingPassports: 23,
   expiringPassports: 5,
+  /** "ברכות נשלחו השנה" on the Birthdays board. */
+  birthdaysSentThisYear: 186,
 } as const;
 
 const SOURCES: LeadSource[] = ["landing-page", "instagram", "facebook", "whatsapp", "referral"];
 const ASSIGNEES = ["u-ronit", "u-shira", "u-moran", null] as const;
 const OLD_NOTES = ["נרשמה לטיול", "לא רלוונטי כרגע", "ביקשה לחזור בשנה הבאה", "הגיעה מהמלצה", "השתתפה באירוע"];
 const HISTORY_START = "2024-01-01";
+/** Generated leads created today come in before the design's first lead of the day (שירן כץ, 09:12), so the newest leads are the design's. */
+const LATEST_HOUR_TODAY = 8;
+/** The design lists exactly whose birthday falls from 21.10 to 04.11, so generated people have theirs half a year away. */
+const DESIGN_BIRTHDAYS = { from: "10-21", to: "11-04" } as const;
 
 const pad = (value: number) => String(value).padStart(2, "0");
 
@@ -57,18 +67,18 @@ function generateLeads(rng: Rng, day: Date): Lead[] {
       updatedAt: createdAt,
       lastNote: note,
       archived,
-      history: [{ id: `l-gen-${serial}-e1`, at: createdAt, text: note, byUserId: null }],
+      history: [{ id: `l-gen-${serial}-e1`, at: createdAt, text: note, byUserId: null, mondayBoard: null }],
     });
     serial += 1;
   };
 
-  // This week: top up to 6 new, 5 talking and 3 registered, never later than today 14:59.
+  // This week: top up to 6 new, 5 talking and 3 registered; today's never later than 08:59.
   const daysSoFar = daysBetween(thisWeek, day);
   for (const status of ["new", "talking", "registered"] as const) {
     const have = leads.filter((l) => weekOf(l.createdAt) === weeks - 1 && l.status === status).length;
     for (let i = have; i < TARGETS.thisWeekByStatus[status]; i += 1) {
       const offset = rng.int(0, daysSoFar);
-      add(momentOn(rng, addDays(thisWeek, offset), offset === daysSoFar ? 14 : 20), status, false);
+      add(momentOn(rng, addDays(thisWeek, offset), offset === daysSoFar ? LATEST_HOUR_TODAY : 20), status, false);
     }
   }
 
@@ -109,6 +119,13 @@ function makePassport(rng: Rng, expiry: Date, receivedAt: string): Passport {
   };
 }
 
+/** Moves a generated birth date out of the design's birthday window, six months back. No random numbers, so the rest stays the same. */
+function clearOfDesignBirthdays(passport: Passport): void {
+  const monthDay = passport.birthDate.slice(5);
+  if (monthDay < DESIGN_BIRTHDAYS.from || monthDay > DESIGN_BIRTHDAYS.to) return;
+  passport.birthDate = `${passport.birthDate.slice(0, 5)}${pad(Number(monthDay.slice(0, 2)) - 6)}${passport.birthDate.slice(7)}`;
+}
+
 function generateCustomers(rng: Rng, day: Date): Customer[] {
   const customers: Customer[] = [...CUSTOMERS];
   let serial = 0;
@@ -129,6 +146,8 @@ function generateCustomers(rng: Rng, day: Date): Customer[] {
       updatedAt: since,
       passport: passport === "missing" ? null : makePassport(rng, expiry, since),
       notes: [],
+      leadId: null,
+      mondayBoard: groupIds.length > 0 ? MONDAY_BOARD_FOR_GROUP[groupIds[0]] : MONDAY_BOARDS.crm,
     });
     serial += 1;
   };
@@ -143,6 +162,9 @@ function generateCustomers(rng: Rng, day: Date): Customer[] {
   while (missing() < TARGETS.missingPassports) add([], "missing");
   while (expiring() < TARGETS.expiringPassports) add([], "expiring");
   while (customers.length < TARGETS.customers) add([], "valid");
+  for (const customer of customers.slice(CUSTOMERS.length)) {
+    if (customer.passport) clearOfDesignBirthdays(customer.passport);
+  }
   return customers;
 }
 
@@ -154,12 +176,34 @@ export interface GenerateOptions {
 /** The demo database: the design's records plus seeded volume. Same seed, same data. */
 export function createDatabase({ seed = 5787, today = demoToday() }: GenerateOptions = {}): Database {
   const rng = createRng(seed);
+  const leads = generateLeads(rng, today);
+  const customers = generateCustomers(rng, today);
+  // Messages draw from their own sequence, so leads and customers do not depend on them.
+  const messages = generateMessages(createRng(seed + 1), {
+    customers,
+    campaigns: CAMPAIGNS,
+    audiences: AUDIENCES,
+    settings: BIRTHDAY_SETTINGS,
+    handWritten: MESSAGES,
+    today,
+    birthdaysSentThisYear: TARGETS.birthdaysSentThisYear,
+  });
   return {
     users: USERS,
-    leads: generateLeads(rng, today),
-    customers: generateCustomers(rng, today),
+    invites: INVITES,
+    leads,
+    customers,
     intakes: INTAKES,
     groups: GROUPS,
+    participantNotes: PARTICIPANT_NOTES,
     activity: ACTIVITY,
+    campaigns: CAMPAIGNS,
+    audiences: AUDIENCES,
+    messages: [...MESSAGES, ...messages],
+    birthdaySettings: BIRTHDAY_SETTINGS,
+    permissions: PERMISSIONS,
+    security: SECURITY,
+    audit: AUDIT,
+    importRun: IMPORT_RUN,
   };
 }

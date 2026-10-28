@@ -1,17 +1,16 @@
 import { leadsCopy } from "../../content/leads.he";
 import { addDays, daysBetween, isoDay, now as demoNow, weekStart } from "../../lib/clock";
-import { EXPIRING_WITHIN_DAYS, isOpenLead } from "../rules";
-import {
-  NotFoundError,
-  ServiceUnavailableError,
-  type CustomerQuery,
-  type LeadCounts,
-  type LeadFilters,
-  type ServiceName,
-  type Services,
-} from "../services";
-import type { Customer, Database, Group, GroupSummary, Lead, LeadStatus, OverviewStats, Session, StaffUser } from "../types";
+import { isOpenLead } from "../rules";
+import { NotFoundError, ServiceUnavailableError, type LeadCounts, type LeadFilters, type ServiceName, type Services } from "../services";
+import type { AuditEntry, Database, Lead, LeadStatus, OverviewStats, Session, StaffUser } from "../types";
+import { createBirthdaysMock } from "./birthdaysMock";
+import type { AuditInput, MockContext } from "./context";
+import { createCustomersMock } from "./customersMock";
 import { createDatabase } from "./generate";
+import { createGreetingsMock } from "./greetingsMock";
+import { createGroupsMock } from "./groupsMock";
+import { createImportsMock } from "./importsMock";
+import { createUsersMock } from "./usersMock";
 
 export interface MockOptions {
   /** Starting data. Defaults to the seeded demo database. The mock always works on its own copy. */
@@ -27,8 +26,10 @@ export interface MockOptions {
 }
 
 const SESSION_KEY = "or-hatzadik.session";
-const SERVICE_NAMES: ServiceName[] = ["session", "leads", "customers", "groups", "overview"];
+const SERVICE_NAMES: ServiceName[] = ["session", "leads", "customers", "groups", "overview", "greetings", "birthdays", "users", "imports"];
 const WEEKS_SHOWN = 8;
+/** Every sign-in in the mock is Ronit's. */
+const DEMO_USER_ID = "u-ronit";
 
 /** Reads "min,max" from VITE_MOCK_LATENCY. Defaults to 250 to 600 ms. */
 export function latencyFromEnv(value = import.meta.env.VITE_MOCK_LATENCY): [number, number] {
@@ -49,6 +50,7 @@ export function createMockServices(options: MockOptions = {}): Services {
   const failing = options.failing ?? new Set<ServiceName>();
   const storage = options.storage ?? window.sessionStorage;
   const clock = options.now ?? demoNow;
+  let auditSerial = 0;
 
   /** Waits like a network call, fails when asked to, and never hands out internal objects. */
   async function respond<T>(service: ServiceName, produce: () => T): Promise<T> {
@@ -63,6 +65,17 @@ export function createMockServices(options: MockOptions = {}): Services {
     return raw ? (JSON.parse(raw) as Session) : null;
   }
 
+  const actingUserId = () => readSession()?.userId ?? DEMO_USER_ID;
+
+  function logAudit<E extends AuditInput>(entry: E): AuditEntry & E {
+    auditSerial += 1;
+    const record = { id: `au-live-${auditSerial}`, at: clock().toISOString(), byUserId: actingUserId(), ...entry } as AuditEntry & E;
+    state.audit.push(record);
+    return record;
+  }
+
+  const context: MockContext = { state, respond, clock, actingUserId, logAudit };
+
   function findUser(id: string): StaffUser {
     const user = state.users.find((u) => u.id === id);
     if (!user) throw new NotFoundError("User", id);
@@ -75,16 +88,10 @@ export function createMockServices(options: MockOptions = {}): Services {
     return lead;
   }
 
-  function findCustomer(id: string): Customer {
-    const customer = state.customers.find((c) => c.id === id);
-    if (!customer) throw new NotFoundError("Customer", id);
-    return customer;
-  }
-
   function recordOnLead(lead: Lead, text: string) {
     const at = clock().toISOString();
     lead.updatedAt = at;
-    lead.history = [{ id: `${lead.id}-e${lead.history.length + 1}`, at, text, byUserId: readSession()?.userId ?? null }, ...lead.history];
+    lead.history = [{ id: `${lead.id}-e${lead.history.length + 1}`, at, text, byUserId: readSession()?.userId ?? null, mondayBoard: null }, ...lead.history];
   }
 
   function leadMatches(lead: Lead, filters: LeadFilters): boolean {
@@ -102,27 +109,6 @@ export function createMockServices(options: MockOptions = {}): Services {
     return true;
   }
 
-  function customerMatches(customer: Customer, query: CustomerQuery, reference: Date): boolean {
-    const filter = query.filter ?? "all";
-    const passport = customer.passport;
-    if (filter === "whatsapp-today" && !(passport?.receivedVia === "whatsapp" && isoDay(new Date(passport.receivedAt)) === isoDay(reference))) return false;
-    if (filter === "expiring" && !(passport !== null && daysBetween(reference, new Date(passport.expiryDate)) <= EXPIRING_WITHIN_DAYS)) return false;
-    if (filter === "missing-passport" && passport !== null) return false;
-    const term = query.search?.trim();
-    if (term) {
-      const digits = term.replace(/\D/g, "");
-      const byName = `${customer.firstName} ${customer.lastName}`.includes(term);
-      const byNumber = digits.length > 0 && (customer.phone.includes(digits) || (passport?.number.includes(digits) ?? false));
-      if (!byName && !byNumber) return false;
-    }
-    return true;
-  }
-
-  function summarize(group: Group): GroupSummary {
-    const members = state.customers.filter((c) => c.groupIds.includes(group.id));
-    return { ...group, registered: members.length, passportsReceived: members.filter((c) => c.passport !== null).length };
-  }
-
   return {
     session: {
       async current() {
@@ -135,7 +121,7 @@ export function createMockServices(options: MockOptions = {}): Services {
       signIn: (email, password) =>
         respond("session", () => {
           if (!email.trim() || !password) throw new Error("missing-credentials");
-          const session: Session = { userId: "u-ronit", signedInAt: clock().toISOString() };
+          const session: Session = { userId: DEMO_USER_ID, signedInAt: clock().toISOString() };
           storage.setItem(SESSION_KEY, JSON.stringify(session));
           return { session, user: findUser(session.userId) };
         }),
@@ -183,30 +169,8 @@ export function createMockServices(options: MockOptions = {}): Services {
         }),
     },
 
-    customers: {
-      list: (query = {}) =>
-        respond("customers", () => {
-          const page = query.page ?? 1;
-          const pageSize = query.pageSize ?? 25;
-          const reference = clock();
-          const matches = state.customers
-            .filter((customer) => customerMatches(customer, query, reference))
-            .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-          return { items: matches.slice((page - 1) * pageSize, page * pageSize), total: matches.length, page, pageSize };
-        }),
-      get: (id) => respond("customers", () => findCustomer(id)),
-      intakes: () => respond("customers", () => [...state.intakes].sort((a, b) => b.receivedAt.localeCompare(a.receivedAt))),
-    },
-
-    groups: {
-      list: () => respond("groups", () => state.groups.map(summarize)),
-      get: (id) =>
-        respond("groups", () => {
-          const group = state.groups.find((g) => g.id === id);
-          if (!group) throw new NotFoundError("Group", id);
-          return summarize(group);
-        }),
-    },
+    customers: createCustomersMock(context),
+    groups: createGroupsMock(context),
 
     overview: {
       stats: () =>
@@ -237,5 +201,10 @@ export function createMockServices(options: MockOptions = {}): Services {
         }),
       activity: () => respond("overview", () => [...state.activity].sort((a, b) => b.at.localeCompare(a.at))),
     },
+
+    greetings: createGreetingsMock(context),
+    birthdays: createBirthdaysMock(context),
+    users: createUsersMock(context),
+    imports: createImportsMock(context),
   };
 }
