@@ -15,9 +15,9 @@ import { Scene } from "../../ui/Scene";
 import { Surface } from "../../ui/Surface";
 import { TodayCard } from "../shared/TodayCard";
 
-type Notice = "help" | null;
+type Notice = "forgot" | "help" | null;
 
-// The demo has no password: the button signs in as Ronit, with or without an email.
+// The demo takes any email and password, or none: the button alone signs in as Ronit.
 const DEMO_EMAIL = "ronit@orhazadik.online";
 const DEMO_PASSWORD = "demo";
 
@@ -33,11 +33,13 @@ export function SignInScreen() {
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const email = String(new FormData(event.currentTarget).get("email") ?? "").trim() || DEMO_EMAIL;
-    signInMutation.mutate({ email, password: DEMO_PASSWORD }, { onSuccess: () => navigate(returnTo, { replace: true }) });
+    const form = new FormData(event.currentTarget);
+    const email = String(form.get("email") ?? "").trim() || DEMO_EMAIL;
+    const password = String(form.get("password") ?? "") || DEMO_PASSWORD;
+    signInMutation.mutate({ email, password }, { onSuccess: () => navigate(returnTo, { replace: true }) });
   };
 
-  const message = signInMutation.isError ? copy.failed : notice === "help" ? copy.helpNotice : "";
+  const message = signInMutation.isError ? copy.failed : notice === "forgot" ? copy.forgotNotice : notice === "help" ? copy.helpNotice : "";
 
   return (
     <div className="relative min-h-dvh overflow-x-hidden">
@@ -61,6 +63,18 @@ export function SignInScreen() {
             <Headline title={copy.title} size="display-3" className="mt-5 mb-4" />
             <form onSubmit={submit} noValidate className="flex flex-col gap-4">
               <Field label={copy.email} icon="at" name="email" type="email" autoComplete="username" />
+              <Field
+                label={copy.password}
+                icon="key"
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                trailing={
+                  <button type="button" onClick={() => setNotice("forgot")} className="inline-flex h-[42px] items-center rounded-full bg-paper px-4 text-small font-medium text-ink">
+                    {copy.forgot}
+                  </button>
+                }
+              />
               <div className="flex items-center justify-between gap-4">
                 <label className="flex items-center gap-2.5 px-2 text-small text-mute-2">
                   <input type="checkbox" name="remember" defaultChecked className="size-[18px] accent-ink" />
