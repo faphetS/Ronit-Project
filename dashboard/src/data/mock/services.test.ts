@@ -84,7 +84,7 @@ describe("mock services", () => {
 
   it("reads the delay and the failing services from config", () => {
     expect(latencyFromEnv("10,20")).toEqual([10, 20]);
-    expect(latencyFromEnv("oops")).toEqual([250, 600]);
+    expect(latencyFromEnv("oops")).toEqual([120, 300]);
     expect([...failingFromSearch("?mock-error=leads,bogus")]).toEqual(["leads"]);
   });
 });

@@ -158,7 +158,7 @@ export function LiquidPanel<K extends string>({ panel, items, target }: LiquidPa
   }, [panel, items, rtl, start, end, top, bottom, bulbX, bulbTop, bulbBottom]);
 
   return (
-    <svg ref={frame} aria-hidden="true" className="pointer-events-none absolute inset-0 z-0 size-full rtl:-scale-x-100">
+    <svg ref={frame} aria-hidden="true" className="pointer-events-none absolute inset-0 z-0 size-full will-change-transform rtl:-scale-x-100">
       <motion.path d={d} className="liquid-panel" />
     </svg>
   );

@@ -92,6 +92,11 @@
     backdrop-filter: none;
     background-color: var(--color-sand-light);
   }
+  /* On a solid ground (the desktop panel) there is nothing to blur, and the blur costs every frame of a page change. */
+  &:where(.solid-ground *) {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 
 @utility surface-card {

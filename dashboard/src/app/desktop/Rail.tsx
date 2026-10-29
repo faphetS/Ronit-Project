@@ -11,6 +11,7 @@ import { Avatar } from "../../ui/Avatar";
 import { Icon } from "../../ui/Icon";
 import type { IconName } from "../../ui/icons";
 import { MotionLink } from "../../ui/MotionLink";
+import { usePrefetchSection } from "../prefetch";
 import { DESKTOP_NAV, type RailKey } from "../sections";
 
 interface RailItemProps {
@@ -69,6 +70,7 @@ export function Rail({ items, active, newLeads }: RailProps) {
   const signOut = useSignOut();
   const navigate = useNavigate();
   const [hover, setHover] = useState<{ key: RailKey; on: boolean } | null>(null);
+  const prefetch = usePrefetchSection();
   const user = session.data?.user;
 
   const itemProps = (key: RailKey) => ({
@@ -77,7 +79,10 @@ export function Rail({ items, active, newLeads }: RailProps) {
       if (element) items.current.set(key, element);
       else items.current.delete(key);
     },
-    onHover: () => setHover({ key, on: true }),
+    onHover: () => {
+      setHover({ key, on: true });
+      prefetch(key);
+    },
   });
 
   return (

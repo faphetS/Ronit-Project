@@ -31,10 +31,10 @@ const WEEKS_SHOWN = 8;
 /** Every sign-in in the mock is Ronit's. */
 const DEMO_USER_ID = "u-ronit";
 
-/** Reads "min,max" from VITE_MOCK_LATENCY. Defaults to 250 to 600 ms. */
+/** Reads "min,max" from VITE_MOCK_LATENCY. Defaults to 120 to 300 ms. */
 export function latencyFromEnv(value = import.meta.env.VITE_MOCK_LATENCY): [number, number] {
-  const [min, max] = (value ?? "250,600").split(",").map(Number);
-  return Number.isFinite(min) && Number.isFinite(max) ? [min, max] : [250, 600];
+  const [min, max] = (value ?? "120,300").split(",").map(Number);
+  return Number.isFinite(min) && Number.isFinite(max) ? [min, max] : [120, 300];
 }
 
 /** Reads ?mock-error=leads,customers so a screen's error state can be seen during development. */
