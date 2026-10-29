@@ -215,7 +215,7 @@ const envSchema = z.object({
   IG_MSG_UMAN_HANUKKAH_PHONE_MISSING: z
     .string()
     .min(1)
-    .default("נסיעה לר' נחמן בחנוכה שיוצאת בתאריכים 6-10/12\nתרשמי לי את מספר הטלפון שלך ואחזור בהקדם 💞"),
+    .default("היי תודה שהתעניינת בנסיעה שלנו אם תרצי לשמוע פרטים נוספים אשמח שתשאירי את מס׳ הטלפון שלך או שתיצרי איתנו קשר 050-2696862\n052-4572924"),
   IG_MSG_UMAN_HANUKKAH_PHONE_PRESENT: z
     .string()
     .min(1)

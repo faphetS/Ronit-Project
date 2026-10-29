@@ -16,10 +16,10 @@ const FORM_BASE_URL = "https://www.orhazadik.online";
 // public/ (unreferenced) so the old artwork is still recoverable.
 const FLYER_IMAGE_URLS: Record<Trip, string> = {
   kislev: "https://api.ronitbarash.site/static/uman-kislev.jpeg",
-  // v2 (2026-09-29): flight times moved (SKYUP 518/517 instead of 516/515) and
-  // the daily programme shifted with them. Dates and price are unchanged, so no
-  // copy or detectTrip change was needed. Supersedes uman-hanukkah.jpeg.
-  hanukkah: "https://api.ronitbarash.site/static/uman-hanukkah-v2.jpeg",
+  // v3 (2026-10-29): the client took the price off the flyer (same programme and
+  // times as v2) — leads now leave a phone or call for the price. Supersedes
+  // uman-hanukkah-v2.jpeg (v2 2026-09-29: flight times moved to SKYUP 518/517).
+  hanukkah: "https://api.ronitbarash.site/static/uman-hanukkah-v3.jpeg",
 };
 
 type Service = "uman" | "challah";
