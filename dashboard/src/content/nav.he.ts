@@ -29,4 +29,20 @@ export const nav = {
   signOut: (name: string) => `${name}, יציאה מהמערכת`,
   account: (name: string) => `${name}, חשבון וניהול`,
   back: "חזרה",
+  /** The panel Ronit's avatar opens. */
+  accountMenu: {
+    label: "החשבון שלי",
+    profile: "פרטים אישיים",
+    team: "משתמשים והרשאות",
+    import: "ייבוא מ-Monday",
+    language: "שפה",
+    maskPassports: "הסתרת מספרי דרכון",
+    signOut: "התנתקות",
+    name: "שם מלא",
+    email: "אימייל",
+    save: "שמירה",
+    saved: "הפרטים נשמרו",
+    saveFailed: "הפרטים לא נשמרו. כדאי לנסות שוב.",
+    nameMissing: "צריך למלא שם",
+  },
 } as const;

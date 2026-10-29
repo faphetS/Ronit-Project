@@ -21,6 +21,7 @@ import type {
   SecuritySwitch,
   Session,
   StaffUser,
+  UserAccount,
   UserDirectory,
 } from "./types";
 
@@ -139,8 +140,16 @@ export interface BirthdaysService {
   updateSettings(patch: BirthdaySettingsPatch): Promise<BirthdaySettings>;
 }
 
+/** The signed-in user's own details that they can change. */
+export interface ProfilePatch {
+  name?: string;
+  email?: string;
+}
+
 export interface UsersService {
   list(): Promise<UserDirectory>;
+  /** Changes the signed-in user's own name or email. */
+  updateProfile(patch: ProfilePatch): Promise<UserAccount>;
   permissions(): Promise<PermissionMatrix>;
   security(): Promise<SecuritySettings>;
   updateSecurity(key: SecuritySwitch, enabled: boolean): Promise<SecuritySettings>;

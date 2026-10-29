@@ -38,6 +38,8 @@ export const ICONS = {
   eye: ["M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z", { cx: 12, cy: 12, r: 3 }],
   minus: ["M7 12h10"],
   alert: [{ cx: 12, cy: 12, r: 8.5 }, "M12 7.5v5.5M12 16.2v.3"],
+  user: [{ cx: 12, cy: 8, r: 3.75 }, "M4.5 20a7.5 7.5 0 0 1 15 0"],
+  globe: [{ cx: 12, cy: 12, r: 8.5 }, "M3.5 12h17M12 3.5c2.3 2.4 3.5 5.2 3.5 8.5s-1.2 6.1-3.5 8.5c-2.3-2.4-3.5-5.2-3.5-8.5s1.2-6.1 3.5-8.5z"],
 } as const satisfies Record<string, readonly IconShape[]>;
 
 export type IconName = keyof typeof ICONS;

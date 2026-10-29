@@ -1,7 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient, type QueryKey } from "@tanstack/react-query";
 import { now } from "../lib/clock";
 import { estimateSendMinutes } from "./rules";
-import type { BirthdaySettingsPatch, CampaignPatch, CustomerQuery, LeadFilters, PassportPart, SignedIn } from "./services";
+import type { BirthdaySettingsPatch, CampaignPatch, CustomerQuery, LeadFilters, PassportPart, ProfilePatch, SignedIn } from "./services";
 import { useServices } from "./services-context";
 import type { AudienceOption, BirthdaySettings, Customer, HolidayCampaign, ImportRun, Lead, LeadStatus, SecuritySettings, SecuritySwitch } from "./types";
 
@@ -392,6 +392,19 @@ export function useUpdateSecuritySwitch() {
 }
 
 /** Sensitive actions by staff, newest first. */
+/** Saves the signed-in user's own name and email; the session and the team list pick them up. */
+export function useUpdateProfile() {
+  const { users } = useServices();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (patch: ProfilePatch) => users.updateProfile(patch),
+    onSettled: async () => {
+      await client.invalidateQueries({ queryKey: queryKeys.session });
+      await client.invalidateQueries({ queryKey: queryKeys.users });
+    },
+  });
+}
+
 export function useAuditLog() {
   const { users } = useServices();
   return useQuery({ queryKey: queryKeys.audit, queryFn: () => users.audit() });

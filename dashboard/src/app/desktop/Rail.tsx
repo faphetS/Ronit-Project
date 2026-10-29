@@ -1,17 +1,14 @@
-import { motion } from "motion/react";
 import { useState, type RefObject } from "react";
-import { useNavigate } from "react-router";
 import logoUrl from "../../assets/logo.png";
 import { useCopy } from "../../content/locale";
-import { useSession, useSignOut } from "../../data/queries";
 import { cx } from "../../lib/cx";
 import { LiquidDrop } from "../../motion/LiquidDrop";
 import { PRESS_SCALE, springs } from "../../motion/springs";
-import { Avatar } from "../../ui/Avatar";
 import { Icon } from "../../ui/Icon";
 import type { IconName } from "../../ui/icons";
 import { MotionLink } from "../../ui/MotionLink";
 import { usePrefetchSection } from "../prefetch";
+import { AccountMenu } from "./AccountMenu";
 import { DESKTOP_NAV, type RailKey } from "../sections";
 
 interface RailItemProps {
@@ -66,12 +63,8 @@ interface RailProps {
  */
 export function Rail({ items, active, newLeads }: RailProps) {
   const { common, nav } = useCopy();
-  const session = useSession();
-  const signOut = useSignOut();
-  const navigate = useNavigate();
   const [hover, setHover] = useState<{ key: RailKey; on: boolean } | null>(null);
   const prefetch = usePrefetchSection();
-  const user = session.data?.user;
 
   const itemProps = (key: RailKey) => ({
     active: key === active,
@@ -112,16 +105,7 @@ export function Rail({ items, active, newLeads }: RailProps) {
         </nav>
         <LiquidDrop axis="y" items={items} target={hover?.key ?? null} visible={hover?.on === true && hover.key !== active} className="liquid-bead rounded-full" />
       </div>
-      <motion.button
-        type="button"
-        aria-label={nav.signOut(user?.name ?? common.owner)}
-        whileTap={{ scale: PRESS_SCALE }}
-        transition={springs.ui}
-        onClick={() => signOut.mutate(undefined, { onSuccess: () => navigate("/login", { replace: true }) })}
-        className="rounded-full"
-      >
-        <Avatar initial={user?.initial ?? common.owner.charAt(0)} gold size="md" />
-      </motion.button>
+      <AccountMenu />
     </div>
   );
 }
