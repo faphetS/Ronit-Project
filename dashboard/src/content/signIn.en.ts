@@ -9,9 +9,7 @@ export const signIn: Widen<typeof he> = {
   password: "Password",
   forgot: "Forgot?",
   remember: "Remember me on this device",
-  privacy: "Access is for authorized users only. Every passport view is recorded in the access log.",
   submit: "Sign in",
-  twoStep: "Secure sign-in with two-step verification",
   allInOne: {
     title: "Everything in one place",
     soft: "Leads, passports and greetings",

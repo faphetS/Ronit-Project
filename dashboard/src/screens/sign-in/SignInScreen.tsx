@@ -65,8 +65,7 @@ export function SignInScreen() {
                 <input type="checkbox" name="remember" defaultChecked className="size-[18px] accent-ink" />
                 {copy.remember}
               </label>
-              <div className="mt-4 flex items-end justify-between gap-5">
-                <p className="max-w-[230px] text-caption text-mute-2">{copy.privacy}</p>
+              <div className="mt-4 flex justify-end">
                 <GooButton type="submit" disabled={signInMutation.isPending}>
                   {copy.submit}
                 </GooButton>
@@ -75,7 +74,6 @@ export function SignInScreen() {
             <p role="status" className="mt-4 min-h-5 text-center text-caption text-ink">
               {message}
             </p>
-            <p className="mt-1 text-center text-caption text-mute-2">{copy.twoStep}</p>
           </Surface>
           <Surface variant="ink" compact={phone} aria-label={copy.allInOne.title} className="flex flex-1 flex-col justify-between gap-4">
             <Headline title={copy.allInOne.title} soft={copy.allInOne.soft} size="display-3" level={2} onDark />
