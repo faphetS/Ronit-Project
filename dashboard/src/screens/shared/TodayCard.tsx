@@ -1,9 +1,7 @@
-import type { ReactNode } from "react";
-import { useCopy, useLocale } from "../../content/locale";
+import { useLocale } from "../../content/locale";
 import { cx } from "../../lib/cx";
 import { formatDayMonth, formatWeekday } from "../../lib/format";
 import { formatHebrewDate } from "../../lib/hebrew";
-import { nextHoliday } from "../../lib/holidays";
 import { OrbCard } from "../../ui/OrbCard";
 
 type TodayCardSize = "tall" | "regular" | "compact";
@@ -18,19 +16,13 @@ interface TodayCardProps {
   day: Date;
   label: string;
   size?: TodayCardSize;
-  /** Lines under the holiday countdown, inside the frosted strip. */
-  footer?: ReactNode;
-  /** Content of the white side. */
-  side?: ReactNode;
   className?: string;
 }
 
-/** The orb card with the weekday, the date, the Hebrew date and the next holiday. */
-export function TodayCard({ day, label, size = "regular", footer, side, className }: TodayCardProps) {
+/** The orb card with the weekday, the date and the Hebrew date. */
+export function TodayCard({ day, label, size = "regular", className }: TodayCardProps) {
   const layout = LAYOUT[size];
   const { locale } = useLocale();
-  const { holidayCountdown, holidayNames } = useCopy();
-  const holiday = nextHoliday(day);
   return (
     <OrbCard
       label={label}
@@ -38,7 +30,6 @@ export function TodayCard({ day, label, size = "regular", footer, side, classNam
       orb={layout.orb}
       stripBasis={layout.stripBasis}
       className={className}
-      side={side}
       strip={
         <>
           <p className={cx("font-light text-ink", layout.dayClass)}>
@@ -47,9 +38,6 @@ export function TodayCard({ day, label, size = "regular", footer, side, classNam
             <span className="text-faint">{formatDayMonth(day, locale)}</span>
           </p>
           <p className="mt-2 text-small text-mute-2">{formatHebrewDate(day, locale)}</p>
-          <span className="flex-1" />
-          <p className="font-medium text-ink">{holidayCountdown(holidayNames[holiday.key], holiday.daysToEve)}</p>
-          {footer}
         </>
       }
     />
