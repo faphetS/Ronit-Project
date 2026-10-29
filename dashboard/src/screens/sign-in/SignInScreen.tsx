@@ -47,10 +47,10 @@ export function SignInScreen() {
         initial="initial"
         animate="enter"
         variants={staggerVariants}
-        className="relative flex min-h-dvh flex-col items-center justify-center gap-4 px-[18px] py-10 lg:flex-row lg:gap-5 lg:px-5 lg:py-8"
+        className="relative flex min-h-dvh flex-col items-center justify-center gap-4 px-[18px] py-10 lg:grid lg:grid-cols-[440px_380px] lg:content-center lg:items-stretch lg:gap-5 lg:px-5 lg:py-8"
       >
         <img src={logoUrl} alt={common.brandFull} className="w-24 lg:hidden" />
-        <div className="flex w-full max-w-[440px] flex-col gap-4 lg:h-[600px] lg:gap-5">
+        <div className="flex w-full max-w-[440px] flex-col gap-4 lg:gap-5">
           <Surface variant="glass" compact={phone} aria-label={copy.title} className="lg:px-[30px] lg:pt-[26px] lg:pb-[26px]">
             <div className="flex items-center justify-between">
               <p className="text-mute-2">{copy.brand}</p>
@@ -75,12 +75,12 @@ export function SignInScreen() {
               {message}
             </p>
           </Surface>
-          <Surface variant="ink" compact={phone} aria-label={copy.allInOne.title} className="flex flex-1 flex-col justify-between gap-4">
+          <Surface variant="ink" compact={phone} aria-label={copy.allInOne.title} className="flex flex-1 flex-col justify-between gap-4 lg:min-h-[220px]">
             <Headline title={copy.allInOne.title} soft={copy.allInOne.soft} size="display-3" level={2} onDark />
             <p className="hidden text-end text-small text-ink-mute lg:block">{copy.allInOne.line}</p>
           </Surface>
         </div>
-        <div className="hidden h-[600px] w-[380px] lg:block">
+        <div className="hidden w-[380px] lg:block">
           <TodayCard
             day={today()}
             label={copy.today}

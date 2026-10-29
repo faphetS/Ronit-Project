@@ -8,8 +8,9 @@ import { OrbCard } from "../../ui/OrbCard";
 
 type TodayCardSize = "tall" | "regular" | "compact";
 
-const LAYOUT: Record<TodayCardSize, { orb: { size: number; end: number; top: number }; stripBasis: string; dayClass: string }> = {
-  tall: { orb: { size: 290, end: 28, top: 180 }, stripBasis: "55%", dayClass: "text-[76px] leading-none" },
+const LAYOUT: Record<TodayCardSize, { orb: { size: number; end: number; top: number | string }; stripBasis: string; dayClass: string }> = {
+  // The tall card takes the height of what stands beside it: its orb sits a little below the middle at any height.
+  tall: { orb: { size: 290, end: 28, top: "calc(54% - 145px)" }, stripBasis: "55%", dayClass: "text-[76px] leading-none" },
   regular: { orb: { size: 180, end: 54, top: 60 }, stripBasis: "55%", dayClass: "text-display" },
   compact: { orb: { size: 170, end: 92, top: 40 }, stripBasis: "50%", dayClass: "text-[44px] leading-none" },
 };

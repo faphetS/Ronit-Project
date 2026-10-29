@@ -9,8 +9,8 @@ interface OrbCardProps {
   strip: ReactNode;
   /** Content of the white side: a short line at the top, an action at the bottom. */
   side?: ReactNode;
-  /** Orb size and position in px: distance from the inline end, and from the top. */
-  orb?: { size: number; end: number; top: number };
+  /** Orb size and position in px: distance from the inline end, and from the top (px, or any CSS length). */
+  orb?: { size: number; end: number; top: number | string };
   /** Width of the frosted strip as a share of the card. */
   stripBasis?: string;
   compact?: boolean;
