@@ -99,12 +99,6 @@ export const customersCopy: Widen<typeof he> = {
     noResults: "No customers match this search.",
     clear: "Clear the search",
   },
-  pager: {
-    label: "List pages",
-    range: (from, to, total) => `${from}-${to} of ${total}`,
-    previous: "Previous",
-    next: "Next",
-  },
   profile: {
     title: "Customer card",
     label: "Customer details",

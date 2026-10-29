@@ -10,11 +10,11 @@ import { cardVariants } from "../../motion/variants";
 import { Avatar } from "../../ui/Avatar";
 import { Button } from "../../ui/Button";
 import { ListRow } from "../../ui/ListRow";
+import { Pager } from "../../ui/Pager";
 import { EmptyState, ErrorState } from "../../ui/states";
 import { StatusTag } from "../../ui/StatusTag";
 import { Surface } from "../../ui/Surface";
 import { fullName, groupNames, initialOf, PAGE_SIZE, passportState, yearOf } from "./customer-helpers";
-import { Pager } from "./Pager";
 import { RowsSkeleton } from "./Skeletons";
 import { useFilterCounts } from "./useFilterCounts";
 

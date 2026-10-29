@@ -4,7 +4,7 @@ import type { HolidayCampaign } from "../../data/types";
 import { dayAt } from "../../lib/clock";
 import { cx } from "../../lib/cx";
 import { formatDate, formatNumber } from "../../lib/format";
-import { DataTable, type DataColumn } from "../../ui/DataTable";
+import { CARD_PAGE_SIZE, DataTable, type DataColumn } from "../../ui/DataTable";
 import { ListRow } from "../../ui/ListRow";
 import { SectionHeader } from "../../ui/SectionHeader";
 import { EmptyState, ErrorState, LoadingBlock } from "../../ui/states";
@@ -77,7 +77,7 @@ export function CampaignHistory({ phone, className }: CampaignHistoryProps) {
             ))}
           </ul>
         ) : (
-          <DataTable label={copy.table} columns={columns} rows={campaigns} rowKey={(campaign) => campaign.id} />
+          <DataTable label={copy.table} columns={columns} rows={campaigns} rowKey={(campaign) => campaign.id} pageSize={CARD_PAGE_SIZE} />
         )
       ) : null}
     </Surface>

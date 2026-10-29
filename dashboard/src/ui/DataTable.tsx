@@ -1,9 +1,10 @@
 import { AnimatePresence, motion } from "motion/react";
-import type { MouseEvent, ReactElement, ReactNode } from "react";
+import { useState, type MouseEvent, type ReactElement, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 import { cx } from "../lib/cx";
 import { fadeOut, springs } from "../motion/springs";
 import { CountPill } from "./CountPill";
+import { Pager } from "./Pager";
 
 export interface DataColumn<Row> {
   key: string;
@@ -55,13 +56,32 @@ interface DataTableProps<Row> {
   empty?: ReactNode;
   /** Rows fade in and out and the rest glide into place when filters change. On by default. */
   animateRows?: boolean;
+  /**
+   * Rows per page. A longer list gets a pager under the table, and a group split by a page's edge keeps its
+   * header on both pages.
+   */
+  pageSize?: number;
+  /** Paging starts over at the first page when this changes, like the filters behind the rows. */
+  pageResetKey?: string;
   className?: string;
 }
 
-interface TableViewProps<Row> extends Omit<DataTableProps<Row>, "rowHref" | "onRowClick"> {
+/** Rows per page for a table in a card. */
+export const CARD_PAGE_SIZE = 10;
+
+interface TableViewProps<Row> extends Omit<DataTableProps<Row>, "rowHref" | "onRowClick" | "pageSize" | "pageResetKey"> {
   onActivate?: (row: Row) => void;
   isClickable: (row: Row) => boolean;
+  /** The page on show: each page gets fresh row groups, without the rows of the last one fading out. */
+  page?: number;
+  /** The page just turned: its rows fade in. */
+  fade?: boolean;
 }
+
+type NavigatingTableProps<Row> = Omit<TableViewProps<Row>, "onActivate" | "isClickable"> & {
+  rowHref: (row: Row) => string | undefined;
+  onRowClick?: (row: Row) => void;
+};
 
 const ALIGN = { start: "text-start", center: "text-center", end: "text-end" } as const;
 
@@ -124,7 +144,7 @@ function renderRows<Row>(rows: Row[], { columns, rowKey, selectedKey, onActivate
 }
 
 function TableView<Row>(props: TableViewProps<Row>) {
-  const { label, columns, rows, groups, empty, animateRows = true, className } = props;
+  const { label, columns, rows, groups, empty, animateRows = true, page = 1, fade = false, className } = props;
   const visibleGroups = groups?.filter((group) => group.rows.length > 0);
   const hasRows = visibleGroups ? visibleGroups.length > 0 : Boolean(rows?.length);
   if (!hasRows && empty) return <div className={className}>{empty}</div>;
@@ -149,7 +169,7 @@ function TableView<Row>(props: TableViewProps<Row>) {
         </thead>
         {visibleGroups ? (
           visibleGroups.map((group) => (
-            <tbody key={group.key}>
+            <motion.tbody key={`${group.key}:${page}`} initial={fade ? { opacity: 0 } : false} animate={{ opacity: 1 }} transition={springs.surface}>
               <tr>
                 <th colSpan={columns.length} scope="rowgroup" className="px-3 pt-[22px] pb-2.5 text-start font-normal">
                   <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -160,17 +180,19 @@ function TableView<Row>(props: TableViewProps<Row>) {
                 </th>
               </tr>
               {body(group.rows)}
-            </tbody>
+            </motion.tbody>
           ))
         ) : (
-          <tbody>{body(rows ?? [])}</tbody>
+          <motion.tbody key={page} initial={fade ? { opacity: 0 } : false} animate={{ opacity: 1 }} transition={springs.surface}>
+            {body(rows ?? [])}
+          </motion.tbody>
         )}
       </table>
     </div>
   );
 }
 
-function NavigatingTable<Row>({ rowHref, onRowClick, ...rest }: DataTableProps<Row> & { rowHref: (row: Row) => string | undefined }) {
+function NavigatingTable<Row>({ rowHref, onRowClick, ...rest }: NavigatingTableProps<Row>) {
   const navigate = useNavigate();
   return (
     <TableView
@@ -191,7 +213,54 @@ function NavigatingTable<Row>({ rowHref, onRowClick, ...rest }: DataTableProps<R
  * Logical alignment only, so it mirrors between Hebrew and English.
  */
 export function DataTable<Row>(props: DataTableProps<Row>) {
-  const { rowHref, onRowClick, ...rest } = props;
-  if (rowHref) return <NavigatingTable {...rest} rowHref={rowHref} onRowClick={onRowClick} />;
-  return <TableView {...rest} isClickable={() => true} onActivate={onRowClick} />;
+  const { rowHref, onRowClick, pageSize, pageResetKey, className, ...rest } = props;
+  const total = rest.groups ? rest.groups.reduce((sum, group) => sum + group.rows.length, 0) : (rest.rows?.length ?? 0);
+  const paging = usePage(total, pageSize ?? Math.max(total, 1), pageResetKey);
+  const paged = pageSize !== undefined && total > pageSize;
+  const shown = paged ? { ...rest, ...pageOf(rest.rows, rest.groups, paging.page, pageSize), page: paging.page, fade: paging.turned } : rest;
+  const table = rowHref ? (
+    <NavigatingTable {...shown} className={paged ? undefined : className} rowHref={rowHref} onRowClick={onRowClick} />
+  ) : (
+    <TableView {...shown} className={paged ? undefined : className} isClickable={() => true} onActivate={onRowClick} />
+  );
+  if (!paged) return table;
+  return (
+    <div className={className}>
+      {table}
+      <Pager page={paging.page} pageSize={pageSize} total={total} onChange={paging.goTo} className="mt-4" />
+    </div>
+  );
+}
+
+/** The page a paged table shows: the first again when `resetKey` changes, and never past the last. */
+function usePage(total: number, pageSize: number, resetKey: string | undefined) {
+  const [state, setState] = useState({ resetKey, page: 1, turned: false });
+  if (state.resetKey !== resetKey) setState({ resetKey, page: 1, turned: false });
+  const current = state.resetKey === resetKey;
+  return {
+    page: current ? Math.min(state.page, Math.max(1, Math.ceil(total / pageSize))) : 1,
+    turned: current && state.turned,
+    goTo: (page: number) => setState({ resetKey, page, turned: true }),
+  };
+}
+
+/** One page of the rows, or of the grouped rows: a group split by the page's edge shows on both pages. */
+function pageOf<Row>(rows: Row[] | undefined, groups: DataRowGroup<Row>[] | undefined, page: number, pageSize: number) {
+  const start = (page - 1) * pageSize;
+  if (!groups) return { rows: rows?.slice(start, start + pageSize) };
+  let skip = start;
+  let room = pageSize;
+  const shown: DataRowGroup<Row>[] = [];
+  for (const group of groups) {
+    if (room === 0) break;
+    if (skip >= group.rows.length) {
+      skip -= group.rows.length;
+      continue;
+    }
+    const slice = group.rows.slice(skip, skip + room);
+    skip = 0;
+    room -= slice.length;
+    shown.push({ ...group, rows: slice });
+  }
+  return { groups: shown };
 }

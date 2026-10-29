@@ -8,7 +8,7 @@ import { formatDate, formatDayMonth, formatNumber, formatWeekday, maskPhone } fr
 import { formatHebrewDate } from "../../lib/hebrew";
 import { Avatar } from "../../ui/Avatar";
 import { CountPill } from "../../ui/CountPill";
-import { DataTable, type DataColumn } from "../../ui/DataTable";
+import { CARD_PAGE_SIZE, DataTable, type DataColumn } from "../../ui/DataTable";
 import { GooButton } from "../../ui/GooButton";
 import { Icon } from "../../ui/Icon";
 import { KeyValue, type KeyValueItem } from "../../ui/KeyValue";
@@ -119,6 +119,8 @@ export function ParticipantsCard({ group, className }: GroupProps) {
           rowKey={(row) => row.customerId}
           rowHref={(row) => `/customers/${row.customerId}`}
           empty={<EmptyState message={text.empty} />}
+          pageSize={CARD_PAGE_SIZE}
+          pageResetKey={group.id}
         />
       ) : null}
     </Surface>

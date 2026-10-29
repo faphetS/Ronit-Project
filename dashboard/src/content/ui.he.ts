@@ -13,4 +13,11 @@ export const uiCopy = {
   insertField: (label: string) => `הוספת ${label}`,
   /** Under the business name in the WhatsApp preview. */
   businessAccount: "חשבון עסקי",
+  /** Paging under a long list. */
+  pager: {
+    label: "דפי הרשימה",
+    range: (from: string, to: string, total: string) => `${from}-${to} מתוך ${total}`,
+    previous: "הקודמים",
+    next: "הבאים",
+  },
 } as const;

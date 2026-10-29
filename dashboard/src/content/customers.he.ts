@@ -103,12 +103,6 @@ export const customersCopy = {
     noResults: "לא נמצאו לקוחות לחיפוש הזה.",
     clear: "ניקוי החיפוש",
   },
-  pager: {
-    label: "דפי הרשימה",
-    range: (from: string, to: string, total: string) => `${from}-${to} מתוך ${total}`,
-    previous: "הקודמים",
-    next: "הבאים",
-  },
   profile: {
     /** The phone's top bar on the pushed profile. */
     title: "כרטיס לקוח",

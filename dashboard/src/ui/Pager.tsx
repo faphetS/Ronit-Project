@@ -1,9 +1,9 @@
 import { motion } from "motion/react";
-import { useCopy } from "../../content/locale";
-import { cx } from "../../lib/cx";
-import { formatNumber } from "../../lib/format";
-import { PRESS_SCALE, springs } from "../../motion/springs";
-import { Icon } from "../../ui/Icon";
+import { useCopy } from "../content/locale";
+import { cx } from "../lib/cx";
+import { formatNumber } from "../lib/format";
+import { PRESS_SCALE, springs } from "../motion/springs";
+import { Icon } from "./Icon";
 
 interface PagerProps {
   page: number;
@@ -16,9 +16,9 @@ interface PagerProps {
 const BUTTON =
   "inline-flex h-11 items-center gap-1.5 rounded-full px-4 text-[14px] font-medium whitespace-nowrap text-ink ring-1 ring-inset ring-ink/15 transition-colors hover:bg-sand-light disabled:opacity-40 disabled:hover:bg-transparent lg:h-[38px]";
 
-/** Quiet paging under the customer list: which rows are showing, and the previous and next pages. Hidden when one page holds them all. */
+/** Quiet paging under a list: which rows are showing, and the previous and next pages. Hidden when one page holds them all. */
 export function Pager({ page, pageSize, total, onChange, className }: PagerProps) {
-  const { customersCopy: copy } = useCopy();
+  const { uiCopy: copy } = useCopy();
   if (total <= pageSize) return null;
   const pages = Math.ceil(total / pageSize);
   const from = Math.min(total, (page - 1) * pageSize + 1);

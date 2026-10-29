@@ -4,7 +4,7 @@ import type { LeadFilters } from "../../data/services";
 import type { Lead } from "../../data/types";
 import { now } from "../../lib/clock";
 import { formatRelative, maskPhone } from "../../lib/format";
-import { DataTable, type DataColumn, type DataRowGroup } from "../../ui/DataTable";
+import { CARD_PAGE_SIZE, DataTable, type DataColumn, type DataRowGroup } from "../../ui/DataTable";
 import { Ltr } from "../../ui/Ltr";
 import { PersonCell } from "../../ui/PersonCell";
 import { ErrorState, Skeleton } from "../../ui/states";
@@ -76,6 +76,8 @@ export function LeadsTableView({ filters, selectedId, leadHref, filtered, onClea
         rowHref={(lead) => leadHref(lead.id)}
         selectedKey={selectedId ?? null}
         empty={<LeadsEmpty filtered={filtered} onClear={onClear} />}
+        pageSize={CARD_PAGE_SIZE}
+        pageResetKey={JSON.stringify(filters)}
       />
     );
   }
