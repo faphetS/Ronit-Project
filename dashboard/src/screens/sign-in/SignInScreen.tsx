@@ -51,27 +51,27 @@ export function SignInScreen() {
       >
         <img src={logoUrl} alt={common.brandFull} className="w-24 lg:hidden" />
         <div className="flex w-full max-w-[440px] flex-col gap-4 lg:h-[600px] lg:gap-5">
-          <Surface variant="glass" compact={phone} aria-label={copy.title} className="lg:px-[30px] lg:pt-[26px] lg:pb-[22px]">
+          <Surface variant="glass" compact={phone} aria-label={copy.title} className="lg:px-[30px] lg:pt-[26px] lg:pb-[26px]">
             <div className="flex items-center justify-between">
               <p className="text-mute-2">{copy.brand}</p>
               <button type="button" onClick={() => setNotice("help")} className="text-small font-medium text-ink underline decoration-ink/30 underline-offset-4">
                 {copy.help}
               </button>
             </div>
-            <Headline title={copy.title} size="display-3" className="mt-7 mb-5" />
-            <form onSubmit={submit} noValidate className="flex flex-col gap-3">
+            <Headline title={copy.title} size="display-3" className="mt-5 mb-4" />
+            <form onSubmit={submit} noValidate className="flex flex-col gap-4">
               <Field label={copy.email} icon="at" name="email" type="email" autoComplete="username" />
-              <label className="flex items-center gap-2.5 px-2 text-small text-mute-2">
-                <input type="checkbox" name="remember" defaultChecked className="size-[18px] accent-ink" />
-                {copy.remember}
-              </label>
-              <div className="mt-4 flex justify-end">
+              <div className="flex items-center justify-between gap-4">
+                <label className="flex items-center gap-2.5 px-2 text-small text-mute-2">
+                  <input type="checkbox" name="remember" defaultChecked className="size-[18px] accent-ink" />
+                  {copy.remember}
+                </label>
                 <GooButton type="submit" disabled={signInMutation.isPending}>
                   {copy.submit}
                 </GooButton>
               </div>
             </form>
-            <p role="status" className="mt-4 min-h-5 text-center text-caption text-ink">
+            <p role="status" className="mt-3 text-center text-caption text-ink empty:mt-0">
               {message}
             </p>
           </Surface>

@@ -5,7 +5,7 @@ export const signIn = {
   email: "כתובת אימייל",
   password: "סיסמה",
   forgot: "שכחתי",
-  remember: "לזכור אותי במכשיר הזה",
+  remember: "לזכור אותי",
   submit: "כניסה",
   allInOne: {
     title: "הכל במקום אחד",

@@ -8,7 +8,7 @@ export const signIn: Widen<typeof he> = {
   email: "Email address",
   password: "Password",
   forgot: "Forgot?",
-  remember: "Remember me on this device",
+  remember: "Remember me",
   submit: "Sign in",
   allInOne: {
     title: "Everything in one place",
