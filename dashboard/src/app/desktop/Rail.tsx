@@ -38,7 +38,7 @@ function RailItem({ to, icon, label, name, dot = false, active, register, onHove
       onPointerEnter={onHover}
       whileTap={{ scale: PRESS_SCALE }}
       transition={springs.ui}
-      className={cx("group relative z-10 grid size-12 place-items-center rounded-full transition-colors duration-300", active ? "text-ink" : "text-cream/55 hover:text-cream")}
+      className={cx("group relative z-10 grid size-12 place-items-center rounded-full transition-colors duration-300", active ? "text-cream" : "text-cream/45 hover:text-cream/80")}
     >
       <Icon name={icon} size={22} />
       {dot ? <span aria-hidden="true" className="absolute end-2 top-2 size-2 rounded-full bg-gold" /> : null}
@@ -61,8 +61,8 @@ interface RailProps {
 
 /**
  * The rail on the dark frame at the screen's start edge, as in the reference: the logo, the six sections,
- * settings at the foot, and Ronit's avatar to sign out. The content panel reaches out to the current item
- * (see LiquidPanel); a bead of water follows the pointer.
+ * settings at the foot, and Ronit's avatar to sign out. Beside the current item the rail swells into the
+ * content panel in a soft wave (see LiquidPanel); a bead of water follows the pointer.
  */
 export function Rail({ items, active, newLeads }: RailProps) {
   const { common, nav } = useCopy();

@@ -5,18 +5,18 @@ import { springs } from "../../motion/springs";
 
 /** The panel's corner radius. */
 const CORNER = 28;
-/** The bulb that holds the current item: a circle around the item's center. */
-const BULB = 28;
-/** The concave curves that join the bulb to the panel's edge. */
-const FILLET = 24;
+/** How far the rail's wave pushes into the panel beside the current item. */
+const DEPTH = 22;
+/** Half the wave's height: from where it leaves the straight edge to its crest, beside the item's center. */
+const SWELL = 60;
 
 interface Geometry {
   start: number;
   end: number;
   top: number;
   bottom: number;
-  /** The current item's center. */
-  item: { x: number; y: number } | null;
+  /** The current item's center, from the frame's top. */
+  itemY: number | null;
 }
 
 /** The panel and the current item, in px from the frame's start edge (x) and its top (y). */
@@ -30,15 +30,15 @@ function measure(frame: Element, panel: HTMLElement, item: HTMLElement | undefin
     end: fromStart(rtl ? panelBox.left : panelBox.right),
     top: panelBox.top - box.top,
     bottom: panelBox.bottom - box.top,
-    item: itemBox ? { x: fromStart((itemBox.left + itemBox.right) / 2), y: (itemBox.top + itemBox.bottom) / 2 - box.top } : null,
+    itemY: itemBox ? (itemBox.top + itemBox.bottom) / 2 - box.top : null,
   };
 }
 
 /**
- * The panel's outline. On its start edge, a bulb centered at `x` spans `a` to `b` (a circle at rest, a capsule
- * while it travels) and flows into the edge through two fillets. `presence` melts the bulb into the edge.
+ * The panel's outline, with the rail's wave pushed into its start edge. The crest runs from `a` to `b`: one point
+ * at rest, a stretch while it travels. `presence` flattens the wave back into the edge.
  */
-function outline(start: number, end: number, top: number, bottom: number, x: number, a: number, b: number, presence: number): string {
+function outline(start: number, end: number, top: number, bottom: number, a: number, b: number, presence: number): string {
   const body =
     `M ${start + CORNER} ${top} H ${end - CORNER} A ${CORNER} ${CORNER} 0 0 1 ${end} ${top + CORNER} ` +
     `V ${bottom - CORNER} A ${CORNER} ${CORNER} 0 0 1 ${end - CORNER} ${bottom} ` +
@@ -46,24 +46,20 @@ function outline(start: number, end: number, top: number, bottom: number, x: num
   const close = `V ${top + CORNER} A ${CORNER} ${CORNER} 0 0 1 ${start + CORNER} ${top} Z`;
   if (presence < 0.01) return `${body} ${close}`;
 
-  const length = Math.max(b - a, 0);
-  // Liquid keeps its volume: the longer the bulb, the thinner it gets.
-  const squeeze = Math.max(0.8, 1 - Math.max(0, length - 2 * BULB) / (BULB * 12));
-  const radius = Math.min(BULB * squeeze, length / 2) * presence;
-  const center = start - (start - x) * presence;
-  const fillet = FILLET * presence;
-  // The fillets touch the edge and the bulb: their centers sit `fillet` off the edge, `radius + fillet` from the bulb's.
-  const across = start - fillet - center;
-  const rise = Math.sqrt(Math.max((radius + fillet) ** 2 - across ** 2, 0));
-  const upper = Math.max(a + radius, top + CORNER + rise);
-  const lower = Math.max(Math.min(b - radius, bottom - CORNER - rise), upper);
-  const touch = radius / (radius + fillet);
-  const tangentX = center + across * touch;
-  const bulb =
-    `V ${lower + rise} A ${fillet} ${fillet} 0 0 0 ${tangentX} ${lower + rise * touch} ` +
-    `A ${radius} ${radius} 0 0 1 ${center - radius} ${lower} V ${upper} ` +
-    `A ${radius} ${radius} 0 0 1 ${tangentX} ${upper - rise * touch} A ${fillet} ${fillet} 0 0 0 ${start} ${upper - rise}`;
-  return `${body} ${bulb} ${close}`;
+  // Water keeps its volume: the longer the crest, the shallower the wave.
+  const crest = start + DEPTH * presence * Math.max(0.6, 1 - Math.max(0, b - a) / (SWELL * 6));
+  // The wave leaves the straight edge SWELL before the crest, never inside the corners.
+  const leaveTop = Math.max(top + CORNER, a - SWELL);
+  const leaveBottom = Math.min(bottom - CORNER, b + SWELL);
+  const crestTop = Math.min(Math.max(a, leaveTop), leaveBottom);
+  const crestBottom = Math.max(Math.min(b, leaveBottom), crestTop);
+  const lowerMid = (leaveBottom + crestBottom) / 2;
+  const upperMid = (crestTop + leaveTop) / 2;
+  // Up the start edge: a smooth S into the wave, along its crest, and a smooth S back out to the edge.
+  const wave =
+    `V ${leaveBottom} C ${start} ${lowerMid} ${crest} ${lowerMid} ${crest} ${crestBottom} ` +
+    `V ${crestTop} C ${crest} ${upperMid} ${start} ${upperMid} ${start} ${leaveTop}`;
+  return `${body} ${wave} ${close}`;
 }
 
 interface LiquidPanelProps<K extends string> {
@@ -71,14 +67,14 @@ interface LiquidPanelProps<K extends string> {
   panel: RefObject<HTMLElement | null>;
   /** The rail items by key. */
   items: RefObject<Map<K, HTMLElement>>;
-  /** The rail item the panel reaches out to. */
+  /** The rail item the wave stands beside. */
   target: K | null;
 }
 
 /**
- * The desktop content panel, drawn as one shape: on its start edge a bulb of the panel holds the current rail
- * item, like a drop clinging to the edge. When the item changes, the bulb's edge in front springs ahead and the
- * edge behind follows, so it flows along the panel's edge as a capsule and rounds up again at the new item.
+ * The desktop content panel, drawn as one shape. Beside the current rail item the rail swells into the panel in a
+ * soft wave. When the item changes, the wave's front springs ahead and its back follows, so it flows along the edge
+ * as a long, shallow swell and gathers again at the new item.
  *
  * The svg covers the shell row, so its own box is the frame everything is measured in (a parent's ref is not
  * attached yet when a child's layout effect first runs). It draws from the start edge and is mirrored by CSS
@@ -92,12 +88,11 @@ export function LiquidPanel<K extends string>({ panel, items, target }: LiquidPa
   const end = useMotionValue(0);
   const top = useMotionValue(0);
   const bottom = useMotionValue(0);
-  const bulbX = useMotionValue(0);
-  const bulbTop = useMotionValue(0);
-  const bulbBottom = useMotionValue(0);
+  const crestTop = useMotionValue(0);
+  const crestBottom = useMotionValue(0);
   const presence = useMotionValue(0);
   const d = useTransform(() =>
-    outline(start.get(), end.get(), top.get(), bottom.get(), bulbX.get(), bulbTop.get(), bulbBottom.get(), presence.get()),
+    outline(start.get(), end.get(), top.get(), bottom.get(), crestTop.get(), crestBottom.get(), presence.get()),
   );
   const placed = useRef(false);
   const current = useRef(target);
@@ -115,25 +110,23 @@ export function LiquidPanel<K extends string>({ panel, items, target }: LiquidPa
     const travel = placed.current && !reduceMotion;
     placed.current = true;
     const running: Array<{ stop: () => void }> = [];
-    if (geometry.item) {
-      const a = geometry.item.y - BULB;
-      const b = geometry.item.y + BULB;
-      bulbX.jump(geometry.item.x);
-      if (travel) {
-        // The edge in front leads and the edge behind follows: the bulb stretches toward the new item.
-        const down = a > bulbTop.get();
-        running.push(animate(down ? bulbBottom : bulbTop, down ? b : a, springs.liquidLead));
-        running.push(animate(down ? bulbTop : bulbBottom, down ? a : b, springs.liquidTrail));
+    if (geometry.itemY !== null) {
+      const y = geometry.itemY;
+      if (travel && presence.get() > 0.01) {
+        // The front of the crest leads and its back follows: the wave stretches toward the new item.
+        const down = y > crestTop.get();
+        running.push(animate(down ? crestBottom : crestTop, y, springs.liquidLead));
+        running.push(animate(down ? crestTop : crestBottom, y, springs.liquidTrail));
       } else {
-        bulbTop.jump(a);
-        bulbBottom.jump(b);
+        crestTop.jump(y);
+        crestBottom.jump(y);
       }
     }
-    const shown = geometry.item ? 1 : 0;
+    const shown = geometry.itemY === null ? 0 : 1;
     if (travel) running.push(animate(presence, shown, springs.surface));
     else presence.jump(shown);
     return () => running.forEach((animation) => animation.stop());
-  }, [panel, items, target, rtl, reduceMotion, start, end, top, bottom, bulbX, bulbTop, bulbBottom, presence]);
+  }, [panel, items, target, rtl, reduceMotion, start, end, top, bottom, crestTop, crestBottom, presence]);
 
   // A resize moves the panel and the items: follow them without travel.
   useLayoutEffect(() => {
@@ -148,14 +141,13 @@ export function LiquidPanel<K extends string>({ panel, items, target }: LiquidPa
       end.jump(geometry.end);
       top.jump(geometry.top);
       bottom.jump(geometry.bottom);
-      if (!geometry.item) return;
-      bulbX.jump(geometry.item.x);
-      bulbTop.jump(geometry.item.y - BULB);
-      bulbBottom.jump(geometry.item.y + BULB);
+      if (geometry.itemY === null) return;
+      crestTop.jump(geometry.itemY);
+      crestBottom.jump(geometry.itemY);
     });
     observer.observe(frameElement);
     return () => observer.disconnect();
-  }, [panel, items, rtl, start, end, top, bottom, bulbX, bulbTop, bulbBottom]);
+  }, [panel, items, rtl, start, end, top, bottom, crestTop, crestBottom]);
 
   return (
     <svg ref={frame} aria-hidden="true" className="pointer-events-none absolute inset-0 z-0 size-full will-change-transform rtl:-scale-x-100">
