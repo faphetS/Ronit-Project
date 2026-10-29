@@ -1,108 +1,103 @@
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useId, useRef, useState, type FormEvent, type InputHTMLAttributes } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { languageNames, LOCALES } from "../../content/copy";
-import { useCopy, useLocale } from "../../content/locale";
+import { useCopy, useDirection, useLocale } from "../../content/locale";
 import { useSecuritySettings, useSession, useSignOut, useUpdateProfile, useUpdateSecuritySwitch, useUsers } from "../../data/queries";
 import { cx } from "../../lib/cx";
 import { fadeOut, PRESS_SCALE, springs } from "../../motion/springs";
+import type { PushDirection } from "../../motion/transitions";
+import { screenVariants, type ScreenMotion } from "../../motion/variants";
 import { Avatar } from "../../ui/Avatar";
-import { GooButton } from "../../ui/GooButton";
 import { Icon } from "../../ui/Icon";
 import type { IconName } from "../../ui/icons";
 import { Ltr } from "../../ui/Ltr";
 import { Switch } from "../../ui/Switch";
 import { useToast } from "../../ui/toast-context";
 
-type View = "menu" | "profile";
+type View = "settings" | "profile" | "language";
 
-const ROW =
-  "flex h-12 w-full items-center gap-3 rounded-[18px] px-3 text-start text-[14.5px] text-cream/90 transition-colors hover:bg-white/[0.07] focus-visible:bg-white/[0.07] focus-visible:outline-none";
-/** A row that holds a control instead of being one. */
-const STILL_ROW = "flex h-12 w-full items-center gap-3 px-3 text-[14.5px] text-cream/90";
+/** The icon squares, in iOS's system colors. */
+const TINT = {
+  blue: "bg-[#007aff]",
+  orange: "bg-[#ff9500]",
+  indigo: "bg-[#5856d6]",
+  green: "bg-[#34c759]",
+} as const;
 
-function RowIcon({ name }: { name: IconName }) {
-  return <Icon name={name} size={20} className="shrink-0 text-cream/55" />;
+/** iOS's tint, for back, save and the checkmark. */
+const ACTION = "text-[#007aff]";
+const SECONDARY = "text-[#8e8e93]";
+const PRESSABLE = "transition-colors hover:bg-black/[0.035] active:bg-black/[0.07] focus-visible:bg-black/[0.05] focus-visible:outline-none";
+const ROW = cx("flex w-full items-center gap-3 ps-3", PRESSABLE);
+const HAIRLINE = "border-t border-black/[0.08]";
+
+function Squircle({ icon, tint }: { icon: IconName; tint: keyof typeof TINT }) {
+  return (
+    <span aria-hidden="true" className={cx("grid size-[30px] shrink-0 place-items-center rounded-[8px] text-white", TINT[tint])}>
+      <Icon name={icon} size={18} />
+    </span>
+  );
 }
 
 function Chevron() {
-  return <Icon name="forward" size={16} className="shrink-0 text-cream/35" />;
+  return <Icon name="forward" size={14} className="shrink-0 text-[#c4c4c7]" />;
 }
 
-function Divider() {
-  return <div aria-hidden="true" className="mx-2 my-1.5 h-px bg-white/[0.08]" />;
+/** One inset group of rows, like a section of iOS Settings. */
+function Group({ children }: { children: ReactNode }) {
+  return <div className="overflow-hidden rounded-[14px] bg-white">{children}</div>;
 }
 
-/** The two languages as a small segmented control on the dark panel. */
-function LanguageToggle({ label }: { label: string }) {
-  const { locale, setLocale } = useLocale();
+/** A row's insides: the icon square, then the label and what trails it over a hairline that starts at the label. */
+function RowBody({ icon, tint, label, value, trailing, first = false }: { icon: IconName; tint: keyof typeof TINT; label: string; value?: ReactNode; trailing?: ReactNode; first?: boolean }) {
   return (
-    <div role="group" aria-label={label} className="flex shrink-0 rounded-full bg-white/[0.07] p-0.5">
-      {LOCALES.map((value) => (
-        <button
-          key={value}
-          type="button"
-          lang={value}
-          aria-pressed={locale === value}
-          aria-label={languageNames[value].full}
-          onClick={() => setLocale(value)}
-          className={cx(
-            "h-8 min-w-11 rounded-full px-2.5 text-[13px] font-medium transition-colors",
-            locale === value ? "bg-cream text-ink" : "text-cream/60 hover:text-cream",
-          )}
-        >
-          {languageNames[value].short}
+    <>
+      <Squircle icon={icon} tint={tint} />
+      <span className={cx("flex min-h-[46px] min-w-0 flex-1 items-center gap-2 pe-3", !first && HAIRLINE)}>
+        <span className="min-w-0 flex-1 truncate text-start text-[15px] text-ink">{label}</span>
+        {value === undefined ? null : <span className={cx("shrink-0 text-[15px]", SECONDARY)}>{value}</span>}
+        {trailing}
+      </span>
+    </>
+  );
+}
+
+/** The bar on top of each view: the title in the middle, back at the start, an action at the end. */
+function NavBar({ title, back, action }: { title: string; back?: { label: string; onClick: () => void }; action?: ReactNode }) {
+  return (
+    <div className="relative flex h-12 items-center justify-center px-2">
+      {back ? (
+        <button type="button" onClick={back.onClick} className={cx("absolute start-1 flex h-11 items-center gap-0.5 px-1.5 text-[15px]", ACTION)}>
+          <Icon name="back" size={18} />
+          {back.label}
         </button>
-      ))}
-    </div>
-  );
-}
-
-function DarkField({ label, error, ...input }: { label: string; error?: string } & InputHTMLAttributes<HTMLInputElement>) {
-  const id = useId();
-  return (
-    <div className="flex flex-col gap-1.5 px-1">
-      <label htmlFor={id} className="text-caption text-cream/55">
-        {label}
-      </label>
-      <input
-        id={id}
-        {...input}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={error ? `${id}-error` : undefined}
-        className="h-11 rounded-[14px] bg-white/[0.07] px-3.5 text-[14.5px] text-cream ring-1 ring-white/10 outline-none ring-inset focus:ring-gold/60"
-      />
-      {error ? (
-        <p id={`${id}-error`} className="text-caption text-gold">
-          {error}
-        </p>
       ) : null}
+      <h2 className="text-[15px] font-semibold text-ink">{title}</h2>
+      {action ? <div className="absolute end-1">{action}</div> : null}
     </div>
   );
 }
 
-/** Ronit's own name and email, saved from the panel. */
+/** Ronit's own name and email, edited like an iOS form and saved from the bar. */
 function ProfileView({ name, email, onBack }: { name: string; email: string; onBack: () => void }) {
   const { nav } = useCopy();
   const copy = nav.accountMenu;
   const update = useUpdateProfile();
   const toast = useToast();
-  const [missing, setMissing] = useState(false);
-  const first = useRef<HTMLDivElement>(null);
+  const [draft, setDraft] = useState({ name, email });
+  const nameInput = useRef<HTMLInputElement>(null);
+  const valid = draft.name.trim().length > 0;
 
   useEffect(() => {
-    first.current?.querySelector("input")?.focus();
+    nameInput.current?.focus();
   }, []);
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const nextName = String(form.get("name") ?? "").trim();
-    const nextEmail = String(form.get("email") ?? "").trim();
-    setMissing(!nextName);
-    if (!nextName) return;
+    if (!valid) return;
     update.mutate(
-      { name: nextName, email: nextEmail || undefined },
+      { name: draft.name.trim(), email: draft.email.trim() || undefined },
       {
         onSuccess: () => {
           toast.show({ message: copy.saved });
@@ -113,35 +108,105 @@ function ProfileView({ name, email, onBack }: { name: string; email: string; onB
     );
   };
 
+  const input = "min-w-0 flex-1 bg-transparent text-end text-[15px] text-ink outline-none";
   return (
-    <form onSubmit={submit} noValidate className="flex flex-col gap-3 p-1">
-      <div className="flex items-center gap-1.5">
-        <button type="button" onClick={onBack} aria-label={nav.back} className="grid size-10 place-items-center rounded-full text-cream/70 transition-colors hover:bg-white/[0.07]">
-          <Icon name="back" size={18} />
-        </button>
-        <h2 className="text-[15px] font-medium text-cream">{copy.profile}</h2>
+    <form onSubmit={submit} noValidate>
+      <NavBar
+        title={copy.profile}
+        back={{ label: copy.title, onClick: onBack }}
+        action={
+          <button type="submit" disabled={!valid || update.isPending} className={cx("h-11 px-2 text-[15px] font-semibold disabled:opacity-35", ACTION)}>
+            {copy.save}
+          </button>
+        }
+      />
+      <div className="flex justify-center pt-1 pb-4">
+        <Avatar initial={(draft.name.trim() || name).charAt(0)} gold size="lg" />
       </div>
-      <div ref={first}>
-        <DarkField label={copy.name} name="name" defaultValue={name} autoComplete="name" error={missing ? copy.nameMissing : undefined} />
-      </div>
-      <DarkField label={copy.email} name="email" type="email" dir="ltr" defaultValue={email} autoComplete="email" />
-      <div className="flex justify-end pt-1">
-        <GooButton type="submit" tone="light" size="sm" icon="check" disabled={update.isPending}>
-          {copy.save}
-        </GooButton>
+      <div className="px-3 pb-3">
+        <Group>
+          <label className="flex w-full items-center ps-4">
+            <span className="flex min-h-[46px] flex-1 items-center gap-3 pe-4">
+              <span className="w-20 shrink-0 text-[15px] text-ink">{copy.name}</span>
+              <input
+                ref={nameInput}
+                name="name"
+                autoComplete="name"
+                value={draft.name}
+                onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+                className={input}
+              />
+            </span>
+          </label>
+          <label className="flex w-full items-center ps-4">
+            <span className={cx("flex min-h-[46px] flex-1 items-center gap-3 pe-4", HAIRLINE)}>
+              <span className="w-20 shrink-0 text-[15px] text-ink">{copy.email}</span>
+              <input
+                name="email"
+                type="email"
+                dir="ltr"
+                autoComplete="email"
+                value={draft.email}
+                onChange={(event) => setDraft({ ...draft, email: event.target.value })}
+                className={cx(input, "rtl:text-left")}
+              />
+            </span>
+          </label>
+        </Group>
       </div>
     </form>
   );
 }
 
+/** The two languages, the current one checked, as an iOS picker list. */
+function LanguageView({ onBack }: { onBack: () => void }) {
+  const { nav } = useCopy();
+  const copy = nav.accountMenu;
+  const { locale, setLocale } = useLocale();
+  return (
+    <>
+      <NavBar title={copy.language} back={{ label: copy.title, onClick: onBack }} />
+      <div className="px-3 pb-3">
+        <Group>
+          {LOCALES.map((value, index) => (
+            <button key={value} type="button" lang={value} aria-pressed={locale === value} onClick={() => setLocale(value)} className={cx("flex w-full items-center ps-4", PRESSABLE)}>
+              <span className={cx("flex min-h-[46px] flex-1 items-center pe-4", index > 0 && HAIRLINE)}>
+                <span className="flex-1 text-start text-[15px] text-ink">{languageNames[value].full}</span>
+                {locale === value ? <Icon name="check" size={18} className={ACTION} /> : null}
+              </span>
+            </button>
+          ))}
+        </Group>
+      </div>
+    </>
+  );
+}
+
+/** The height of an element as it changes, so a box around it can animate to fit. */
+function useHeight() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState<number | "auto">("auto");
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => setHeight(element.offsetHeight));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  return [ref, height] as const;
+}
+
 /**
- * Ronit's avatar at the foot of the rail, and the account panel it opens: dark glass over the page, like the rail it
- * comes from. It holds her details, the team, the Monday import, the language, hiding passport numbers, and signing
- * out. Escape, a click outside or a new page closes it.
+ * Ronit's avatar at the foot of the rail, and the settings panel it opens, laid out like iOS Settings: her profile
+ * on top, then grouped rows with colored icons for the team, the Monday import, the language and hiding passport
+ * numbers, and sign out on its own. Her details and the language open as pushed views. Escape, a click outside or
+ * a new page closes it.
  */
 export function AccountMenu() {
   const { common, nav, usersCopy } = useCopy();
   const copy = nav.accountMenu;
+  const rtl = useDirection() === "rtl";
+  const { locale } = useLocale();
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const session = useSession();
@@ -151,17 +216,25 @@ export function AccountMenu() {
   const signOut = useSignOut();
   // Open on the page it was opened on: going to another page closes it.
   const [openAt, setOpenAt] = useState<string | null>(null);
-  const [view, setView] = useState<View>("menu");
+  const [view, setView] = useState<View>("settings");
+  const [direction, setDirection] = useState<PushDirection>("forward");
+  const [content, height] = useHeight();
   const button = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const open = openAt === pathname;
 
   const user = session.data?.user;
   const name = user?.name ?? common.owner;
-  const account = users.data?.users.find((member) => member.id === user?.id);
+  const initial = user?.initial ?? common.owner.charAt(0);
+  const email = users.data?.users.find((member) => member.id === user?.id)?.email ?? "";
   const masked = security.data?.maskPassportNumbers;
+  const push: ScreenMotion = { kind: "push", direction, rtl };
 
   const close = () => setOpenAt(null);
+  const go = (next: View) => {
+    setDirection(next === "settings" ? "back" : "forward");
+    setView(next);
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -185,6 +258,60 @@ export function AccountMenu() {
     };
   }, [open]);
 
+  const settings = (
+    <>
+      <NavBar title={copy.title} />
+      <div className="flex flex-col gap-4 px-3 pb-3">
+        <Group>
+          <button type="button" onClick={() => go("profile")} className={cx("flex w-full items-center gap-3 px-3 py-2.5", PRESSABLE)}>
+            <Avatar initial={initial} gold size="md" />
+            <span className="min-w-0 flex-1 text-start">
+              <span className="block truncate text-[17px] font-medium text-ink">{name}</span>
+              <span className={cx("block truncate text-[13px]", SECONDARY)}>
+                {user ? usersCopy.roles[user.role] : null}
+                {user && email ? " · " : null}
+                {email ? <Ltr>{email}</Ltr> : null}
+              </span>
+            </span>
+            <Chevron />
+          </button>
+        </Group>
+        <Group>
+          <Link to="/users" onClick={close} className={ROW}>
+            <RowBody icon="users" tint="blue" label={copy.team} value={users.data?.users.length} trailing={<Chevron />} first />
+          </Link>
+          <Link to="/import" onClick={close} className={ROW}>
+            <RowBody icon="import" tint="orange" label={copy.import} trailing={<Chevron />} />
+          </Link>
+        </Group>
+        <Group>
+          <button type="button" onClick={() => go("language")} className={ROW}>
+            <RowBody icon="globe" tint="indigo" label={copy.language} value={languageNames[locale].full} trailing={<Chevron />} first />
+          </button>
+          {masked === undefined ? null : (
+            <div className="flex w-full items-center gap-3 ps-3">
+              <RowBody
+                icon="lock"
+                tint="green"
+                label={copy.maskPassports}
+                trailing={<Switch system checked={masked} onChange={(enabled) => updateSwitch.mutate({ key: "maskPassportNumbers", enabled })} label={copy.maskPassports} />}
+              />
+            </div>
+          )}
+        </Group>
+        <Group>
+          <button
+            type="button"
+            onClick={() => signOut.mutate(undefined, { onSuccess: () => navigate("/login", { replace: true }) })}
+            className={cx("flex h-[46px] w-full items-center justify-center text-[15px] text-[#ff3b30]", PRESSABLE)}
+          >
+            {copy.signOut}
+          </button>
+        </Group>
+      </div>
+    </>
+  );
+
   return (
     <div className="relative">
       <motion.button
@@ -196,97 +323,41 @@ export function AccountMenu() {
         whileTap={{ scale: PRESS_SCALE }}
         transition={springs.ui}
         onClick={() => {
-          setView("menu");
+          setView("settings");
           setOpenAt(open ? null : pathname);
         }}
         className="rounded-full"
       >
-        <Avatar initial={user?.initial ?? common.owner.charAt(0)} gold size="md" />
+        <Avatar initial={initial} gold size="md" />
       </motion.button>
       <AnimatePresence>
         {open ? (
           <motion.div
             ref={panel}
             role="dialog"
-            aria-label={copy.label}
+            aria-label={copy.title}
             tabIndex={-1}
             initial={{ opacity: 0, scale: 0.94, y: 10 }}
             animate={{ opacity: 1, scale: 1, y: 0, transition: springs.ui }}
             exit={{ opacity: 0, scale: 0.97, transition: fadeOut }}
-            className="account-panel absolute start-full bottom-0 z-30 ms-4 w-[320px] origin-bottom-left rounded-[28px] p-2.5 text-cream outline-none rtl:origin-bottom-right"
+            className="account-panel absolute start-full bottom-0 z-30 ms-4 w-[340px] origin-bottom-left overflow-hidden rounded-[26px] outline-none rtl:origin-bottom-right"
           >
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.div key={view} initial={{ opacity: 0 }} animate={{ opacity: 1, transition: springs.ui }} exit={{ opacity: 0, transition: fadeOut }}>
-                {view === "profile" ? (
-                  <ProfileView
-                    name={name}
-                    email={account?.email ?? ""}
-                    onBack={() => {
-                      setView("menu");
-                      panel.current?.focus();
-                    }}
-                  />
-                ) : (
-                  <>
-                    <div className="flex items-center gap-3 px-2 pt-1.5 pb-3">
-                      <Avatar initial={user?.initial ?? common.owner.charAt(0)} gold size="md" />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-[15px] font-medium text-cream">{name}</p>
-                        {account ? (
-                          <p className="truncate text-small text-cream/50">
-                            <Ltr>{account.email}</Ltr>
-                          </p>
-                        ) : null}
-                      </div>
-                      {user ? (
-                        <span className="shrink-0 rounded-lg border border-gold/45 px-2 py-1 text-[11.5px] leading-none font-semibold text-gold">
-                          {usersCopy.roles[user.role]}
-                        </span>
-                      ) : null}
-                    </div>
-                    <Divider />
-                    <button type="button" onClick={() => setView("profile")} className={ROW}>
-                      <RowIcon name="user" />
-                      <span className="flex-1">{copy.profile}</span>
-                      <Chevron />
-                    </button>
-                    <Link to="/users" onClick={close} className={ROW}>
-                      <RowIcon name="users" />
-                      <span className="flex-1">{copy.team}</span>
-                      {users.data ? <span className="text-cream/45">{users.data.users.length}</span> : null}
-                      <Chevron />
-                    </Link>
-                    <Link to="/import" onClick={close} className={ROW}>
-                      <RowIcon name="import" />
-                      <span className="flex-1">{copy.import}</span>
-                      <Chevron />
-                    </Link>
-                    <Divider />
-                    <div className={STILL_ROW}>
-                      <RowIcon name="globe" />
-                      <span className="flex-1">{copy.language}</span>
-                      <LanguageToggle label={copy.language} />
-                    </div>
-                    {masked === undefined ? null : (
-                      <div className={STILL_ROW}>
-                        <RowIcon name="lock" />
-                        <span className="flex-1">{copy.maskPassports}</span>
-                        <Switch checked={masked} onChange={(enabled) => updateSwitch.mutate({ key: "maskPassportNumbers", enabled })} label={copy.maskPassports} onDark />
-                      </div>
+            {/* The box follows its view's height, while views slide in and out like pushed iOS screens. */}
+            <motion.div animate={{ height }} transition={springs.ui}>
+              <div ref={content} className="relative">
+                <AnimatePresence mode="popLayout" initial={false} custom={push}>
+                  <motion.div key={view} custom={push} variants={screenVariants} initial="initial" animate="enter" exit="exit">
+                    {view === "profile" ? (
+                      <ProfileView name={name} email={email} onBack={() => go("settings")} />
+                    ) : view === "language" ? (
+                      <LanguageView onBack={() => go("settings")} />
+                    ) : (
+                      settings
                     )}
-                    <Divider />
-                    <button
-                      type="button"
-                      onClick={() => signOut.mutate(undefined, { onSuccess: () => navigate("/login", { replace: true }) })}
-                      className={ROW}
-                    >
-                      <RowIcon name="signOut" />
-                      <span className="flex-1">{copy.signOut}</span>
-                    </button>
-                  </>
-                )}
-              </motion.div>
-            </AnimatePresence>
+                  </motion.div>
+                </AnimatePresence>
+              </div>
+            </motion.div>
           </motion.div>
         ) : null}
       </AnimatePresence>

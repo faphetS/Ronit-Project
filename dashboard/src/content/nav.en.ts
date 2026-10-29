@@ -32,7 +32,7 @@ export const nav: Widen<typeof he> = {
   account: (name) => `${name}, account and settings`,
   back: "Back",
   accountMenu: {
-    label: "My account",
+    title: "Settings",
     profile: "My details",
     team: "Users and permissions",
     import: "Monday import",
@@ -44,6 +44,5 @@ export const nav: Widen<typeof he> = {
     save: "Save",
     saved: "Your details were saved",
     saveFailed: "Your details weren't saved. Please try again.",
-    nameMissing: "Enter your name",
   },
 };
