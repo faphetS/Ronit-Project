@@ -135,32 +135,6 @@
   color: var(--color-ink);
 }
 
-/* The bridge that joins the pill and the circle of a GooButton. Put it on the circle. It is centered on the
-   8px gap and reaches deep into both, so it stays joined while the circle leans 4px forward on hover. Each
-   mask layer cuts one curve across the whole bridge and only what both keep is drawn: two half-height
-   layers would leave a hairline seam at fractional zoom. */
-@utility goo-neck {
-  position: relative;
-  &::before {
-    content: "";
-    position: absolute;
-    top: 50%;
-    inset-inline-start: -22px;
-    width: 36px;
-    height: 30px;
-    margin-top: -15px;
-    background: inherit;
-    -webkit-mask:
-      radial-gradient(circle 12px at 50% -5px, #0000 96%, #000),
-      radial-gradient(circle 12px at 50% calc(100% + 5px), #0000 96%, #000);
-    -webkit-mask-composite: source-in;
-    mask:
-      radial-gradient(circle 12px at 50% -5px, #0000 96%, #000),
-      radial-gradient(circle 12px at 50% calc(100% + 5px), #0000 96%, #000);
-    mask-composite: intersect;
-  }
-}
-
 /* Background scene pieces. */
 @utility scene-glow {
   border-radius: 9999px;
