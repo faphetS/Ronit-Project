@@ -37,13 +37,13 @@ function RailItem({ to, icon, label, name, dot = false, active, register, onHove
       onPointerEnter={onHover}
       whileTap={{ scale: PRESS_SCALE }}
       transition={springs.ui}
-      className={cx("group relative z-10 grid size-10 place-items-center rounded-full transition-colors duration-300", active ? "text-ink" : "text-cream/55 hover:text-cream")}
+      className={cx("group relative z-10 grid size-12 place-items-center rounded-full transition-colors duration-300", active ? "text-ink" : "text-cream/55 hover:text-cream")}
     >
-      <Icon name={icon} />
-      {dot ? <span aria-hidden="true" className="absolute end-1.5 top-1.5 size-[7px] rounded-full bg-gold" /> : null}
+      <Icon name={icon} size={22} />
+      {dot ? <span aria-hidden="true" className="absolute end-2 top-2 size-2 rounded-full bg-gold" /> : null}
       <span
         aria-hidden="true"
-        className="pointer-events-none absolute start-full top-1/2 ms-4 -translate-y-1/2 rounded-full bg-paper px-3 py-1.5 text-small font-medium whitespace-nowrap text-ink opacity-0 shadow-button transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100 motion-reduce:transition-none"
+        className="pointer-events-none absolute start-full top-1/2 ms-6 -translate-y-1/2 rounded-full bg-paper px-3 py-1.5 text-small font-medium whitespace-nowrap text-ink opacity-0 shadow-button transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100 motion-reduce:transition-none"
       >
         {name}
       </span>
@@ -81,10 +81,10 @@ export function Rail({ items, active, newLeads }: RailProps) {
   });
 
   return (
-    <div className="relative z-20 flex w-[60px] shrink-0 flex-col items-center py-5">
-      <img src={logoUrl} alt={common.brandFull} className="size-11 object-contain" />
+    <div className="relative z-20 flex w-[88px] shrink-0 flex-col items-center py-6">
+      <img src={logoUrl} alt={common.brandFull} className="size-14 object-contain" />
       <div className="relative mt-14 mb-5 flex flex-1 flex-col items-center" onPointerLeave={() => setHover((last) => last && { ...last, on: false })}>
-        <nav aria-label={nav.main} className="flex flex-col items-center gap-3.5">
+        <nav aria-label={nav.main} className="flex flex-col items-center gap-[clamp(14px,3vh,24px)]">
           {DESKTOP_NAV.map((section) => {
             const name = nav.items[section.key];
             const fresh = section.key === "leads" && newLeads > 0;
