@@ -24,7 +24,7 @@ export function DesktopShell() {
         <div ref={panel} className="solid-ground relative z-10 my-3 me-3 flex min-w-0 flex-1 flex-col">
           <div className="mx-auto flex min-h-0 w-full max-w-[1440px] flex-1 flex-col ps-10 pe-7 pt-5">
             <TopBar notifications={badges.notifications} />
-            <main className="-mx-3 min-h-0 flex-1 overflow-y-auto px-3 pt-2 pb-9">
+            <main className="no-scrollbar -mx-3 min-h-0 flex-1 overflow-y-auto px-3 pt-2 pb-9">
               <AnimatedOutlet pageKey={desktopPageKey} />
             </main>
           </div>
