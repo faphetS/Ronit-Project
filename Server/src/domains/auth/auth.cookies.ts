@@ -3,8 +3,8 @@ import { CODE_MINUTES, GOOGLE_STEP_MINUTES, REMEMBERED_SESSION_DAYS } from "./au
 
 /**
  * The sign-in cookies. HttpOnly (page scripts can't read them), Secure, and the __Host- prefix
- * pins them to the API's own host. They reach the API from the dashboard only because
- * app.ronitbarash.site and api.ronitbarash.site are the same site.
+ * pins them to one host: the dashboard's. The browser never talks to this server directly;
+ * the dashboard's host (Vercel) passes /api/auth on to it, so the cookies are first-party there.
  */
 export const SESSION_COOKIE = "__Host-oh_session";
 export const CHALLENGE_COOKIE = "__Host-oh_challenge";

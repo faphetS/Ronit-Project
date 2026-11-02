@@ -234,7 +234,7 @@ Status of each integration. When a new decision is made, update this section and
   - Sign-in is "Continue with Google" (OIDC code flow with PKCE, from the server). Only a registered email gets in, and the first sign-in links that Google account.
   - On a device that isn't remembered, a 6-digit code is emailed over SMTP. "Remember me" skips it for 30 days.
   - Sessions are server-side, with an HttpOnly cookie. They end after 30 minutes without requests while the `auto_sign_out` switch is on.
-  - The dashboard moves to `app.ronitbarash.site`. On `*.vercel.app` the API's cookie is third-party, and Safari drops it.
+  - The browser never calls this server directly. The dashboard's Vercel host passes `/api/auth/*` on to `api.ronitbarash.site` (`dashboard/vercel.json`); the dashboard API's routes join it in step 2, so the cookies are first-party on the dashboard's host. That's `or-hatzadik-dashboard.vercel.app` for now and `app.ronitbarash.site` once the DNS can be changed.
 - **Code** ([domains/auth/](Server/src/domains/auth/), mounted at `/api/auth`):
   - [auth.service.ts](Server/src/domains/auth/auth.service.ts): the Google leg, the code, sessions and devices.
   - [staff-accounts.service.ts](Server/src/domains/auth/staff-accounts.service.ts): registering, resetting and disabling accounts.
@@ -251,9 +251,9 @@ Status of each integration. When a new decision is made, update this section and
   - also `reset-sign-in` (a replaced Google account or a lost phone) and `disable`.
 - **Env:**
   - `AUTH_SECRET` is 64 hex characters.
-  - `DASHBOARD_URL` is `https://app.ronitbarash.site`. It's added to CORS automatically.
-  - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are for the OAuth client, whose redirect URI is `<BACKEND_URL>/api/auth/google/callback`.
-  - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` and `MAIL_FROM` are for Resend's SMTP.
+  - `DASHBOARD_URL` is `https://or-hatzadik-dashboard.vercel.app` for now.
+  - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are for the OAuth client, whose redirect URI is `<DASHBOARD_URL>/api/auth/google/callback`.
+  - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` and `MAIL_FROM`: Gmail with an app password for now, Resend once its DNS records are in.
   - Sign-in answers 503 `SIGN_IN_UNAVAILABLE` until all of them and `DATABASE_URL` are set.
 - **Design:** [docs/superpowers/specs/2026-11-02-staff-sign-in-design.md](docs/superpowers/specs/2026-11-02-staff-sign-in-design.md).
 

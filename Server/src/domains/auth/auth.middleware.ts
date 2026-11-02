@@ -34,7 +34,9 @@ export async function authDepsFromEnv(): Promise<AuthDeps> {
   google ??= googleSignIn({
     clientId: GOOGLE_CLIENT_ID,
     clientSecret: GOOGLE_CLIENT_SECRET,
-    redirectUri: `${env.BACKEND_URL.replace(/\/+$/, "")}/api/auth/google/callback`,
+    // Through the dashboard's own address: Vercel passes /api/auth on to this server, so the
+    // sign-in cookies belong to the dashboard's site.
+    redirectUri: `${DASHBOARD_URL.replace(/\/+$/, "")}/api/auth/google/callback`,
   });
   return { db, secretKey: keyFromHex(AUTH_SECRET), dashboardUrl: DASHBOARD_URL, google, mailer, now: () => new Date() };
 }

@@ -21,9 +21,9 @@ This is step 1 of 2:
 | Who can get in | Only emails the office registered. No sign-up page | A small team, and passport data |
 | First step | "Continue with Google": OpenID Connect, authorization code with PKCE, run from the server | No passwords to forget, reset, guess or leak. Chosen in chat |
 | Second step | A 6-digit code by email, on a device that isn't remembered | Chosen in chat. Its limits are in section 11 |
-| Sending email | SMTP through Resend, from `no-reply@` on Ronit's domain | Resend's free plan covers 3,000 emails a month, 100 a day. Any SMTP account works the same |
-| How the browser stays signed in | An `HttpOnly` cookie set by `api.ronitbarash.site`, with server-side sessions | Page scripts can't read it, and a session can be ended from the server |
-| The dashboard's address | `app.ronitbarash.site` (a CNAME to Vercel) | The cookie is first-party only when the dashboard and the API share a site. On `*.vercel.app`, Safari drops it, and every iPhone runs Safari's engine |
+| Sending email | SMTP: Gmail with an app password for now. Resend, from `no-reply@` on Ronit's domain, once its DNS records can be added | Resend can't send to other people until its DNS records are on the domain. Switching providers is only a change of settings |
+| How the browser stays signed in | An `HttpOnly` cookie on the dashboard's own host, with server-side sessions. Vercel passes `/api/auth` on to the server (`dashboard/vercel.json`; the dashboard API joins it in step 2), so the browser only ever talks to the dashboard | Page scripts can't read it, and a session can be ended from the server. It works on any dashboard address |
+| The dashboard's address | `or-hatzadik-dashboard.vercel.app` for now; `app.ronitbarash.site` once the DNS can be changed | Decided in chat: no domain for now. With the Vercel routing, the cookie is first-party on either address |
 
 ## 3. How it works
 
@@ -72,7 +72,7 @@ POST /api/auth/sign-out
 
 **Cookies**
 
-All are `HttpOnly; Secure; Path=/`, and the `__Host-` prefix pins them to `api.ronitbarash.site`.
+All are `HttpOnly; Secure; Path=/`, and the `__Host-` prefix pins them to the dashboard's host. That's the only host the browser talks to.
 
 | Cookie | Holds | SameSite | Lifetime |
 |---|---|---|---|
@@ -87,11 +87,11 @@ All are `HttpOnly; Secure; Path=/`, and the `__Host-` prefix pins them to `api.r
 
 **Limits**
 - 5 wrong codes in a row lock the account for 15 minutes.
-- 30 code requests (checks and resends) per IP per 15 minutes, on top of the server's general `/api` limit.
+- 30 code requests (checks and resends) per IP per 15 minutes, on top of the server's general `/api` limit. Requests arrive through Vercel, so this counts everyone together. The per-account lockout is what stops guessing.
 
 **Requests from other sites**
 - State-changing requests to `/api/auth` must carry `Origin: <DASHBOARD_URL>`. Anything else gets 403 `ORIGIN_NOT_ALLOWED`.
-- This matters because n8n and anything else on `*.ronitbarash.site` counts as the same site for `SameSite`.
+- It's on top of `SameSite`, and stays right whatever address the dashboard has.
 - The callback always answers with a redirect to the dashboard, never with JSON. Failures arrive as `?error=` codes: `not-registered`, `google-failed`, `too-many-attempts`, `email-failed`, and `cancelled`, which shows nothing.
 
 **Access log** (`audit_log`)
@@ -137,7 +137,7 @@ docker exec root-crm-1 node dist/scripts/staff-user.js disable --email <email>
 - **The HTTP adapter:** `data/http/` holds a small `fetch` client (`credentials: "include"`) and the session adapter.
 - **Which services are live:**
   - `VITE_HTTP_SERVICES` lists the services that use the API (`session` now, `all` later). The rest stay on demo data.
-  - `VITE_API_URL` is the API's origin. When it's empty in development, Vite proxies `/api` to `VITE_API_PROXY` (default `http://localhost:3000`).
+  - `VITE_API_URL` stays empty, so the dashboard calls `/api` on its own address. Vercel passes `/api/auth` on to the server; Vite in development passes all of `/api`, to `VITE_API_PROXY` (default `http://localhost:3000`).
 
 **Until step 2:** the other screens stay on demo data, and only the session check reaches the server. So the automatic sign-out notices inactivity only when the page reloads or a session check runs.
 
@@ -146,32 +146,33 @@ docker exec root-crm-1 node dist/scripts/staff-user.js disable --email <email>
 | Variable | Where | Meaning |
 |---|---|---|
 | `AUTH_SECRET` | Server | 64 hex characters (`openssl rand -hex 32`). Seals the Google step's cookie and keys the codes |
-| `DASHBOARD_URL` | Server | `https://app.ronitbarash.site`: where sign-in lands, the origin check, and CORS (added to `ALLOWED_ORIGINS` automatically) |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Server | The OAuth client. Redirect URI: `<BACKEND_URL>/api/auth/google/callback` |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `MAIL_FROM` | Server | For Resend: `smtp.resend.com`, `465`, `resend`, the API key, and `אור הצדיק <no-reply@ronitbarash.site>` |
-| `VITE_API_URL` | Dashboard | `https://api.ronitbarash.site` |
+| `DASHBOARD_URL` | Server | `https://or-hatzadik-dashboard.vercel.app` for now: where sign-in lands, and the origin check |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Server | The OAuth client. Redirect URI: `<DASHBOARD_URL>/api/auth/google/callback` |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `MAIL_FROM` | Server | Gmail for now: `smtp.gmail.com`, `465`, the address, its app password, and `אור הצדיק <the address>`. Resend later: `smtp.resend.com`, `465`, `resend`, the API key |
+| `VITE_API_URL` | Dashboard | empty (calls `/api` on the dashboard's own address) |
 | `VITE_HTTP_SERVICES` | Dashboard | `session` |
 
 Sign-in answers 503 `SIGN_IN_UNAVAILABLE` until the server has `DATABASE_URL` and all of the server settings above. Nothing else in the server changes.
 
 ## 9. Going live
 
-1. **DNS** (Ronit's Hostinger panel):
-   - a CNAME `app` pointing to `cname.vercel-dns.com`;
-   - the records Resend gives for the sending domain (SPF, DKIM, and an MX for bounces).
-2. **Google Cloud,** under a Google account the business keeps:
-   - set up the OAuth consent screen, External, app name "אור הצדיק", scopes `openid email profile`, then publish it;
-   - create an OAuth client ID of type Web application, with the redirect URI `https://api.ronitbarash.site/api/auth/google/callback`.
-3. **Resend:** create an account, add and verify the domain, create an API key.
-4. **Vercel:**
-   - add `app.ronitbarash.site` to the project;
-   - redirect `or-hatzadik-dashboard.vercel.app` to it;
-   - set `VITE_API_URL` and `VITE_HTTP_SERVICES` for production.
-5. **VPS:**
+**Now, without the domain**
+
+1. **Google Cloud,** under a Google account the business keeps:
+   - set up the Google Auth Platform: app name "Or HaTzadik", audience External, then **Publish app**;
+   - create a client of type Web application, with the redirect URIs `https://or-hatzadik-dashboard.vercel.app/api/auth/google/callback` and `https://app.ronitbarash.site/api/auth/google/callback`.
+2. **Gmail for the codes:** in the same account, turn on 2-Step Verification and create an app password.
+3. **VPS:**
    - back up `Server/.env`;
    - add the server settings from section 8;
    - `git pull`, then `docker compose up -d --build crm`. Migration 002 applies at startup.
-6. **Ronit's account:** `staff-user.js invite … --role admin --passport-access`. She gets the email and signs in with Google.
+4. **Vercel:** set `VITE_HTTP_SERVICES=session` for production, then deploy. `dashboard/vercel.json` already passes `/api/auth` to the server.
+5. **Ronit's account:** `staff-user.js invite … --role admin --passport-access`. She gets the email and signs in with Google.
+
+**Later, with the domain**
+
+1. **DNS** (Ronit's Hostinger panel): the CNAME `app` pointing to Vercel's target, plus Resend's records.
+2. Point `DASHBOARD_URL` at `https://app.ronitbarash.site`, and switch the `SMTP_*` settings to Resend.
 
 ## 10. Testing
 
@@ -199,6 +200,6 @@ Sign-in answers 503 `SIGN_IN_UNAVAILABLE` until the server has `DATABASE_URL` an
 ## 11. Known limits
 
 - **The emailed code adds little protection.** For someone who signs in with a Gmail account, the code goes to that same Google account, so whoever has the Google account also gets the code. It still blocks a sign-in from a device where the person isn't signed in to their mailbox. The authenticator-app alternative was offered and declined.
-- **"Remember me" on iPhones:** Safari caps cookies from an API whose IP differs from the dashboard's host at 7 days, so there it lasts up to 7 days, not 30.
+- **The server sees Vercel, not each visitor,** because requests come through Vercel's routing. Per-IP limits count everyone together, and the server's logs show Vercel's addresses.
 - **Each person needs a Google account under the registered email.** Any email address can be made into one.
 - **No passkeys yet.** Adding them later needs the stable `app.ronitbarash.site` address this step sets up.

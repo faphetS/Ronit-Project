@@ -438,11 +438,12 @@ const envSchema = z.object({
     (v) => (v === "" ? undefined : v),
     z.string().regex(/^[0-9a-f]{64}$/i, "AUTH_SECRET must be 64 hex characters").optional(),
   ),
-  // Where the dashboard runs (https://app.ronitbarash.site): where sign-in lands, the only
-  // Origin allowed to change anything under /api/auth, and added to CORS automatically.
+  // Where the dashboard runs (https://or-hatzadik-dashboard.vercel.app for now): where sign-in
+  // lands, and the only Origin allowed to change anything under /api/auth. The dashboard's host
+  // passes /api/auth on to this server (dashboard/vercel.json), so the browser stays on one site.
   DASHBOARD_URL: z.preprocess((v) => (v === "" ? undefined : v), z.string().url().optional()),
   // The Google OAuth client (Web application). Its redirect URI must be
-  // <BACKEND_URL>/api/auth/google/callback.
+  // <DASHBOARD_URL>/api/auth/google/callback.
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   // SMTP for the sign-in codes and invites, e.g. Resend: smtp.resend.com, 465, user "resend",
