@@ -4,7 +4,13 @@ import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  server: { port: 5180, strictPort: true },
+  server: {
+    port: 5180,
+    strictPort: true,
+    // With VITE_API_URL empty, the dashboard calls /api on its own origin; this sends it to a
+    // server running locally (VITE_API_PROXY overrides), so the sign-in cookie stays first-party.
+    proxy: { "/api": { target: process.env.VITE_API_PROXY ?? "http://localhost:3000", changeOrigin: true } },
+  },
   preview: { port: 5180, strictPort: true },
   test: {
     environment: "jsdom",

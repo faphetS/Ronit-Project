@@ -1,7 +1,18 @@
 import { leadsCopy } from "../../content/leads.he";
 import { addDays, daysBetween, isoDay, now as demoNow, weekStart } from "../../lib/clock";
 import { isOpenLead } from "../rules";
-import { NotFoundError, ServiceUnavailableError, type LeadCounts, type LeadFilters, type ServiceName, type Services } from "../services";
+import {
+  NotFoundError,
+  ServiceUnavailableError,
+  SignInError,
+  type LeadCounts,
+  type LeadFilters,
+  type ServiceName,
+  type Services,
+  type GoogleCredentialResult,
+  type GoogleStart,
+  type SignedIn,
+} from "../services";
 import type { AuditEntry, Database, Lead, LeadStatus, OverviewStats, Session, StaffUser } from "../types";
 import { createBirthdaysMock } from "./birthdaysMock";
 import type { AuditInput, MockContext } from "./context";
@@ -51,6 +62,9 @@ export function createMockServices(options: MockOptions = {}): Services {
   const storage = options.storage ?? window.sessionStorage;
   const clock = options.now ?? demoNow;
   let auditSerial = 0;
+  /** Whether "Continue with Google" went through and the code is next, and where to land after it. */
+  let awaitingCode = false;
+  let pendingReturnTo = "/";
 
   /** Waits like a network call, fails when asked to, and never hands out internal objects. */
   async function respond<T>(service: ServiceName, produce: () => T): Promise<T> {
@@ -110,6 +124,7 @@ export function createMockServices(options: MockOptions = {}): Services {
   }
 
   return {
+    // Like the real sign-in: "Continue with Google" (no Google here), then a code (any 6 digits).
     session: {
       async current() {
         if (failing.has("session")) throw new ServiceUnavailableError("session");
@@ -118,12 +133,37 @@ export function createMockServices(options: MockOptions = {}): Services {
         const user = state.users.find((u) => u.id === session.userId);
         return user ? { session, user: structuredClone(user) } : null;
       },
-      signIn: (email, password) =>
+      startGoogle: ({ returnTo }) =>
+        respond("session", (): GoogleStart => {
+          awaitingCode = true;
+          pendingReturnTo = returnTo;
+          return { step: "code-required" };
+        }),
+      googleNonce: () => respond("session", () => "demo-nonce"),
+      googleCredential: (_credential, { returnTo }) =>
+        respond("session", (): GoogleCredentialResult => {
+          awaitingCode = true;
+          pendingReturnTo = returnTo;
+          return { step: "code-required" };
+        }),
+      pendingCode: () =>
         respond("session", () => {
-          if (!email.trim() || !password) throw new Error("missing-credentials");
+          if (!awaitingCode) return null;
+          const email = state.users.find((u) => u.id === DEMO_USER_ID)?.email ?? "ronit@example.com";
+          return { email: `${email[0]}***${email.slice(email.indexOf("@"))}` };
+        }),
+      resendCode: () =>
+        respond("session", () => {
+          if (!awaitingCode) throw new SignInError("step-expired");
+        }),
+      verifyCode: (code) =>
+        respond("session", () => {
+          if (!awaitingCode) throw new SignInError("step-expired");
+          if (!/^\d{6}$/.test(code)) throw new SignInError("invalid-code");
+          awaitingCode = false;
           const session: Session = { userId: DEMO_USER_ID, signedInAt: clock().toISOString() };
           storage.setItem(SESSION_KEY, JSON.stringify(session));
-          return { session, user: findUser(session.userId) };
+          return { signedIn: { session, user: findUser(session.userId) } satisfies SignedIn, returnTo: pendingReturnTo };
         }),
       async signOut() {
         storage.removeItem(SESSION_KEY);

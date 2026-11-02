@@ -3,5 +3,8 @@
   "framework": "vite",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "rewrites": [
+    { "source": "/api/auth/(.*)", "destination": "https://api.ronitbarash.site/api/auth/$1" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
 }

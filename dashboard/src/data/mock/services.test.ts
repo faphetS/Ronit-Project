@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { dayAt } from "../../lib/clock";
-import { NotFoundError, ServiceUnavailableError } from "../services";
+import { NotFoundError, ServiceUnavailableError, SignInError } from "../services";
 import { createMockServices, failingFromSearch, latencyFromEnv, type MockOptions } from "./createMockServices";
 import { createDatabase } from "./generate";
 
@@ -8,12 +8,18 @@ const db = createDatabase({ seed: 5787, today: dayAt("2026-10-28") });
 const make = (options: MockOptions = {}) => createMockServices({ db, latency: [0, 0], now: () => dayAt("2026-10-28", "15:30"), ...options });
 
 describe("mock services", () => {
-  it("signs in with any credentials and remembers the session", async () => {
+  it("signs in like the real sign-in: Google, then any 6 digits", async () => {
     const services = make();
     expect(await services.session.current()).toBeNull();
-    await expect(services.session.signIn("", "x")).rejects.toThrow("missing-credentials");
-    const { user } = await services.session.signIn("ronit@example.com", "secret");
-    expect(user.name).toBe("רונית ברש");
+    expect(await services.session.pendingCode()).toBeNull();
+    await expect(services.session.verifyCode("123456")).rejects.toEqual(new SignInError("step-expired"));
+    expect(await services.session.startGoogle({ remember: true, returnTo: "/" })).toEqual({ step: "code-required" });
+    expect(await services.session.pendingCode()).toEqual({ email: expect.stringMatching(/^\w\*\*\*@/) });
+    await services.session.resendCode();
+    await expect(services.session.verifyCode("12345")).rejects.toEqual(new SignInError("invalid-code"));
+    const { signedIn, returnTo } = await services.session.verifyCode("123456");
+    expect(signedIn.user.name).toBe("רונית ברש");
+    expect(returnTo).toBe("/");
     expect((await services.session.current())?.user.id).toBe("u-ronit");
     await services.session.signOut();
     expect(await services.session.current()).toBeNull();

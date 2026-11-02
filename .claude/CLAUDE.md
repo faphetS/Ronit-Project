@@ -23,6 +23,7 @@ Backend-only automation for an Israeli religious-influencer client. Ingests lead
   - `meta/` — Instagram DM webhook ingest, HMAC verification, lead classification (fully implemented)
   - `monday/` — GraphQL client + lead-row creation service (partially implemented — no webhook handler yet)
   - `passports/`, `greetings/` — the dashboard's automations on the Postgres CRM database (see Database and "Passports + greetings" below)
+  - `auth/` — staff sign-in for the dashboard, at `/api/auth` (see "Staff sign-in" below)
 - [Server/src/db/](Server/src/db/) — Postgres CRM database: migrations, runner, startup, PGlite test helper
 - [Server/scripts/](Server/scripts/) — utility scripts (`inspect-monday.ts`, `restructure-monday.ts`)
 - [rawNote.md](rawNote.md) — original business requirements notes
@@ -207,7 +208,7 @@ Status of each integration. When a new decision is made, update this section and
   - [config/pg.ts](Server/src/config/pg.ts): `getCrmDb()` returns null without `DATABASE_URL`.
   - [db/migrations/](Server/src/db/migrations/): TypeScript modules, since tsc copies only `.ts`.
   - [db/migrate.ts](Server/src/db/migrate.ts): runs at startup under an advisory lock.
-  - [db/startup.ts](Server/src/db/startup.ts): `startCrmAutomations()` never throws, so a missing or broken database leaves every other flow untouched.
+  - [db/startup.ts](Server/src/db/startup.ts): `crmDatabase()` resolves once the migrations are applied, or to null when the database is off or broken. It never rejects, so a missing or broken database leaves every other flow untouched. `startCrmAutomations()` and sign-in both wait on it.
   - Tests run the SQL on PGlite ([db/test-db.ts](Server/src/db/test-db.ts)).
 - **Env:** `DATABASE_URL=postgres://ronit:<password>@postgres:5432/ronit`. An empty value counts as unset.
 - **Design:** [docs/superpowers/specs/2026-11-02-automation-foundation-design.md](docs/superpowers/specs/2026-11-02-automation-foundation-design.md).
@@ -226,6 +227,35 @@ Status of each integration. When a new decision is made, update this section and
   - A `scheduled` holiday campaign is queued at its rate (50 every 10 minutes).
   - An outbox sends every minute through `GREETINGS_CHANNEL`: `dry-run`, which only logs and marks messages skipped (test data only), or `gateway`, which goes through `RONIT_WA_ALLOWED_NUMBERS` like the Uman flows.
   - Nothing is ever sent twice; an interrupted send is marked failed, never resent.
+
+### Staff sign-in (the dashboard)
+- **Decision (2026-11-02):**
+  - Staff accounts live in `staff_users` and are registered by the office. There's no sign-up and no passwords.
+  - Sign-in is Google's own button (Google Identity Services: "Continue as …", Google's pop-up picker), and the server checks the ID token against Google's signing keys. A server-run OIDC code flow with PKCE is the fallback. Only a registered email gets in, and the first sign-in links that Google account.
+  - On a device that isn't remembered, a 6-digit code is emailed over SMTP. "Remember me" skips it for 30 days.
+  - Sessions are server-side, with an HttpOnly cookie. They end after 30 minutes without requests while the `auto_sign_out` switch is on.
+  - The browser never calls this server directly. The dashboard's Vercel host passes `/api/auth/*` on to `api.ronitbarash.site` (`dashboard/vercel.json`); the dashboard API's routes join it in step 2, so the cookies are first-party on the dashboard's host. That's `or-hatzadik-dashboard.vercel.app` for now and `app.ronitbarash.site` once the DNS can be changed.
+- **Code** ([domains/auth/](Server/src/domains/auth/), mounted at `/api/auth`):
+  - [auth.service.ts](Server/src/domains/auth/auth.service.ts): the Google leg, the code, sessions and devices.
+  - [staff-accounts.service.ts](Server/src/domains/auth/staff-accounts.service.ts): registering, resetting and disabling accounts.
+  - [auth.emails.ts](Server/src/domains/auth/auth.emails.ts): the Hebrew emails.
+  - `requireStaff` in [auth.middleware.ts](Server/src/domains/auth/auth.middleware.ts) guards the dashboard API routes that come next.
+  - Building blocks in `lib/`: [google-oidc.ts](Server/src/lib/google-oidc.ts), [mailer.ts](Server/src/lib/mailer.ts) (nodemailer), [secret-box.ts](Server/src/lib/secret-box.ts) (AES-GCM) and [tokens.ts](Server/src/lib/tokens.ts).
+  - The database stores only token hashes, and codes as HMACs keyed with `AUTH_SECRET`.
+- **Protection:**
+  - 5 wrong codes lock the account for 15 minutes.
+  - Each IP gets 30 code requests per 15 minutes.
+  - Every state-changing `/api/auth` request must carry `Origin: DASHBOARD_URL`, because n8n on a sibling subdomain counts as the same site.
+- **Accounts from the console**, until the users screen is connected:
+  - `docker exec root-crm-1 node dist/scripts/staff-user.js invite --email … --name "…" --role admin|office|sales [--passport-access]`
+  - also `reset-sign-in` (a replaced Google account or a lost phone) and `disable`.
+- **Env:**
+  - `AUTH_SECRET` is 64 hex characters.
+  - `DASHBOARD_URL` is `https://or-hatzadik-dashboard.vercel.app` for now.
+  - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are for the OAuth client, whose redirect URI is `<DASHBOARD_URL>/api/auth/google/callback`.
+  - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` and `MAIL_FROM`: Gmail with an app password for now, Resend once its DNS records are in.
+  - Sign-in answers 503 `SIGN_IN_UNAVAILABLE` until all of them and `DATABASE_URL` are set.
+- **Design:** [docs/superpowers/specs/2026-11-02-staff-sign-in-design.md](docs/superpowers/specs/2026-11-02-staff-sign-in-design.md).
 
 ### Hosting
 - **Decision:** Hostinger VPS (locked — client-provided)

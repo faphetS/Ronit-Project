@@ -7,6 +7,7 @@ import type { AudienceOption, BirthdaySettings, Customer, HolidayCampaign, Impor
 
 export const queryKeys = {
   session: ["session"] as const,
+  pendingCode: ["sign-in", "code"] as const,
   leads: (filters: LeadFilters) => ["leads", "list", filters] as const,
   leadCounts: ["leads", "counts"] as const,
   lead: (id: string) => ["leads", "detail", id] as const,
@@ -66,12 +67,43 @@ export function useSession() {
   return useQuery({ queryKey: queryKeys.session, queryFn: () => session.current() });
 }
 
-export function useSignIn() {
+/** "Continue with Google": the screen follows `redirectTo`, or (on the demo data) goes to the code. */
+export function useStartGoogle() {
+  const { session } = useServices();
+  return useMutation({ mutationFn: (options: { remember: boolean; returnTo: string }) => session.startGoogle(options) });
+}
+
+/** The answer from Google's own button. Signing in on a remembered device puts the session straight into the cache. */
+export function useGoogleCredential() {
   const { session } = useServices();
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ email, password }: { email: string; password: string }) => session.signIn(email, password),
-    onSuccess: (signedIn) => client.setQueryData(queryKeys.session, signedIn),
+    mutationFn: ({ credential, remember, returnTo }: { credential: string; remember: boolean; returnTo: string }) =>
+      session.googleCredential(credential, { remember, returnTo }),
+    onSuccess: (result) => {
+      if (result.step === "signed-in") client.setQueryData(queryKeys.session, result.signedIn);
+    },
+  });
+}
+
+/** The code waiting after Google, read fresh each time the code step opens. */
+export function usePendingCode(enabled: boolean) {
+  const { session } = useServices();
+  return useQuery({ queryKey: queryKeys.pendingCode, queryFn: () => session.pendingCode(), enabled, retry: false, staleTime: 0, gcTime: 0 });
+}
+
+export function useResendCode() {
+  const { session } = useServices();
+  return useMutation({ mutationFn: () => session.resendCode() });
+}
+
+/** The 6-digit code from the email. Signing in puts the session straight into the cache. */
+export function useVerifyCode() {
+  const { session } = useServices();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (code: string) => session.verifyCode(code),
+    onSuccess: ({ signedIn }) => client.setQueryData(queryKeys.session, signedIn),
   });
 }
 

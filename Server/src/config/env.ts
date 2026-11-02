@@ -428,6 +428,32 @@ const envSchema = z.object({
   // Sends per minute at most, and the pause between them (anti-ban pacing).
   GREETINGS_MAX_PER_RUN: z.coerce.number().int().min(1).default(10),
   GREETINGS_PACING_MS: z.coerce.number().int().min(0).default(3000),
+
+  // --- Staff sign-in for the dashboard: Google, then a code by email ---
+  // Sign-in answers 503 until DATABASE_URL, AUTH_SECRET, DASHBOARD_URL, the Google client and
+  // SMTP are all set.
+  // 64 hex characters (openssl rand -hex 32). Seals the cookie that carries the Google step
+  // and keys the emailed codes.
+  AUTH_SECRET: z.preprocess(
+    (v) => (v === "" ? undefined : v),
+    z.string().regex(/^[0-9a-f]{64}$/i, "AUTH_SECRET must be 64 hex characters").optional(),
+  ),
+  // Where the dashboard runs (https://or-hatzadik-dashboard.vercel.app for now): where sign-in
+  // lands, and the only Origin allowed to change anything under /api/auth. The dashboard's host
+  // passes /api/auth on to this server (dashboard/vercel.json), so the browser stays on one site.
+  DASHBOARD_URL: z.preprocess((v) => (v === "" ? undefined : v), z.string().url().optional()),
+  // The Google OAuth client (Web application). Its redirect URI must be
+  // <DASHBOARD_URL>/api/auth/google/callback.
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  // SMTP for the sign-in codes and invites, e.g. Resend: smtp.resend.com, 465, user "resend",
+  // the API key as the password. Port 465 is TLS from the start; 587 upgrades with STARTTLS.
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().default(465),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASSWORD: z.string().optional(),
+  // The sender, e.g. "אור הצדיק <no-reply@ronitbarash.site>" (the domain must be verified at the provider).
+  MAIL_FROM: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

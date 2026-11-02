@@ -1,127 +1,113 @@
-import { motion } from "motion/react";
-import { useState, type FormEvent } from "react";
-import { useLocation, useNavigate } from "react-router";
-import { useShell } from "../../app/useShell";
-import logoUrl from "../../assets/logo.png";
-import { useCopy } from "../../content/locale";
-import { useSignIn } from "../../data/queries";
-import { today } from "../../lib/clock";
-import { staggerVariants } from "../../motion/variants";
-import { Field } from "../../ui/Field";
-import { GooButton } from "../../ui/GooButton";
+import { useCallback, useState } from "react";
+import { useLocation, useNavigate, useSearchParams } from "react-router";
+import { useCopy, useLocale } from "../../content/locale";
+import { useGoogleCredential, useStartGoogle } from "../../data/queries";
+import { SIGN_IN_ERRORS } from "../../data/services";
+import { useServices } from "../../data/services-context";
 import { Headline } from "../../ui/Headline";
-import { LanguageSwitch } from "../../ui/LanguageSwitch";
-import { Scene } from "../../ui/Scene";
-import { Surface } from "../../ui/Surface";
-import { TodayCard } from "../shared/TodayCard";
+import { EmailCodeStage } from "./EmailCodeStage";
+import { GoogleButton } from "./GoogleButton";
+import { GoogleIdentityButton } from "./GoogleIdentityButton";
+import { SignInLayout } from "./SignInLayout";
+import { signInMessage } from "./signInMessage";
 
-type Notice = "forgot" | "help" | null;
+/** Set in production: Google's own button. Unset (the demo, tests): our button, which skips Google on the demo data. */
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "";
 
-// The demo takes any email and password, or none: the button alone signs in as Ronit.
-const DEMO_EMAIL = "ronit@orhazadik.online";
-const DEMO_PASSWORD = "demo";
-
-/** Sign in, composed like the reference: the frosted card, the black card and the tall orb card. */
+/**
+ * Sign in: Google's own "Continue as …" button for the email the office registered, then, on a
+ * device that isn't remembered, the 6-digit code from the email. When Google's button can't
+ * load, our button goes through Google by redirect instead, and the API sends the browser back
+ * to /login?step=code, or /login?error=… when it didn't work.
+ */
 export function SignInScreen() {
-  const { common, signIn: copy } = useCopy();
-  const phone = useShell() === "phone";
+  const { signIn: copy } = useCopy();
+  const { locale } = useLocale();
+  const { session } = useServices();
   const navigate = useNavigate();
   const location = useLocation();
-  const signInMutation = useSignIn();
-  const [notice, setNotice] = useState<Notice>(null);
+  const [params] = useSearchParams();
+  const startGoogle = useStartGoogle();
+  const googleCredential = useGoogleCredential();
+  const [stage, setStage] = useState<"google" | "code">(params.get("step") === "code" ? "code" : "google");
+  const [remember, setRemember] = useState(true);
+  const [googleButtonFailed, setGoogleButtonFailed] = useState(false);
+  // A new key renders Google's button again, with a fresh nonce.
+  const [googleButtonKey, setGoogleButtonKey] = useState(0);
+  const [message, setMessage] = useState(() => {
+    // "cancelled" (backing out of Google's page) isn't in the list, so it says nothing.
+    const code = SIGN_IN_ERRORS.find((known) => known === params.get("error"));
+    return code ? copy.errors[code] : "";
+  });
   const returnTo = (location.state as { from?: string } | null)?.from ?? "/";
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const email = String(form.get("email") ?? "").trim() || DEMO_EMAIL;
-    const password = String(form.get("password") ?? "") || DEMO_PASSWORD;
-    signInMutation.mutate({ email, password }, { onSuccess: () => navigate(returnTo, { replace: true }) });
+  const beginRedirect = () => {
+    setMessage("");
+    startGoogle.mutate(
+      { remember, returnTo },
+      {
+        onSuccess: (start) => {
+          if ("redirectTo" in start) window.location.assign(start.redirectTo);
+          else setStage("code");
+        },
+        onError: (error) => setMessage(signInMessage(copy, error)),
+      },
+    );
   };
 
-  const message = signInMutation.isError ? copy.failed : notice === "forgot" ? copy.forgotNotice : notice === "help" ? copy.helpNotice : "";
+  const getNonce = useCallback(() => session.googleNonce(), [session]);
+  const fallBack = useCallback(() => setGoogleButtonFailed(true), []);
+  const onCredential = useCallback(
+    (credential: string) => {
+      setMessage("");
+      googleCredential.mutate(
+        { credential, remember, returnTo },
+        {
+          onSuccess: (result) => {
+            if (result.step === "signed-in") navigate(result.returnTo, { replace: true });
+            else setStage("code");
+          },
+          onError: (error) => {
+            setMessage(signInMessage(copy, error));
+            setGoogleButtonKey((key) => key + 1);
+          },
+        },
+      );
+    },
+    [googleCredential, remember, returnTo, navigate, copy],
+  );
+
+  const restart = useCallback((notice = "") => {
+    setStage("google");
+    setMessage(notice);
+  }, []);
 
   return (
-    <div className="relative min-h-dvh overflow-x-hidden">
-      <Scene preset={phone ? "phone" : "login"} />
-      <LanguageSwitch className="absolute end-4 top-4 z-10 lg:end-6 lg:top-6" />
-      <motion.main
-        initial="initial"
-        animate="enter"
-        variants={staggerVariants}
-        className="relative flex min-h-dvh flex-col items-center justify-center gap-4 px-[18px] py-10 lg:grid lg:grid-cols-[440px_380px] lg:content-center lg:items-stretch lg:gap-5 lg:px-5 lg:py-8"
-      >
-        <img src={logoUrl} alt={common.brandFull} className="w-24 lg:hidden" />
-        <div className="flex w-full max-w-[440px] flex-col gap-4 lg:gap-5">
-          <Surface variant="glass" compact={phone} aria-label={copy.title} className="lg:px-[30px] lg:pt-[26px] lg:pb-[26px]">
-            <div className="flex items-center justify-between">
-              <p className="text-mute-2">{copy.brand}</p>
-              <button type="button" onClick={() => setNotice("help")} className="text-small font-medium text-ink underline decoration-ink/30 underline-offset-4">
-                {copy.help}
-              </button>
-            </div>
-            <Headline title={copy.title} size="display-3" className="mt-5 mb-4" />
-            <form onSubmit={submit} noValidate className="flex flex-col gap-4">
-              <Field label={copy.email} icon="at" name="email" type="email" autoComplete="username" />
-              <Field
-                label={copy.password}
-                icon="key"
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                trailing={
-                  <button type="button" onClick={() => setNotice("forgot")} className="inline-flex h-[42px] items-center rounded-full bg-paper px-4 text-small font-medium text-ink">
-                    {copy.forgot}
-                  </button>
-                }
-              />
-              <div className="flex items-center justify-between gap-4">
-                <label className="flex items-center gap-2.5 px-2 text-small text-mute-2">
-                  <input type="checkbox" name="remember" defaultChecked className="size-[18px] accent-ink" />
-                  {copy.remember}
-                </label>
-                <GooButton type="submit" disabled={signInMutation.isPending}>
-                  {copy.submit}
-                </GooButton>
-              </div>
-            </form>
-            <p role="status" className="mt-3 text-center text-caption text-ink empty:mt-0">
-              {message}
-            </p>
-          </Surface>
-          <Surface variant="ink" compact={phone} aria-label={copy.allInOne.title} className="flex flex-1 flex-col justify-between gap-4 lg:min-h-[220px]">
-            <Headline title={copy.allInOne.title} soft={copy.allInOne.soft} size="display-3" level={2} onDark />
-            <p className="hidden text-end text-small text-ink-mute lg:block">{copy.allInOne.line}</p>
-          </Surface>
-        </div>
-        <div className="hidden w-[380px] lg:block">
-          <TodayCard
-            day={today()}
-            label={copy.today}
-            size="tall"
-            className="h-full"
-            footer={
-              <>
-                <p className="text-small text-copy">{copy.greetingsOnTheWay}</p>
-                <span className="flex-1" />
-                <img src={logoUrl} alt="" className="w-[84px] self-center" />
-              </>
-            }
-            side={
-              <>
-                <p className="text-small text-mute">
-                  {copy.system.first}
-                  <br />
-                  {copy.system.second}
-                </p>
-                <a href={copy.site.url} className="text-caption font-medium text-ink underline decoration-ink/30 underline-offset-4">
-                  {copy.site.label}
-                </a>
-              </>
-            }
-          />
-        </div>
-      </motion.main>
-    </div>
+    <SignInLayout label={copy.title} message={message} onHelp={() => setMessage(copy.helpNotice)}>
+      {stage === "google" ? (
+        <>
+          <Headline title={copy.title} size="display-3" className="mt-5 mb-2" />
+          <p className="mb-5 text-small text-copy">{copy.intro}</p>
+          {GOOGLE_CLIENT_ID && !googleButtonFailed ? (
+            <GoogleIdentityButton
+              key={googleButtonKey}
+              clientId={GOOGLE_CLIENT_ID}
+              locale={locale}
+              getNonce={getNonce}
+              onCredential={onCredential}
+              onUnavailable={fallBack}
+            />
+          ) : (
+            <GoogleButton label={copy.google} onClick={beginRedirect} disabled={startGoogle.isPending} />
+          )}
+          <label className="mt-4 flex items-center gap-2.5 px-2 text-small text-mute-2">
+            <input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} className="size-[18px] accent-ink" />
+            {copy.remember}
+          </label>
+        </>
+      ) : (
+        <EmailCodeStage onSignedIn={(to) => navigate(to, { replace: true })} onMessage={setMessage} onRestart={restart} />
+      )}
+    </SignInLayout>
   );
 }

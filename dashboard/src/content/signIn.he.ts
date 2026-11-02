@@ -1,12 +1,12 @@
+import type { SignInErrorCode } from "../data/services";
+
 export const signIn = {
   brand: "אור הצדיק",
   help: "צריכים עזרה?",
   title: "כניסה",
-  email: "כתובת אימייל",
-  password: "סיסמה",
-  forgot: "שכחתי",
+  intro: "נכנסים עם חשבון ה-Google שהמשרד רשם.",
+  google: "המשך עם Google",
   remember: "לזכור אותי",
-  submit: "כניסה",
   allInOne: {
     title: "הכל במקום אחד",
     soft: "לידים, דרכונים וברכות",
@@ -16,7 +16,25 @@ export const signIn = {
   site: { label: "orhazadik.online", url: "https://orhazadik.online" },
   today: "היום",
   greetingsOnTheWay: "הברכות לחג כבר בדרך",
-  forgotNotice: "שלחנו קישור לאיפוס הסיסמה לכתובת האימייל.",
   helpNotice: "אפשר לפנות למשרד בוואטסאפ או בטלפון.",
   failed: "לא הצלחנו להיכנס. כדאי לנסות שוב.",
+  errors: {
+    "not-registered": "החשבון הזה לא רשום במערכת. אפשר לבקש מהמשרד להוסיף אותו.",
+    "google-failed": "הכניסה עם Google לא הושלמה. כדאי לנסות שוב.",
+    "too-many-attempts": "היו יותר מדי ניסיונות. אפשר לנסות שוב בעוד רבע שעה.",
+    "invalid-code": "הקוד לא נכון. כדאי לבדוק במייל ולנסות שוב.",
+    "step-expired": "עבר יותר מדי זמן. צריך להיכנס שוב.",
+    "email-failed": "לא הצלחנו לשלוח את הקוד במייל. כדאי לנסות שוב בעוד רגע.",
+    "resend-too-soon": "אפשר לבקש קוד חדש דקה אחרי הקודם.",
+    unavailable: "הכניסה לא זמינה כרגע. כדאי לנסות שוב מאוחר יותר.",
+  } satisfies Record<SignInErrorCode, string>,
+  code: {
+    title: "קוד אימות",
+    sentTo: (email: string) => `שלחנו קוד בן 6 ספרות אל ${email}. הקוד תקף ל-10 דקות.`,
+    label: "קוד בן 6 ספרות",
+    submit: "כניסה",
+    resend: "שליחה מחדש",
+    resent: "שלחנו קוד חדש.",
+    back: "חזרה",
+  },
 } as const;

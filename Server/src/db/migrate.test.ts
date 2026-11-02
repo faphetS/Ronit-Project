@@ -31,12 +31,27 @@ describe("migrate", () => {
       "passport_intakes",
       "passports",
       "schema_migrations",
+      "security_settings",
+      "staff_devices",
+      "staff_sessions",
+      "staff_sign_in_challenges",
       "staff_users",
     ]);
   });
 
   it("applies nothing the second time", async () => {
     expect(await migrate(db)).toEqual([]);
+  });
+
+  it("starts with every security switch on and a 30-minute automatic sign-out", async () => {
+    const { rows } = await db.query("SELECT two_step_required, mask_passport_numbers, auto_sign_out, auto_sign_out_minutes, passport_access_log FROM security_settings");
+    expect(rows).toEqual([
+      { two_step_required: true, mask_passport_numbers: true, auto_sign_out: true, auto_sign_out_minutes: 30, passport_access_log: true },
+    ]);
+  });
+
+  it("keeps staff emails lowercase", async () => {
+    await expect(db.query("INSERT INTO staff_users (email, name, role) VALUES ('Ronit@Example.com', 'רונית', 'admin')")).rejects.toThrow();
   });
 
   it("starts with birthdays off and the after-Shabbat rule", async () => {
