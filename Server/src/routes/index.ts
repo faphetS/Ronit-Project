@@ -1,5 +1,6 @@
 import express from "express";
 import authRoutes from "../domains/auth/auth.routes.js";
+import dashboardRoutes from "../domains/dashboard/dashboard.routes.js";
 import metaRoutes from "../domains/meta/meta.routes.js";
 import mondayRoutes from "../domains/monday/monday.routes.js";
 import callRoutes from "../domains/calls/calls.routes.js";
@@ -14,5 +15,6 @@ router.use("/calls", callRoutes);
 router.use("/whatsapp", whatsappRoutes);
 router.use("/website", websiteRoutes);
 router.use("/auth", authRoutes);
+router.use("/dashboard", dashboardRoutes);
 
 export default router;
