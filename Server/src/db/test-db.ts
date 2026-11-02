@@ -26,7 +26,7 @@ export const TEST_DB_TIMEOUT_MS = 60_000;
 
 export interface TestDb extends Db {
   close(): Promise<void>;
-  /** Empties every CRM table (keeps the birthday_settings row, reset to its defaults). */
+  /** Empties every CRM table (keeps the birthday_settings and security_settings rows, reset to their defaults). */
   reset(): Promise<void>;
 }
 
@@ -40,7 +40,9 @@ export async function createTestDb(): Promise<TestDb> {
     async reset() {
       await pglite.exec(`
         TRUNCATE audit_log, messages, campaigns, passport_intakes, group_members, groups,
-          passports, customers, staff_users;
+          passports, customers, staff_sign_in_challenges, staff_devices, staff_sessions,
+          staff_setup_links, security_settings, staff_users;
+        INSERT INTO security_settings DEFAULT VALUES;
         UPDATE birthday_settings SET enabled = false, send_time = '09:00',
           shabbat_rule = 'after-shabbat', template = '';
       `);

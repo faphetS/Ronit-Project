@@ -39,7 +39,8 @@ app.use(requestId);
 // 2. CORS — must be before helmet to handle preflight correctly
 app.use(
   cors({
-    origin: env.ALLOWED_ORIGINS,
+    // Plus the dashboard (DASHBOARD_URL), which calls /api/auth with the sign-in cookie.
+    origin: env.DASHBOARD_URL ? [...env.ALLOWED_ORIGINS, new URL(env.DASHBOARD_URL).origin] : env.ALLOWED_ORIGINS,
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],

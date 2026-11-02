@@ -428,6 +428,19 @@ const envSchema = z.object({
   // Sends per minute at most, and the pause between them (anti-ban pacing).
   GREETINGS_MAX_PER_RUN: z.coerce.number().int().min(1).default(10),
   GREETINGS_PACING_MS: z.coerce.number().int().min(0).default(3000),
+
+  // --- Staff sign-in for the dashboard ---
+  // Sign-in answers 503 until DATABASE_URL, AUTH_SECRET and DASHBOARD_URL are all set.
+  // 64 hex characters (openssl rand -hex 32). Seals the authenticator keys stored in the
+  // database, so a dump or backup alone doesn't hold them. Never change it once accounts
+  // exist: everyone would have to set up their codes again.
+  AUTH_SECRET: z.preprocess(
+    (v) => (v === "" ? undefined : v),
+    z.string().regex(/^[0-9a-f]{64}$/i, "AUTH_SECRET must be 64 hex characters").optional(),
+  ),
+  // Where the dashboard runs (https://app.ronitbarash.site): the base of setup links, the only
+  // Origin allowed to change anything under /api/auth, and added to CORS automatically.
+  DASHBOARD_URL: z.preprocess((v) => (v === "" ? undefined : v), z.string().url().optional()),
 });
 
 const parsed = envSchema.safeParse(process.env);
