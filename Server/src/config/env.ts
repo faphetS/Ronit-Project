@@ -404,6 +404,30 @@ const envSchema = z.object({
   // and 19:00. One scan handles 3d/10d inactivity AND the 2-week flight reminder, so
   // all three are checked on this schedule. For a fast test set "* * * * *".
   WA_FOLLOWUP_CRON: z.string().default("0 10,19 * * *"),
+
+  // --- CRM database + the dashboard's automations (passports, greetings) ---
+  // The `postgres` service in the VPS compose stack (added 2026-11-02; credentials in
+  // /root/postgres.env): postgres://ronit:<password>@postgres:5432/ronit. Unset = the
+  // passport and greeting automations stay off and nothing else changes. An empty value
+  // counts as unset, so a blank line can never stop the whole server from starting.
+  DATABASE_URL: z.preprocess((v) => (v === "" ? undefined : v), z.string().url().optional()),
+  // Passport photos, one file per intake (container path; host /opt/ronit-data/passports).
+  PASSPORT_FILES_DIR: z.string().default("/data/passports"),
+  // Vision model that reads passport photos (needs OPENROUTER_API_KEY).
+  OPENROUTER_PASSPORT_MODEL: z.string().default("google/gemini-2.5-flash"),
+  // Below this confidence a passport goes to review instead of straight into a customer card.
+  PASSPORT_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.8),
+  // Retry failed passport intakes every 5 minutes. Off until a WhatsApp connection carries photos.
+  PASSPORTS_ENABLED: z.string().default("false").transform((v) => v === "true"),
+  // Birthday + holiday greetings: queueing and sending. Off by default.
+  GREETINGS_ENABLED: z.string().default("false").transform((v) => v === "true"),
+  // How greetings leave. "dry-run" sends nothing (messages are logged and marked skipped,
+  // so use it on test data only); "gateway" sends text through ronit-send, and only to
+  // numbers RONIT_WA_ALLOWED_NUMBERS opens, like the Uman flows.
+  GREETINGS_CHANNEL: z.enum(["dry-run", "gateway"]).default("dry-run"),
+  // Sends per minute at most, and the pause between them (anti-ban pacing).
+  GREETINGS_MAX_PER_RUN: z.coerce.number().int().min(1).default(10),
+  GREETINGS_PACING_MS: z.coerce.number().int().min(0).default(3000),
 });
 
 const parsed = envSchema.safeParse(process.env);
