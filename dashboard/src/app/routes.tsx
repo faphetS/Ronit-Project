@@ -8,6 +8,7 @@ import { ImportScreen } from "../screens/import/ImportScreen";
 import { LeadDetailScreen } from "../screens/leads/LeadDetailScreen";
 import { LeadsScreen } from "../screens/leads/LeadsScreen";
 import { OverviewScreen } from "../screens/overview/OverviewScreen";
+import { SetupLinkScreen } from "../screens/sign-in/SetupLinkScreen";
 import { SignInScreen } from "../screens/sign-in/SignInScreen";
 import { UsersScreen } from "../screens/users/UsersScreen";
 import { RequireSession } from "./RequireSession";
@@ -15,6 +16,8 @@ import { Shell } from "./Shell";
 
 export const routes: RouteObject[] = [
   { path: "/login", element: <SignInScreen /> },
+  // Invite and password-reset links from the office.
+  { path: "/setup/:token", element: <SetupLinkScreen /> },
   {
     path: "/",
     element: (

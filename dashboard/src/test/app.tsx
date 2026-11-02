@@ -20,7 +20,8 @@ export function createTestServices(options: MockOptions = {}): Services {
 /** Mock services with Ronit already signed in, so guarded screens render. */
 export async function signedInServices(options: MockOptions = {}): Promise<Services> {
   const services = createTestServices(options);
-  await services.session.signIn("ronit@example.com", "demo");
+  await services.session.signIn("ronit@example.com", "demo", false);
+  await services.session.verifyCode("000000");
   return services;
 }
 

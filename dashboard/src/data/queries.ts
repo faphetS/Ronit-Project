@@ -7,6 +7,7 @@ import type { AudienceOption, BirthdaySettings, Customer, HolidayCampaign, Impor
 
 export const queryKeys = {
   session: ["session"] as const,
+  setupLink: (token: string) => ["setup-link", token] as const,
   leads: (filters: LeadFilters) => ["leads", "list", filters] as const,
   leadCounts: ["leads", "counts"] as const,
   lead: (id: string) => ["leads", "detail", id] as const,
@@ -66,12 +67,43 @@ export function useSession() {
   return useQuery({ queryKey: queryKeys.session, queryFn: () => session.current() });
 }
 
+/** The password step. A "signed-in" answer goes straight into the session cache. */
 export function useSignIn() {
   const { session } = useServices();
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ email, password }: { email: string; password: string }) => session.signIn(email, password),
+    mutationFn: ({ email, password, remember }: { email: string; password: string; remember: boolean }) => session.signIn(email, password, remember),
+    onSuccess: (step) => {
+      if (step.step === "signed-in") client.setQueryData(queryKeys.session, step.signedIn);
+    },
+  });
+}
+
+/** The 6-digit code from the authenticator app. */
+export function useVerifyCode() {
+  const { session } = useServices();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (code: string) => session.verifyCode(code),
     onSuccess: (signedIn) => client.setQueryData(queryKeys.session, signedIn),
+  });
+}
+
+/** Who an invite or reset link is for. A dead link doesn't come back to life, so no retries. */
+export function useSetupLink(token: string) {
+  const { session } = useServices();
+  return useQuery({ queryKey: queryKeys.setupLink(token), queryFn: () => session.setupLink(token), retry: false, staleTime: Infinity });
+}
+
+/** The new password from a link, then the same steps as signing in. */
+export function useCompleteSetupLink(token: string) {
+  const { session } = useServices();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ password, remember }: { password: string; remember: boolean }) => session.completeSetupLink(token, password, remember),
+    onSuccess: (step) => {
+      if (step.step === "signed-in") client.setQueryData(queryKeys.session, step.signedIn);
+    },
   });
 }
 

@@ -1,7 +1,17 @@
 import { leadsCopy } from "../../content/leads.he";
 import { addDays, daysBetween, isoDay, now as demoNow, weekStart } from "../../lib/clock";
 import { isOpenLead } from "../rules";
-import { NotFoundError, ServiceUnavailableError, type LeadCounts, type LeadFilters, type ServiceName, type Services } from "../services";
+import {
+  NotFoundError,
+  ServiceUnavailableError,
+  SignInError,
+  type LeadCounts,
+  type LeadFilters,
+  type ServiceName,
+  type Services,
+  type SignedIn,
+  type SignInStep,
+} from "../services";
 import type { AuditEntry, Database, Lead, LeadStatus, OverviewStats, Session, StaffUser } from "../types";
 import { createBirthdaysMock } from "./birthdaysMock";
 import type { AuditInput, MockContext } from "./context";
@@ -26,6 +36,10 @@ export interface MockOptions {
 }
 
 const SESSION_KEY = "or-hatzadik.session";
+/** The demo's invite link: /setup/demo. */
+export const DEMO_SETUP_TOKEN = "demo";
+/** Shown in the demo's setup step; any 6 digits pass. */
+const DEMO_TWO_STEP_SECRET = "JBSWY3DPEHPK3PXP";
 const SERVICE_NAMES: ServiceName[] = ["session", "leads", "customers", "groups", "overview", "greetings", "birthdays", "users", "imports"];
 const WEEKS_SHOWN = 8;
 /** Every sign-in in the mock is Ronit's. */
@@ -51,6 +65,8 @@ export function createMockServices(options: MockOptions = {}): Services {
   const storage = options.storage ?? window.sessionStorage;
   const clock = options.now ?? demoNow;
   let auditSerial = 0;
+  /** Whether a password was accepted and the code is next. */
+  let awaitingCode = false;
 
   /** Waits like a network call, fails when asked to, and never hands out internal objects. */
   async function respond<T>(service: ServiceName, produce: () => T): Promise<T> {
@@ -110,6 +126,8 @@ export function createMockServices(options: MockOptions = {}): Services {
   }
 
   return {
+    // Like the real sign-in: a password (any), then a code (any 6 digits). The invite link
+    // /setup/demo asks to set the codes up first.
     session: {
       async current() {
         if (failing.has("session")) throw new ServiceUnavailableError("session");
@@ -119,11 +137,39 @@ export function createMockServices(options: MockOptions = {}): Services {
         return user ? { session, user: structuredClone(user) } : null;
       },
       signIn: (email, password) =>
-        respond("session", () => {
-          if (!email.trim() || !password) throw new Error("missing-credentials");
+        respond("session", (): SignInStep => {
+          if (!email.trim() || !password) throw new SignInError("invalid-credentials");
+          awaitingCode = true;
+          return { step: "code-required" };
+        }),
+      verifyCode: (code) =>
+        respond("session", (): SignedIn => {
+          if (!awaitingCode) throw new SignInError("step-expired");
+          if (!/^\d{6}$/.test(code)) throw new SignInError("invalid-code");
+          awaitingCode = false;
           const session: Session = { userId: DEMO_USER_ID, signedInAt: clock().toISOString() };
           storage.setItem(SESSION_KEY, JSON.stringify(session));
           return { session, user: findUser(session.userId) };
+        }),
+      setupLink: (token) =>
+        respond("session", () => {
+          if (token !== DEMO_SETUP_TOKEN) throw new SignInError("link-invalid");
+          const user = findUser(DEMO_USER_ID);
+          return { name: user.name, email: state.users.find((u) => u.id === user.id)?.email ?? "", purpose: "invite" as const };
+        }),
+      completeSetupLink: (token, password) =>
+        respond("session", (): SignInStep => {
+          if (token !== DEMO_SETUP_TOKEN) throw new SignInError("link-invalid");
+          if ([...password].length < 8) throw new SignInError("password-too-short");
+          awaitingCode = true;
+          const account = encodeURIComponent(state.users.find((u) => u.id === DEMO_USER_ID)?.email ?? "demo");
+          return {
+            step: "setup-required",
+            setup: {
+              secret: DEMO_TWO_STEP_SECRET,
+              otpauthUrl: `otpauth://totp/Or%20HaTzadik:${account}?secret=${DEMO_TWO_STEP_SECRET}&issuer=Or%20HaTzadik&algorithm=SHA1&digits=6&period=30`,
+            },
+          };
         }),
       async signOut() {
         storage.removeItem(SESSION_KEY);

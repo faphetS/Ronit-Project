@@ -19,11 +19,37 @@ interface FieldProps {
   size?: "md" | "sm";
   /** Use on white cards instead of glass. */
   onPaper?: boolean;
+  inputMode?: "text" | "numeric" | "email";
+  maxLength?: number;
+  autoFocus?: boolean;
+  readOnly?: boolean;
+  /** The direction of what's typed, e.g. "ltr" for a code in the Hebrew layout. */
+  dir?: "ltr" | "rtl" | "auto";
   className?: string;
 }
 
 /** Pill input with a round icon at the start. The label is for screen readers; the placeholder shows it. */
-export function Field({ label, icon, name, type = "text", placeholder, autoComplete, required, value, defaultValue, onChange, trailing, size = "md", onPaper = false, className }: FieldProps) {
+export function Field({
+  label,
+  icon,
+  name,
+  type = "text",
+  placeholder,
+  autoComplete,
+  required,
+  value,
+  defaultValue,
+  onChange,
+  trailing,
+  size = "md",
+  onPaper = false,
+  inputMode,
+  maxLength,
+  autoFocus,
+  readOnly,
+  dir,
+  className,
+}: FieldProps) {
   const id = useId();
   return (
     <div
@@ -50,6 +76,11 @@ export function Field({ label, icon, name, type = "text", placeholder, autoCompl
         value={value}
         defaultValue={defaultValue}
         onChange={onChange ? (event) => onChange(event.target.value) : undefined}
+        inputMode={inputMode}
+        maxLength={maxLength}
+        autoFocus={autoFocus}
+        readOnly={readOnly}
+        dir={dir}
         className="h-full min-w-0 flex-1 bg-transparent px-1 text-[15px] text-ink outline-none placeholder:text-mute"
       />
       {trailing}

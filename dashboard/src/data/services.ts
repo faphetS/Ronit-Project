@@ -74,9 +74,59 @@ export interface CampaignPatch {
 
 export type BirthdaySettingsPatch = Partial<Pick<BirthdaySettings, "enabled" | "sendTime" | "shabbatRule" | "template">>;
 
+/** The authenticator key to add on the first sign-in. */
+export interface TwoStepSetup {
+  /** The key in base32, for typing into the app by hand. */
+  secret: string;
+  /** The same key as an otpauth:// link: the QR code, and the "add to app" link on phones. */
+  otpauthUrl: string;
+}
+
+/** What comes after a correct password: straight in, the 6-digit code, or setting the codes up. */
+export type SignInStep =
+  | { step: "signed-in"; signedIn: SignedIn }
+  | { step: "code-required" }
+  | { step: "setup-required"; setup: TwoStepSetup };
+
+export type SetupLinkPurpose = "invite" | "reset";
+
+/** Who an invite or password-reset link is for. */
+export interface SetupLinkInfo {
+  name: string;
+  email: string;
+  purpose: SetupLinkPurpose;
+}
+
+export const SIGN_IN_ERRORS = [
+  "missing-credentials",
+  "invalid-credentials",
+  "too-many-attempts",
+  "invalid-code",
+  "step-expired",
+  "link-invalid",
+  "password-too-short",
+  "password-too-long",
+  "password-same-as-email",
+  "password-too-common",
+] as const;
+export type SignInErrorCode = (typeof SIGN_IN_ERRORS)[number];
+
+/** A sign-in refusal the screens put in words. Anything else reads as "couldn't sign in". */
+export class SignInError extends Error {
+  constructor(readonly code: SignInErrorCode) {
+    super(code);
+    this.name = "SignInError";
+  }
+}
+
 export interface SessionService {
   current(): Promise<SignedIn | null>;
-  signIn(email: string, password: string): Promise<SignedIn>;
+  signIn(email: string, password: string, remember: boolean): Promise<SignInStep>;
+  /** The 6-digit code from the authenticator app, for the step signIn or completeSetupLink asked for. */
+  verifyCode(code: string): Promise<SignedIn>;
+  setupLink(token: string): Promise<SetupLinkInfo>;
+  /** Sets the password from an invite or reset link, then continues like signIn. */
+  completeSetupLink(token: string, password: string, remember: boolean): Promise<SignInStep>;
   signOut(): Promise<void>;
 }
 
