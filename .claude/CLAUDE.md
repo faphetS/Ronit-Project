@@ -23,6 +23,7 @@ Backend-only automation for an Israeli religious-influencer client. Ingests lead
   - `meta/` — Instagram DM webhook ingest, HMAC verification, lead classification (fully implemented)
   - `monday/` — GraphQL client + lead-row creation service (partially implemented — no webhook handler yet)
   - `passports/`, `greetings/` — the dashboard's automations on the Postgres CRM database (see Database and "Passports + greetings" below)
+  - `auth/` — staff sign-in for the dashboard, at `/api/auth` (see "Staff sign-in" below)
 - [Server/src/db/](Server/src/db/) — Postgres CRM database: migrations, runner, startup, PGlite test helper
 - [Server/scripts/](Server/scripts/) — utility scripts (`inspect-monday.ts`, `restructure-monday.ts`)
 - [rawNote.md](rawNote.md) — original business requirements notes
@@ -207,7 +208,7 @@ Status of each integration. When a new decision is made, update this section and
   - [config/pg.ts](Server/src/config/pg.ts): `getCrmDb()` returns null without `DATABASE_URL`.
   - [db/migrations/](Server/src/db/migrations/): TypeScript modules, since tsc copies only `.ts`.
   - [db/migrate.ts](Server/src/db/migrate.ts): runs at startup under an advisory lock.
-  - [db/startup.ts](Server/src/db/startup.ts): `startCrmAutomations()` never throws, so a missing or broken database leaves every other flow untouched.
+  - [db/startup.ts](Server/src/db/startup.ts): `crmDatabase()` resolves once the migrations are applied, or to null when the database is off or broken. It never rejects, so a missing or broken database leaves every other flow untouched. `startCrmAutomations()` and sign-in both wait on it.
   - Tests run the SQL on PGlite ([db/test-db.ts](Server/src/db/test-db.ts)).
 - **Env:** `DATABASE_URL=postgres://ronit:<password>@postgres:5432/ronit`. An empty value counts as unset.
 - **Design:** [docs/superpowers/specs/2026-11-02-automation-foundation-design.md](docs/superpowers/specs/2026-11-02-automation-foundation-design.md).
@@ -226,6 +227,32 @@ Status of each integration. When a new decision is made, update this section and
   - A `scheduled` holiday campaign is queued at its rate (50 every 10 minutes).
   - An outbox sends every minute through `GREETINGS_CHANNEL`: `dry-run`, which only logs and marks messages skipped (test data only), or `gateway`, which goes through `RONIT_WA_ALLOWED_NUMBERS` like the Uman flows.
   - Nothing is ever sent twice; an interrupted send is marked failed, never resent.
+
+### Staff sign-in (the dashboard)
+- **Decision (2026-11-02):**
+  - Staff accounts live in `staff_users`, by invitation only.
+  - Sign-in is a password, then a 6-digit code from an authenticator app (TOTP). "Remember me" skips the code on that device for 30 days.
+  - Sessions are server-side, with an HttpOnly cookie. They end after 30 minutes without requests while the `auto_sign_out` switch is on.
+  - The dashboard moves to `app.ronitbarash.site`. On `*.vercel.app` the API's cookie is third-party, and Safari drops it.
+- **Code** ([domains/auth/](Server/src/domains/auth/), mounted at `/api/auth`):
+  - [auth.service.ts](Server/src/domains/auth/auth.service.ts) holds the flows: sign-in, verify the code, setup links, sessions.
+  - [staff-accounts.service.ts](Server/src/domains/auth/staff-accounts.service.ts) creates and looks after accounts.
+  - `requireStaff` in [auth.middleware.ts](Server/src/domains/auth/auth.middleware.ts) guards the dashboard API routes that come next.
+  - The building blocks are in `lib/`: [password.ts](Server/src/lib/password.ts) (scrypt), [totp.ts](Server/src/lib/totp.ts), [secret-box.ts](Server/src/lib/secret-box.ts) (AES-GCM) and [tokens.ts](Server/src/lib/tokens.ts). None of them adds a dependency.
+  - The database stores only token hashes. Authenticator keys are sealed with `AUTH_SECRET`.
+- **Protection:**
+  - 5 wrong passwords or codes lock the account for 15 minutes.
+  - Each IP gets 30 sign-in requests per 15 minutes.
+  - Every state-changing `/api/auth` request must carry `Origin: DASHBOARD_URL`, because n8n on a sibling subdomain counts as the same site.
+- **Accounts from the console**, until the users screen is connected:
+  - `docker exec root-crm-1 node dist/scripts/staff-user.js invite --email … --name "…" --role admin|office|sales [--passport-access]`
+  - also `reset-password`, `reset-two-step` and `disable`.
+  - `invite` and `reset-password` print a one-time link to send by hand.
+- **Env:**
+  - `AUTH_SECRET` is 64 hex characters (`openssl rand -hex 32`). Never change it once accounts exist.
+  - `DASHBOARD_URL` is `https://app.ronitbarash.site`. It's added to CORS automatically.
+  - Sign-in answers 503 `SIGN_IN_UNAVAILABLE` until `DATABASE_URL`, `AUTH_SECRET` and `DASHBOARD_URL` are all set.
+- **Design:** [docs/superpowers/specs/2026-11-02-staff-sign-in-design.md](docs/superpowers/specs/2026-11-02-staff-sign-in-design.md).
 
 ### Hosting
 - **Decision:** Hostinger VPS (locked — client-provided)
