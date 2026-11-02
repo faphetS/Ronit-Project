@@ -121,6 +121,15 @@ describe("the guard", () => {
   });
 });
 
+describe("the request limit", () => {
+  it("counts per signed-in session, so one busy screen doesn't block the team", async () => {
+    const limited = app({ copy: { enabled: true, deps: copyDeps }, requestsPerMinute: 3 });
+    for (let i = 0; i < 3; i += 1) await request(limited).get(`${API}/leads/counts`).set("Cookie", ronit.cookie).expect(200);
+    expect((await request(limited).get(`${API}/leads/counts`).set("Cookie", ronit.cookie).expect(429)).body.code).toBe("RATE_LIMITED");
+    await request(limited).get(`${API}/leads/counts`).set("Cookie", shira.cookie).expect(200);
+  });
+});
+
 describe("leads", () => {
   it("lists the open pipeline, counts it, and opens a lead with its Monday notes", async () => {
     const list = (await get(moran, "/leads").expect(200)).body.data;

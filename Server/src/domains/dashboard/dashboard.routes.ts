@@ -1,8 +1,11 @@
 import express, { type NextFunction, type Request, type Response, type Router } from "express";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { env } from "../../config/env.js";
 import type { Db } from "../../config/pg.js";
 import { AppError } from "../../lib/errors.js";
 import { validate } from "../../middleware/validate.js";
+import { hashToken } from "../../lib/tokens.js";
+import { SESSION_COOKIE, readCookie } from "../auth/auth.cookies.js";
 import { authDeps, authDepsFromEnv, requireDashboardOrigin, requireStaff, withAuthDeps, type AuthDepsResolver } from "../auth/auth.middleware.js";
 import { copyDepsFromEnv } from "../monday-copy/monday-copy.cron.js";
 import { startManualCopy, type CopyDeps } from "../monday-copy/monday-copy.service.js";
@@ -41,9 +44,31 @@ function noStore(_req: Request, res: Response, next: NextFunction): void {
   next();
 }
 
+/**
+ * Requests per minute for one signed-in session (a screen makes 8 to 15). Keyed by the session, not
+ * the address: everyone reaches the server through Vercel's. Without a session, by address.
+ */
+export const DASHBOARD_REQUESTS_PER_MINUTE = 600;
+
+function dashboardLimiter(limit: number) {
+  return rateLimit({
+    windowMs: 60_000,
+    limit,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => {
+      const session = readCookie(req, SESSION_COOKIE);
+      return session ? `session:${hashToken(session)}` : `ip:${ipKeyGenerator(req.ip ?? "")}`;
+    },
+    message: { status: "error", code: "RATE_LIMITED", message: "Too many requests" },
+  });
+}
+
 export interface DashboardOptions {
   /** The copy from Monday: whether it's on, and how to reach Monday. Tests pass a fake. */
   copy?: { enabled: boolean; deps: (db: Db) => CopyDeps };
+  /** Requests per minute per session. */
+  requestsPerMinute?: number;
 }
 
 /**
@@ -53,7 +78,7 @@ export interface DashboardOptions {
 export function createDashboardRouter(resolveDeps: AuthDepsResolver, options: DashboardOptions = {}): Router {
   const copy = options.copy ?? { enabled: env.MONDAY_COPY_ENABLED, deps: copyDepsFromEnv };
   const router = express.Router();
-  router.use(noStore, withAuthDeps(resolveDeps), requireDashboardOrigin, requireStaff);
+  router.use(noStore, dashboardLimiter(options.requestsPerMinute ?? DASHBOARD_REQUESTS_PER_MINUTE), withAuthDeps(resolveDeps), requireDashboardOrigin, requireStaff);
 
   const db = (res: Response) => authDeps(res).db;
   const now = (res: Response) => authDeps(res).now();

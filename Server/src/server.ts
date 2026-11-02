@@ -105,6 +105,9 @@ app.use(
     standardHeaders: true,
     legacyHeaders: false,
     message: { status: "error", code: "RATE_LIMITED", message: "Too many requests" },
+    // The dashboard API reaches us through Vercel, so every user shares Vercel's address; it limits
+    // per signed-in session instead (domains/dashboard/dashboard.routes.ts).
+    skip: (req) => req.path.startsWith("/dashboard/"),
   }),
 );
 
