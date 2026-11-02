@@ -1,0 +1,289 @@
+{
+  "v": 3,
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-10-28T15:35:00Z"
+  },
+  "title": "Or HaTzadik Dashboard",
+  "launch": {
+    "view": "canvas",
+    "page": "desktop"
+  },
+  "pages": [
+    {
+      "id": "desktop",
+      "name": "Desktop · מחשב"
+    },
+    {
+      "id": "mobile",
+      "name": "Mobile · נייד"
+    }
+  ],
+  "boards": {
+    "Login.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "כניסה · Sign in",
+      "page": "desktop",
+      "expand": "fill",
+      "is_interactive": true
+    },
+    "Main.dc.html": {
+      "x": 1520,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "סקירה · Overview",
+      "page": "desktop",
+      "expand": "fill",
+      "is_interactive": true
+    },
+    "Leads.dc.html": {
+      "x": 3040,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "לידים · Leads",
+      "page": "desktop",
+      "expand": "fill",
+      "is_interactive": true
+    },
+    "Import.dc.html": {
+      "x": 4560,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "ייבוא מ-Monday · Monday import",
+      "page": "desktop",
+      "expand": "fill",
+      "is_interactive": true
+    },
+    "Customers.dc.html": {
+      "x": 0,
+      "y": 1320,
+      "w": 1440,
+      "h": 900,
+      "title": "לקוחות ודרכונים · Customers & passports",
+      "page": "desktop",
+      "expand": "fill",
+      "is_interactive": true
+    },
+    "CustomerProfile.dc.html": {
+      "x": 1520,
+      "y": 1320,
+      "w": 1440,
+      "h": 900,
+      "title": "כרטיס לקוח · Customer profile",
+      "page": "desktop",
+      "expand": "fill",
+      "is_interactive": true
+    },
+    "Groups.dc.html": {
+      "x": 3040,
+      "y": 1320,
+      "w": 1440,
+      "h": 900,
+      "title": "קבוצות וטיסות · Groups & flights",
+      "page": "desktop",
+      "expand": "fill",
+      "is_interactive": true
+    },
+    "Holidays.dc.html": {
+      "x": 0,
+      "y": 2640,
+      "w": 1440,
+      "h": 900,
+      "title": "ברכות לחגים · Holiday greetings",
+      "page": "desktop",
+      "expand": "fill",
+      "is_interactive": true
+    },
+    "Birthdays.dc.html": {
+      "x": 1520,
+      "y": 2640,
+      "w": 1440,
+      "h": 900,
+      "title": "ימי הולדת · Birthdays",
+      "page": "desktop",
+      "expand": "fill",
+      "is_interactive": true
+    },
+    "Users.dc.html": {
+      "x": 3040,
+      "y": 2640,
+      "w": 1440,
+      "h": 900,
+      "title": "משתמשים והרשאות · Users & access",
+      "page": "desktop",
+      "expand": "fill",
+      "is_interactive": true
+    },
+    "Mobile-Login.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "title": "נייד · כניסה",
+      "page": "mobile",
+      "radius": 44,
+      "is_interactive": true
+    },
+    "Mobile-Home.dc.html": {
+      "x": 470,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "title": "נייד · סקירה",
+      "page": "mobile",
+      "radius": 44,
+      "is_interactive": true
+    },
+    "Mobile-Leads.dc.html": {
+      "x": 940,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "title": "נייד · לידים",
+      "page": "mobile",
+      "radius": 44,
+      "is_interactive": true
+    },
+    "Mobile-Customers.dc.html": {
+      "x": 1410,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "title": "נייד · לקוחות ודרכונים",
+      "page": "mobile",
+      "radius": 44,
+      "is_interactive": true
+    },
+    "Mobile-Profile.dc.html": {
+      "x": 1880,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "title": "נייד · כרטיס לקוח",
+      "page": "mobile",
+      "radius": 44,
+      "is_interactive": true
+    },
+    "Mobile-Groups.dc.html": {
+      "x": 0,
+      "y": 1264,
+      "w": 390,
+      "h": 844,
+      "title": "נייד · קבוצות וטיסות",
+      "page": "mobile",
+      "radius": 44,
+      "is_interactive": true
+    },
+    "Mobile-Holidays.dc.html": {
+      "x": 470,
+      "y": 1264,
+      "w": 390,
+      "h": 844,
+      "title": "נייד · ברכות לחגים",
+      "page": "mobile",
+      "radius": 44,
+      "is_interactive": true
+    },
+    "Mobile-Birthdays.dc.html": {
+      "x": 940,
+      "y": 1264,
+      "w": 390,
+      "h": 844,
+      "title": "נייד · ימי הולדת",
+      "page": "mobile",
+      "radius": 44,
+      "is_interactive": true
+    },
+    "Mobile-Users.dc.html": {
+      "x": 1410,
+      "y": 1264,
+      "w": 390,
+      "h": 844,
+      "title": "נייד · משתמשים והרשאות",
+      "page": "mobile",
+      "radius": 44,
+      "is_interactive": true
+    },
+    "Mobile-Import.dc.html": {
+      "x": 1880,
+      "y": 1264,
+      "w": 390,
+      "h": 844,
+      "title": "נייד · ייבוא מ-Monday",
+      "page": "mobile",
+      "radius": 44,
+      "is_interactive": true
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "Login.dc.html",
+    "Leads.dc.html",
+    "Import.dc.html",
+    "Customers.dc.html",
+    "CustomerProfile.dc.html",
+    "Groups.dc.html",
+    "Holidays.dc.html",
+    "Birthdays.dc.html",
+    "Users.dc.html",
+    "Mobile-Login.dc.html",
+    "Mobile-Home.dc.html",
+    "Mobile-Leads.dc.html",
+    "Mobile-Customers.dc.html",
+    "Mobile-Profile.dc.html",
+    "Mobile-Groups.dc.html",
+    "Mobile-Holidays.dc.html",
+    "Mobile-Birthdays.dc.html",
+    "Mobile-Users.dc.html",
+    "Mobile-Import.dc.html"
+  ],
+  "notes": {
+    "rowA": {
+      "x": 0,
+      "y": -300,
+      "text": "Sign in, overview, leads and the Monday import",
+      "kind": "title1",
+      "maxW": 6000,
+      "page": "desktop"
+    },
+    "rowB": {
+      "x": 0,
+      "y": 1020,
+      "text": "Customers, passports and groups",
+      "kind": "title1",
+      "maxW": 4480,
+      "page": "desktop"
+    },
+    "rowC": {
+      "x": 0,
+      "y": 2340,
+      "text": "Holiday greetings, birthdays and access",
+      "kind": "title1",
+      "maxW": 4480,
+      "page": "desktop"
+    },
+    "m1": {
+      "x": 0,
+      "y": -300,
+      "text": "Sign in, home, leads and customers",
+      "kind": "title1",
+      "maxW": 2270,
+      "page": "mobile"
+    },
+    "m2": {
+      "x": 0,
+      "y": 964,
+      "text": "Groups, greetings and admin",
+      "kind": "title1",
+      "maxW": 2270,
+      "page": "mobile"
+    }
+  },
+  "designSystems": []
+}

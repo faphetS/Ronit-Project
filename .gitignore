@@ -3,3 +3,10 @@ dist/
 .env
 *.log
 .DS_Store
+.env.*
+!.env.example
+coverage/
+playwright-report/
+test-results/
+.superpowers/
+Thumbs.db
