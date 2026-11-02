@@ -1,0 +1,22 @@
+export const signIn = {
+  brand: "אור הצדיק",
+  help: "צריכים עזרה?",
+  title: "כניסה",
+  email: "כתובת אימייל",
+  password: "סיסמה",
+  forgot: "שכחתי",
+  remember: "לזכור אותי",
+  submit: "כניסה",
+  allInOne: {
+    title: "הכל במקום אחד",
+    soft: "לידים, דרכונים וברכות",
+    line: "מהשיחה הראשונה ועד הברכה ליום ההולדת",
+  },
+  system: { first: "מערכת הניהול", second: "של אור הצדיק" },
+  site: { label: "orhazadik.online", url: "https://orhazadik.online" },
+  today: "היום",
+  greetingsOnTheWay: "הברכות לחג כבר בדרך",
+  forgotNotice: "שלחנו קישור לאיפוס הסיסמה לכתובת האימייל.",
+  helpNotice: "אפשר לפנות למשרד בוואטסאפ או בטלפון.",
+  failed: "לא הצלחנו להיכנס. כדאי לנסות שוב.",
+} as const;
