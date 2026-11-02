@@ -5,14 +5,18 @@ import { BigNumber } from "../../ui/BigNumber";
 import { LinkCard } from "../../ui/LinkCard";
 import { Meter } from "../../ui/Meter";
 import { StatusTag } from "../../ui/StatusTag";
-import { fillShare, groupTag, groupWhen, phoneCaption, phoneTag } from "./groups";
+import { fillShare, groupTag, groupWhen, phoneCaption, phoneTag, registeredText } from "./groups";
 
-/** The meter inside a card link: hidden from screen readers, since the figure above says the same and would join the link's name. */
+/**
+ * The meter inside a card link: hidden from screen readers, since the figure above says the same and would join the
+ * link's name. Without a capacity there is nothing to fill, so no meter.
+ */
 function CardMeter({ group, onDark = false }: { group: GroupSummary; onDark?: boolean }) {
   const { groupsCopy: copy } = useCopy();
+  if (group.capacity === null) return null;
   return (
     <span aria-hidden="true" className="block">
-      <Meter value={fillShare(group)} label={copy.registeredOf(group.registered, group.capacity)} onDark={onDark} />
+      <Meter value={fillShare(group)} label={registeredText(group, copy)} onDark={onDark} />
     </span>
   );
 }
@@ -35,7 +39,7 @@ export function GroupCard({ group, selected, className }: GroupCardProps) {
           {selected ? <span className="text-caption text-ink-mute">{copy.selected}</span> : null}
         </span>
         <span className={cx("mt-1.5 block text-title font-medium", selected ? "text-cream" : "text-ink")}>{group.name}</span>
-        <BigNumber as="span" value={group.registered} total={group.capacity} size={52} surface={selected ? "ink" : "card"} className="mt-1.5 mb-1 block" />
+        <BigNumber as="span" value={group.registered} total={group.capacity ?? undefined} size={52} surface={selected ? "ink" : "card"} className="mt-1.5 mb-1 block" />
         <CardMeter group={group} onDark={selected} />
         <span className={cx("text-caption", selected ? "text-ink-mute" : "text-mute")}>{groupWhen(group, copy, locale)}</span>
       </span>
@@ -55,7 +59,7 @@ export function SelectedGroupCard({ group }: { group: GroupSummary }) {
           <span className="text-caption text-ink-mute">{copy.selected}</span>
         </span>
         <span className="mt-1 block text-title font-medium text-cream">{group.name}</span>
-        <BigNumber as="span" value={group.registered} total={group.capacity} size={48} surface="ink" className="my-1 block" />
+        <BigNumber as="span" value={group.registered} total={group.capacity ?? undefined} size={48} surface="ink" className="my-1 block" />
         <CardMeter group={group} onDark />
         <span className="text-caption text-ink-mute">{copy.registered}</span>
       </span>
@@ -72,7 +76,7 @@ export function GroupMiniCard({ group }: { group: GroupSummary }) {
       <span className="flex flex-col gap-1.5">
         <span className="text-caption text-mute">{phoneCaption(group, copy, locale)}</span>
         <span className="block font-medium text-ink">{group.shortName}</span>
-        <BigNumber as="span" value={group.registered} total={group.capacity} size={32} className="mt-2 mb-1.5 block" />
+        <BigNumber as="span" value={group.registered} total={group.capacity ?? undefined} size={32} className="mt-2 mb-1.5 block" />
         <CardMeter group={group} />
       </span>
     </LinkCard>

@@ -1,6 +1,6 @@
 import { motion } from "motion/react";
 import { useCopy } from "../../content/locale";
-import { useGroups, useLeadCounts } from "../../data/queries";
+import { useLeadCounts } from "../../data/queries";
 import type { LeadStatusFilter } from "../../data/services";
 import { PRESS_SCALE, springs } from "../../motion/springs";
 import { cardVariants } from "../../motion/variants";
@@ -10,8 +10,7 @@ import { CountPill } from "../../ui/CountPill";
 import { Icon } from "../../ui/Icon";
 import { SelectChip, type SelectChipOption } from "../../ui/SelectChip";
 import { EmptyState } from "../../ui/states";
-import { useStaff } from "./leads-data";
-import { ALL, LEAD_SOURCES, LEAD_STATUS_FILTERS, type LeadsUrlState } from "./leads-url";
+import { ALL, LEAD_SERVICES, LEAD_SOURCES, LEAD_STATUS_FILTERS, type LeadsUrlState } from "./leads-url";
 
 interface StatusChipsProps {
   value: LeadStatusFilter;
@@ -38,28 +37,18 @@ interface LeadsFilterBarProps {
   onChange: (patch: Partial<LeadsUrlState>) => void;
 }
 
-/** Desktop filters: status chips at the start; source, group and assignee at the end. */
+/** Desktop filters: status chips at the start; source and service at the end. */
 export function LeadsFilterBar({ id, hidden, showStatus, state, onChange }: LeadsFilterBarProps) {
   const { leadsCopy: copy } = useCopy();
-  const groups = useGroups();
-  const staff = useStaff();
 
   const sources: SelectChipOption<LeadsUrlState["source"]>[] = [
     { value: ALL, label: copy.filters.allSources },
     ...LEAD_SOURCES.map((source) => ({ value: source, label: copy.sources[source] })),
   ];
-  const groupOptions: SelectChipOption<string>[] = [
-    { value: ALL, label: copy.filters.allGroups },
-    ...(groups.data ?? []).map((group) => ({ value: group.id, label: group.name })),
+  const services: SelectChipOption<LeadsUrlState["service"]>[] = [
+    { value: ALL, label: copy.filters.allServices },
+    ...LEAD_SERVICES.map((service) => ({ value: service, label: copy.services[service] })),
   ];
-  const assignees: SelectChipOption<string>[] = [
-    { value: ALL, label: copy.filters.allAssignees },
-    ...staff.users.map((user) => ({ value: user.id, label: copy.filters.assignedTo(staff.names.get(user.id) ?? user.name) })),
-  ];
-  // A choice from the address whose names have not loaded yet still shows as chosen.
-  for (const [options, value] of [[groupOptions, state.group], [assignees, state.assignee]] as const) {
-    if (!options.some((option) => option.value === value)) options.push({ value, label: copy.pending });
-  }
 
   return (
     <motion.div
@@ -73,8 +62,7 @@ export function LeadsFilterBar({ id, hidden, showStatus, state, onChange }: Lead
       {showStatus ? <StatusChips value={state.status} onChange={(status) => onChange({ status })} /> : <span />}
       <div className="flex flex-wrap items-center gap-2">
         <SelectChip label={copy.filters.source} options={sources} value={state.source} onChange={(source) => onChange({ source })} />
-        <SelectChip label={copy.filters.group} options={groupOptions} value={state.group} onChange={(group) => onChange({ group })} />
-        <SelectChip label={copy.filters.assignee} options={assignees} value={state.assignee} onChange={(assignee) => onChange({ assignee })} />
+        <SelectChip label={copy.filters.service} options={services} value={state.service} onChange={(service) => onChange({ service })} />
       </div>
     </motion.div>
   );

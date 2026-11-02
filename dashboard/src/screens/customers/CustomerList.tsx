@@ -49,7 +49,9 @@ export function CustomerList({ filter, page, search, onFilterChange, onPageChang
     const passport = customer.passport;
     const tag =
       state === "missing" || !passport
-        ? copy.table.missingPassport
+        ? customer.mondayPassport
+          ? copy.table.mondayPassport[customer.mondayPassport]
+          : copy.table.missingPassport
         : state === "valid"
           ? null
           : copy.phoneList.expires(passport.expiryDate.slice(5, 7), yearOf(passport.expiryDate));
@@ -67,7 +69,7 @@ export function CustomerList({ filter, page, search, onFilterChange, onPageChang
         leading={<Avatar initial={initialOf(customer.firstName)} />}
         title={fullName(customer)}
         description={description || undefined}
-        trailing={tag ? <StatusTag tone="warning">{tag}</StatusTag> : undefined}
+        trailing={tag ? <StatusTag tone={!passport && customer.mondayPassport === "yes" ? "registered" : "warning"}>{tag}</StatusTag> : undefined}
         chevron={!tag}
       />
     );

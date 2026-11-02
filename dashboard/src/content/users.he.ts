@@ -1,4 +1,4 @@
-import type { AccessLevel, ImportRun, PassportSource, PermissionArea, Role, SecuritySwitch, TwoStepStatus } from "../data/types";
+import type { AccessLevel, CopyStatus, PassportSource, PermissionArea, Role, SecuritySwitch, TwoStepStatus } from "../data/types";
 
 /** Copy for the users and access screen, and for the account and admin screen on phones. */
 export const usersCopy = {
@@ -14,6 +14,32 @@ export const usersCopy = {
   activeCount: (active: number) => (active === 1 ? "פעיל אחד" : `${active} פעילים`),
   note: "רק משתמשים מורשים נכנסים למערכת. גישה לפרטי הדרכון המלאים ניתנת בנפרד.",
   invite: "הזמנת משתמש",
+  /** The invite form: they sign in with the Google account of this email. */
+  inviteForm: {
+    title: "הזמנת משתמש",
+    body: "הכניסה היא עם חשבון Google של המייל הזה. ההזמנה נשלחת במייל.",
+    email: "מייל (חשבון Google)",
+    name: "שם",
+    role: "תפקיד",
+    passportAccess: "גישה לפרטי דרכון מלאים",
+    salesNoPassports: "למכירות אין גישה לדרכונים.",
+    send: "שליחת ההזמנה",
+    sent: (email: string) => `ההזמנה נשלחה אל ${email}`,
+    notEmailed: "החשבון נפתח, אבל המייל לא נשלח. אפשר להעביר את הקישור למערכת ידנית.",
+    exists: "למייל הזה כבר יש חשבון.",
+    invalid: "צריך שם ומייל תקין.",
+    failed: "ההזמנה לא נשלחה. נסי שוב.",
+  },
+  /** Removing someone: they can't sign in any more, and are signed out everywhere. */
+  remove: {
+    action: "הסרה",
+    cancelInvite: "ביטול ההזמנה",
+    title: (name: string) => `להסיר את ${name}?`,
+    body: "לא תהיה יותר כניסה למערכת, וכל החיבורים הפתוחים ייסגרו. אפשר להזמין שוב בכל זמן.",
+    confirm: "הסרה",
+    done: "ההסרה בוצעה",
+    failed: "ההסרה לא הצליחה. נסי שוב.",
+  },
   today: (clock: string) => `היום ${clock}`,
   yesterday: (clock: string) => `אתמול ${clock}`,
   roles: { admin: "ניהול", office: "משרד", sales: "מכירות" } satisfies Record<Role, string>,
@@ -48,7 +74,7 @@ export const usersCopy = {
       customers: "לקוחות",
       passports: "פרטי דרכון מלאים",
       greetings: "ברכות ושליחה",
-      import: "ייבוא מ-Monday",
+      import: "העתקה מ-Monday",
       users: "משתמשים והרשאות",
     } satisfies Record<PermissionArea, string>,
     access: { full: "גישה מלאה", view: "צפייה", none: "ללא גישה" } satisfies Record<AccessLevel, string>,
@@ -77,10 +103,12 @@ export const usersCopy = {
     via: { whatsapp: "מוואטסאפ", monday: "מ-Monday", manual: "ידנית" } satisfies Record<PassportSource, string>,
     greetingEdit: (holiday: string) => `עריכת ברכת ${holiday}`,
     greetingApprove: (holiday: string) => `אישור ברכת ${holiday}`,
-    /** "שינוי הרשאות · מורן למכירות". */
-    roleChange: (user: string, role: string) => `שינוי הרשאות · ${user} ${role}`,
-    roleTo: { admin: "לניהול", office: "למשרד", sales: "למכירות" } satisfies Record<Role, string>,
     newDevice: "כניסה ממכשיר חדש",
+    signInLocked: "החשבון ננעל אחרי קודים שגויים",
+    /** Someone with a Google account that isn't registered tried to sign in. */
+    signInRefused: (email: string) => `ניסיון כניסה של חשבון לא רשום · ${email}`,
+    staffInvited: (name: string) => `הזמנת משתמש · ${name}`,
+    staffRemoved: (name: string) => `הסרת משתמש · ${name}`,
     securityChange: (setting: string, enabled: boolean) => `${enabled ? "הפעלת" : "כיבוי"} ${setting}`,
     settings: {
       twoStepRequired: "חובת אימות דו-שלבי",
@@ -88,7 +116,7 @@ export const usersCopy = {
       autoSignOut: "יציאה אוטומטית",
       passportAccessLog: "יומן הגישה לדרכונים",
     } satisfies Record<SecuritySwitch, string>,
-    mondayClose: "סגירת Monday.com",
+    mondayCopy: "העתקה מ-Monday לפי בקשה",
   },
   account: {
     title: "חשבון וניהול",
@@ -96,8 +124,8 @@ export const usersCopy = {
     passportsFull: "גישה מלאה לדרכונים",
     passportsNone: "ללא גישה לדרכונים",
     admin: "ניהול",
-    import: "ייבוא מ-Monday",
-    importStatus: { running: "בתהליך", completed: "הושלם", failed: "נכשל" } satisfies Record<ImportRun["status"], string>,
+    import: "העתקה מ-Monday",
+    importStatus: { running: "מעתיק עכשיו", completed: "מעודכן", failed: "נכשלה", skipped: "דולגה" } satisfies Record<CopyStatus, string>,
     history: "היסטוריית הודעות",
     signOut: "יציאה מהמערכת",
     signOutFailed: "היציאה מהמערכת לא הצליחה. נסי שוב.",

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useCopy, useLocale } from "../../content/locale";
 import { useAuditLog, usePermissions, useSession, useUsers } from "../../data/queries";
 import type { AccessLevel, PermissionRow } from "../../data/types";
@@ -14,6 +15,7 @@ import { EmptyState, ErrorState } from "../../ui/states";
 import { StatusTag } from "../../ui/StatusTag";
 import { Surface } from "../../ui/Surface";
 import { Timeline, type TimelineEntry } from "../../ui/Timeline";
+import { InviteSheet, RemoveUserButton } from "./InviteSheet";
 import { LoadingRows } from "./LoadingRows";
 import { SecurityCard } from "./SecurityCard";
 import { auditTitle, auditWho, directoryRows, formatWhen, RECENT_ACTIONS, ROLES, type DirectoryRow } from "./users-format";
@@ -25,6 +27,7 @@ function UsersTableCard({ className }: { className?: string }) {
   const directory = useUsers();
   const session = useSession();
   const meId = session.data?.user.id;
+  const admin = session.data?.user.role === "admin";
   const data = directory.data;
   const table = copy.users;
   const reference = now();
@@ -78,6 +81,22 @@ function UsersTableCard({ className }: { className?: string }) {
           </span>
         ),
     },
+    // Admins remove people (not themselves) and cancel invites.
+    ...(admin
+      ? [
+          {
+            key: "remove",
+            header: copy.remove.action,
+            srOnlyHeader: true,
+            cell: (row: DirectoryRow) =>
+              row.kind === "invite" ? (
+                <RemoveUserButton userId={row.invite.id} name={row.invite.email} invite />
+              ) : row.user.id === meId ? null : (
+                <RemoveUserButton userId={row.user.id} name={row.user.name} invite={false} />
+              ),
+          } satisfies DataColumn<DirectoryRow>,
+        ]
+      : []),
   ];
 
   return (
@@ -190,6 +209,9 @@ function AuditCard({ className }: { className?: string }) {
 export function UsersDesktop() {
   const { usersCopy: copy } = useCopy();
   const directory = useUsers();
+  const session = useSession();
+  const admin = session.data?.user.role === "admin";
+  const [inviting, setInviting] = useState(false);
   const data = directory.data;
 
   return (
@@ -198,10 +220,12 @@ export function UsersDesktop() {
         <Headline title={copy.title} soft={data ? copy.summary(data.users.length, data.invites.length) : copy.softFallback} size="display" />
         <div className="flex flex-col items-end gap-3.5 pb-1.5">
           <p className="max-w-[360px] text-end text-small text-mute">{copy.note}</p>
-          {/* Inviting a user has no service yet. No pointer events, so the circle does not lean on hover. */}
-          <GooButton icon="plus" disabled className="pointer-events-none">
-            {copy.invite}
-          </GooButton>
+          {admin ? (
+            <GooButton icon="plus" onClick={() => setInviting(true)}>
+              {copy.invite}
+            </GooButton>
+          ) : null}
+          <InviteSheet open={inviting} onClose={() => setInviting(false)} />
         </div>
       </div>
       <div className="grid grid-cols-12 gap-5">

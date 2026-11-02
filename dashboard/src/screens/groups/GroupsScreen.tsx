@@ -16,7 +16,7 @@ import { Surface } from "../../ui/Surface";
 import { TextLink } from "../../ui/TextLink";
 import { GroupCard, GroupMiniCard, SelectedGroupCard } from "./GroupCards";
 import { EventDateCard, EventDetailsCard, FlightCard, MissingPassportsCard, ParticipantsCard, ParticipantsList, ReadinessCard } from "./GroupDetails";
-import { MISSING_SECTION, PARTICIPANTS_SECTION, revealSection, selectGroup, totalRegistered } from "./groups";
+import { MISSING_SECTION, PARTICIPANTS_SECTION, revealSection, selectGroup, totalRegistered, visibleGroups } from "./groups";
 import { DesktopGroupsSkeleton, PhoneGroupsSkeleton } from "./GroupsSkeleton";
 
 interface GroupsViewProps {
@@ -112,7 +112,7 @@ export function GroupsScreen() {
   const phone = useShell() === "phone";
   const { groupsCopy: copy } = useCopy();
   const query = useGroups();
-  const groups = query.data;
+  const groups = query.data ? visibleGroups(query.data, groupId) : undefined;
   const selected = groups ? selectGroup(groups, groupId) : undefined;
   const registered = groups ? totalRegistered(groups) : 0;
   const soft = !groups ? copy.pending : phone ? copy.softPhone(registered) : copy.soft(groups.length, registered);

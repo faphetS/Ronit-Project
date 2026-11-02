@@ -1,6 +1,6 @@
 import type { Copy, Locale } from "../../content/copy";
 import type { GroupParticipant, GroupSummary } from "../../data/types";
-import { TIME_ZONE, dayAt } from "../../lib/clock";
+import { TIME_ZONE, dayAt, isoDay, today } from "../../lib/clock";
 import { formatDate, formatDayMonth } from "../../lib/format";
 
 type GroupsCopy = Copy["groupsCopy"];
@@ -27,31 +27,49 @@ export function fullName(person: Pick<GroupParticipant, "firstName" | "lastName"
   return `${person.firstName} ${person.lastName}`;
 }
 
-/** The share of places taken, 0 to 1. */
-export function fillShare(group: GroupSummary): number {
-  return group.capacity > 0 ? group.registered / group.capacity : 0;
+/** Trips and events not over yet, and trips without a date. */
+export function isCurrentGroup(group: GroupSummary, todayIso = isoDay(today())): boolean {
+  const last = group.endsOn ?? group.startsOn;
+  return last === null || last >= todayIso;
 }
 
-export function seatsFree(group: GroupSummary): number {
-  return Math.max(0, group.capacity - group.registered);
+/** What the trips screen lists: the current ones, and a past one only when the address names it. */
+export function visibleGroups(groups: GroupSummary[], groupId: string | undefined): GroupSummary[] {
+  return groups.filter((group) => isCurrentGroup(group) || group.id === groupId);
+}
+
+/** The share of places taken, 0 to 1. 0 without a capacity. */
+export function fillShare(group: GroupSummary): number {
+  return group.capacity ? group.registered / group.capacity : 0;
+}
+
+/** Places left, or null when the group has no capacity. */
+export function seatsFree(group: GroupSummary): number | null {
+  return group.capacity === null ? null : Math.max(0, group.capacity - group.registered);
+}
+
+/** "12 מתוך 45 נרשמו", or "12 נרשמו" without a capacity. */
+export function registeredText(group: GroupSummary, copy: GroupsCopy): string {
+  return group.capacity === null ? copy.registeredCount(group.registered) : copy.registeredOf(group.registered, group.capacity);
 }
 
 // The office's date label ("אוגוסט 2027") is Hebrew text; English shows the month and year of the start date instead.
 const englishMonthYear = new Intl.DateTimeFormat("en-GB", { timeZone: TIME_ZONE, month: "long", year: "numeric" });
 
-/** When the group starts: "18.11.2026" (or "18.11" without the year), or the label while the date is not fixed. */
-export function groupDate(group: GroupSummary, locale: Locale, withYear = true): string {
-  if (group.dateLabel) return locale === "he" ? group.dateLabel : englishMonthYear.format(dayAt(group.startsOn));
+/** When the group starts: "18.11.2026" (or "18.11" without the year), the label while the date is not fixed, or null without either. */
+export function groupDate(group: GroupSummary, locale: Locale, withYear = true): string | null {
+  if (group.dateLabel) return locale === "he" || !group.startsOn ? group.dateLabel : englishMonthYear.format(dayAt(group.startsOn));
+  if (!group.startsOn) return null;
   const start = dayAt(group.startsOn);
   return withYear ? formatDate(start, locale) : formatDayMonth(start, locale);
 }
 
-/** "18.11 עד 22.11" for a trip with an end date, otherwise when it starts. */
+/** "18.11 עד 22.11" for a trip with an end date, otherwise when it starts, or "מועד ייקבע". */
 function datesText(group: GroupSummary, copy: GroupsCopy, locale: Locale): string {
-  if (group.endsOn && !group.dateLabel) {
+  if (group.startsOn && group.endsOn && !group.dateLabel) {
     return copy.dateRange(formatDayMonth(dayAt(group.startsOn), locale), formatDayMonth(dayAt(group.endsOn), locale));
   }
-  return groupDate(group, locale, false);
+  return groupDate(group, locale, false) ?? copy.noDate;
 }
 
 /** The tag on a desktop card: "טיסה", "טיסה · נשים בלבד". */
@@ -62,12 +80,14 @@ export function groupTag(group: GroupSummary, copy: GroupsCopy): string {
 /** The line under a desktop card's meter: "יציאה 18.11.2026", or "תאריך 03.12.2026" for an event. */
 export function groupWhen(group: GroupSummary, copy: GroupsCopy, locale: Locale): string {
   const date = groupDate(group, locale);
+  if (date === null) return copy.noDate;
   return group.type === "event" ? copy.onDate(date) : copy.departs(date);
 }
 
 /** The short date line beside an orb: "יציאה 18.11". */
 export function groupWhenShort(group: GroupSummary, copy: GroupsCopy, locale: Locale): string {
   const date = groupDate(group, locale, false);
+  if (date === null) return copy.noDate;
   return group.type === "event" ? copy.onDate(date) : copy.departs(date);
 }
 

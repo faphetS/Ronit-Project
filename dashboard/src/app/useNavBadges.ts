@@ -1,4 +1,4 @@
-import { useActivity, useOverview, usePassportIntakes } from "../data/queries";
+import { useCurrentCampaign, useOverview, usePassportIntakes } from "../data/queries";
 import { isoDay, now } from "../lib/clock";
 
 export interface NavBadges {
@@ -14,11 +14,11 @@ export interface NavBadges {
 export function useNavBadges(): NavBadges {
   const overview = useOverview();
   const intakes = usePassportIntakes();
-  const activity = useActivity();
+  const campaign = useCurrentCampaign();
   const today = isoDay(now());
   const allIntakes = intakes.data ?? [];
   const passportsWaiting = allIntakes.some((intake) => intake.result === "needs-review") ? 1 : 0;
-  const greetingsWaiting = (activity.data ?? []).filter((item) => item.kind === "greeting").length;
+  const greetingsWaiting = campaign.data?.status === "awaiting-approval" ? 1 : 0;
   return {
     newLeads: overview.data?.newLeadsThisWeek ?? 0,
     passportsToday: allIntakes.filter((intake) => isoDay(new Date(intake.receivedAt)) === today).length,

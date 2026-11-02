@@ -42,7 +42,11 @@ function ProfileTags({ customer, withSince, className }: { customer: Customer; w
   return (
     <ul aria-label={copy.profile.tags.label} className={cx("flex flex-wrap", className)}>
       <li>
-        <StatusTag tone={state === "valid" ? "registered" : "warning"}>{copy.profile.tags.passport[state]}</StatusTag>
+        {state === "missing" && customer.mondayPassport ? (
+          <StatusTag tone={customer.mondayPassport === "yes" ? "registered" : "talking"}>{copy.table.mondayPassport[customer.mondayPassport]}</StatusTag>
+        ) : (
+          <StatusTag tone={state === "valid" ? "registered" : "warning"}>{copy.profile.tags.passport[state]}</StatusTag>
+        )}
       </li>
       <li>
         <StatusTag tone={customer.whatsappConnected ? "registered" : "neutral"}>

@@ -1,50 +1,74 @@
-import { useState } from "react";
 import { useCopy, useLocale } from "../../content/locale";
-import { useCloseMonday } from "../../data/queries";
-import type { FieldMapping, ImportRun } from "../../data/types";
+import { ApiError } from "../../data/http/client";
+import { useCopyNow, useSession } from "../../data/queries";
+import type { MondayCopy } from "../../data/types";
 import { cx } from "../../lib/cx";
 import { formatNumber } from "../../lib/format";
 import { BigNumber } from "../../ui/BigNumber";
 import { Button } from "../../ui/Button";
-import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { DataTable, type DataColumn } from "../../ui/DataTable";
 import { GooButton } from "../../ui/GooButton";
 import { MeterRow } from "../../ui/MeterRow";
 import { SectionHeader } from "../../ui/SectionHeader";
 import { EmptyState, LoadingBlock } from "../../ui/states";
 import { StatusTag } from "../../ui/StatusTag";
-import { Steps } from "../../ui/Steps";
 import { Surface } from "../../ui/Surface";
 import { useToast } from "../../ui/toast-context";
 import { RowsSkeleton } from "../groups/GroupsSkeleton";
-import { CHECK_TONE, closedText, selectedBoards, stepItems } from "./importRun";
+import { whenText } from "./importRun";
 
 interface CardProps {
-  /** Undefined while the import loads: the card shows a skeleton. */
-  run: ImportRun | undefined;
+  /** Undefined while it loads: the card shows a skeleton. */
+  copy: MondayCopy | undefined;
   phone: boolean;
   className?: string;
 }
 
-/** The result on black: errors, leads moved in, and what was found, merged and kept. The page's one hero number. */
-export function ResultCard({ run, phone, className }: CardProps) {
-  const { importCopy: copy } = useCopy();
-  const text = copy.result;
+/** "העתקה עכשיו", for admins: starts a copy; the page follows it until it's done. */
+function CopyNowButton({ copy, phone }: { copy: MondayCopy; phone: boolean }) {
+  const { importCopy } = useCopy();
+  const text = importCopy.result;
+  const copyNow = useCopyNow();
+  const toast = useToast();
+  const running = copy.lastRun?.status === "running" || copyNow.isPending;
+  const start = () =>
+    copyNow.mutate(undefined, {
+      onSuccess: () => toast.show({ message: text.started }),
+      onError: (error) => {
+        const code = error instanceof ApiError ? error.code : "";
+        if (code === "COPY_RUNNING") toast.show({ message: text.started });
+        else toast.show({ message: code === "COPY_TOO_SOON" ? text.tooSoon : text.failedToStart, tone: "warning" });
+      },
+    });
+  return (
+    <Button variant="outline" onDark size={phone ? "sm" : "md"} onClick={start} disabled={running || !copy.enabled}>
+      {running ? text.copying : text.copyNow}
+    </Button>
+  );
+}
+
+/** The state of the copy on black: when it last ran, the leads it brought, and what else came over. The page's one hero number. */
+export function ResultCard({ copy, phone, className }: CardProps) {
+  const { importCopy } = useCopy();
+  const { locale } = useLocale();
+  const session = useSession();
+  const text = importCopy.result;
   // On phones the top bar names the screen, so this is the page heading.
   const Heading = phone ? "h1" : "h2";
-  if (!run) {
+  if (!copy) {
     return (
       <Surface variant="ink" compact={phone} aria-label={text.label} className={cx("lg:px-[30px] lg:py-7", className)}>
         <LoadingBlock lines={4} onDark />
       </Surface>
     );
   }
-  const errors = run.totals.errors;
+  const run = copy.lastRun;
+  const trouble = run?.status === "failed" || run?.status === "skipped";
   const moved = phone ? text.movedPhone : text.moved;
   const stats = [
-    { key: "found", value: run.totals.itemsFound, label: phone ? text.itemsFoundPhone : text.itemsFound(selectedBoards(run)) },
-    { key: "merged", value: run.totals.duplicatesMerged, label: phone ? text.mergedPhone : text.merged },
-    { key: "notes", value: run.totals.notesSaved, label: phone ? text.notesPhone : text.notes },
+    { key: "archived", value: copy.totals.archivedLeads, label: phone ? text.archivedPhone : text.archived },
+    { key: "customers", value: copy.totals.customers, label: phone ? text.customersPhone : text.customers },
+    { key: "no-phone", value: copy.totals.withoutPhone, label: phone ? text.withoutPhonePhone : text.withoutPhone },
   ];
   return (
     <Surface
@@ -54,13 +78,14 @@ export function ResultCard({ run, phone, className }: CardProps) {
       className={cx("flex flex-col", phone ? "gap-3.5" : "gap-[22px] lg:px-[30px] lg:py-7", className)}
     >
       <div className="flex items-center justify-between gap-3">
-        <Heading className="text-title font-medium text-cream">{text.status[run.status]}</Heading>
-        <StatusTag tone={errors > 0 ? "warning" : "registered"} onDark>
-          {text.errors(errors)}
+        <Heading className="text-title font-medium text-cream">{run ? text.status[run.status] : text.notYet}</Heading>
+        <StatusTag tone={trouble ? "warning" : "registered"} onDark>
+          {copy.lastCopiedAt ? text.copiedAt(whenText(copy.lastCopiedAt, importCopy, locale)) : text.notYet}
         </StatusTag>
       </div>
+      {trouble ? <p className="-mt-2 text-small text-ink-mute">{text.keptPrevious}</p> : null}
       <div className={cx("flex items-end", phone ? "gap-3" : "gap-[18px]")}>
-        <BigNumber value={run.totals.leadsImported} size={phone ? 72 : 104} surface="ink" countUp />
+        <BigNumber value={copy.totals.leads} size={phone ? 72 : 104} surface="ink" countUp />
         <p className={cx("text-ink-mute", phone ? "pb-2 text-small" : "pb-3 text-[16px] leading-[1.55]")}>
           {moved.first}
           <br />
@@ -98,47 +123,45 @@ export function ResultCard({ run, phone, className }: CardProps) {
         <GooButton to="/leads" tone="light">
           {text.toLeads}
         </GooButton>
-        {/* The full report has no service yet. */}
-        {phone ? null : (
-          <Button variant="outline" onDark disabled>
-            {text.fullReport}
-          </Button>
-        )}
+        {session.data?.user.role === "admin" ? <CopyNowButton copy={copy} phone={phone} /> : null}
       </div>
     </Surface>
   );
 }
 
-/** The five steps of the import, each with a short note. */
-export function StepsCard({ run, phone, className }: CardProps) {
-  const { importCopy: copy } = useCopy();
+/** When the copy runs: the schedule, the next and the last copy. Says so when it's switched off. */
+export function ScheduleCard({ copy, phone, className }: CardProps) {
+  const { importCopy } = useCopy();
   const { locale } = useLocale();
-  const items = run ? stepItems(run, copy, locale, phone) : [];
-  const done = items.filter((item) => item.state === "done").length;
+  const text = importCopy.schedule;
   return (
-    <Surface variant="glass" compact={phone} aria-label={copy.steps.title} className={cx(phone && "px-3 py-4", className)}>
-      <SectionHeader
-        title={copy.steps.title}
-        trailing={run ? copy.steps.progress(done, items.length) : undefined}
-        surface="glass"
-        className={phone ? "px-1.5" : undefined}
-      />
-      {run ? <Steps steps={items} label={copy.steps.title} orientation="vertical" surface="glass" /> : <LoadingBlock lines={5} />}
+    <Surface variant="glass" compact={phone} aria-label={text.title} className={cx("flex flex-col gap-2.5", className)}>
+      <SectionHeader title={text.title} surface="glass" className="mb-0" />
+      {!copy ? <LoadingBlock lines={3} /> : null}
+      {copy && !copy.enabled ? <p className="text-small text-status-warning">{text.off}</p> : null}
+      {copy?.enabled ? (
+        <>
+          <p className="font-medium text-ink">{text.every}</p>
+          {copy.nextRunAt ? <p className="text-small text-copy">{text.next(whenText(copy.nextRunAt, importCopy, locale))}</p> : null}
+          {copy.lastCopiedAt ? <p className="text-small text-copy">{text.last(whenText(copy.lastCopiedAt, importCopy, locale))}</p> : null}
+        </>
+      ) : null}
+      {copy ? <p className={cx("text-small text-mute", !phone && "mt-auto")}>{text.readOnly}</p> : null}
     </Surface>
   );
 }
 
-/** The Monday boards and their item counts. Desktop shows each board's checkbox, read-only now that the import is done. */
-export function BoardsCard({ run, phone, className }: CardProps) {
-  const { importCopy: copy } = useCopy();
-  const text = copy.boards;
-  const boards = run?.boards ?? [];
+/** The Monday boards being copied, with their item counts. */
+export function BoardsCard({ copy, phone, className }: CardProps) {
+  const { importCopy } = useCopy();
+  const text = importCopy.boards;
+  const boards = copy?.boards ?? [];
   const largest = Math.max(1, ...boards.map((board) => board.items));
   return (
     <Surface variant="card" compact={phone} aria-label={text.label} className={className}>
-      <SectionHeader title={text.title} trailing={run ? text.items(formatNumber(run.totals.itemsFound)) : undefined} />
-      {!run ? <RowsSkeleton rows={4} avatar={false} /> : null}
-      {run && boards.length === 0 ? <EmptyState message={text.empty} /> : null}
+      <SectionHeader title={text.title} trailing={copy ? text.items(formatNumber(copy.totals.itemsFound)) : undefined} />
+      {!copy ? <RowsSkeleton rows={4} avatar={false} /> : null}
+      {copy && boards.length === 0 ? <EmptyState message={text.empty} /> : null}
       {boards.length > 0 ? (
         <ul>
           {boards.map((board) => (
@@ -146,12 +169,10 @@ export function BoardsCard({ run, phone, className }: CardProps) {
               as="li"
               key={board.id}
               title={board.name}
-              detail={phone ? undefined : text.groups(board.groups)}
+              detail={text.kind[board.kind]}
               figure={<BigNumber as="span" value={board.items} size={22} />}
               share={board.items / largest}
               meterLabel={text.items(formatNumber(board.items))}
-              control={phone ? undefined : <input type="checkbox" checked={board.selected} disabled readOnly className="size-[18px] accent-ink" />}
-              className={phone ? undefined : "[&_label]:cursor-default"}
             />
           ))}
         </ul>
@@ -160,95 +181,33 @@ export function BoardsCard({ run, phone, className }: CardProps) {
   );
 }
 
-/** Desktop: which Monday column went into which field, and whether it checked out. */
-export function MappingCard({ run, className }: Omit<CardProps, "phone">) {
-  const { importCopy: copy } = useCopy();
-  const text = copy.mapping;
-  const columns: DataColumn<FieldMapping>[] = [
-    { key: "monday", header: text.columns.monday, isRowHeader: true, cell: (row) => row.mondayColumn },
-    { key: "field", header: text.columns.field, cell: (row) => <span className="font-medium text-ink">{text.fields[row.field]}</span> },
-    { key: "check", header: text.columns.check, cell: (row) => <StatusTag tone={CHECK_TONE[row.check]}>{text.checks[row.check]}</StatusTag> },
+type MappingRow = { monday: string; field: string };
+
+/** Desktop: which Monday column or board goes into what in the dashboard. */
+export function MappingCard({ className }: { className?: string }) {
+  const { importCopy } = useCopy();
+  const text = importCopy.mapping;
+  const columns: DataColumn<MappingRow>[] = [
+    { key: "monday", header: text.columns.monday, isRowHeader: true, wrap: true, cell: (row) => row.monday },
+    { key: "field", header: text.columns.field, wrap: true, cell: (row) => <span className="text-ink">{row.field}</span> },
   ];
   return (
     <Surface variant="card" aria-label={text.title} className={className}>
       <SectionHeader title={text.title} trailing={text.hint} />
-      {run ? (
-        <DataTable
-          label={text.table}
-          columns={columns}
-          rows={run.fields}
-          rowKey={(row) => row.field}
-          empty={<EmptyState message={text.empty} />}
-          animateRows={false}
-        />
-      ) : (
-        <RowsSkeleton rows={6} avatar={false} />
-      )}
+      <DataTable label={text.table} columns={columns} rows={[...text.rows]} rowKey={(row) => row.monday} animateRows={false} />
     </Surface>
   );
 }
 
-/** What happens to Monday.com, and closing it once everything came over. Asks first; afterwards shows it closed. */
-export function MondayCard({ run, phone, className }: CardProps) {
-  const { importCopy: copy } = useCopy();
-  const { locale } = useLocale();
-  const toast = useToast();
-  const closeMonday = useCloseMonday();
-  const [confirming, setConfirming] = useState(false);
-  const text = copy.monday;
-  const closed = run?.monday === "closed";
-
-  const confirm = () => {
-    if (!run) return;
-    closeMonday.mutate(run.id, {
-      onSuccess: () => {
-        setConfirming(false);
-        toast.show({ message: text.closedToast });
-      },
-      onError: () => {
-        setConfirming(false);
-        toast.show({ message: text.failedToast, tone: "warning" });
-      },
-    });
-  };
-
+/** Where the work happens until the switch-over. */
+export function MondayCard({ phone, className }: { phone: boolean; className?: string }) {
+  const { importCopy } = useCopy();
+  const text = importCopy.monday;
   return (
-    <Surface
-      variant={phone ? "card" : "glass"}
-      compact={phone}
-      aria-label={text.title}
-      className={cx("flex flex-col", phone ? "gap-2.5" : "gap-3", className)}
-    >
+    <Surface variant={phone ? "card" : "glass"} compact={phone} aria-label={text.title} className={cx("flex flex-col", phone ? "gap-2.5" : "gap-3", className)}>
       <h2 className="text-title font-medium text-ink">{text.title}</h2>
-      {!run ? <LoadingBlock lines={3} /> : null}
-      {run ? (
-        <>
-          <p className="text-small text-copy">{closed ? closedText(run.mondayClosedAt, copy, locale) : phone ? text.bodyPhone : text.body}</p>
-          {phone ? null : <p className="text-small text-mute">{text.next}</p>}
-          {closed ? (
-            <span className={cx("pt-1", !phone && "mt-auto")}>
-              <StatusTag tone="registered">{text.closedTag}</StatusTag>
-            </span>
-          ) : (
-            <Button
-              size={phone ? "md" : "sm"}
-              onClick={() => setConfirming(true)}
-              className={cx("h-auto! py-2.5 text-center leading-tight! whitespace-normal!", phone ? "min-h-[46px]" : "mt-auto min-h-[38px]")}
-            >
-              {text.close}
-            </Button>
-          )}
-        </>
-      ) : null}
-      <ConfirmDialog
-        open={confirming}
-        title={text.confirm.title}
-        description={text.confirm.body}
-        confirmLabel={text.confirm.action}
-        pending={closeMonday.isPending}
-        onCancel={() => setConfirming(false)}
-        onConfirm={confirm}
-      />
+      <p className="text-small text-copy">{text.body}</p>
+      <p className="text-small text-mute">{text.next}</p>
     </Surface>
   );
 }

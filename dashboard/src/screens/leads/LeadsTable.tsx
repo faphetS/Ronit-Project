@@ -1,5 +1,4 @@
 import { useCopy, useLocale } from "../../content/locale";
-import { useGroups } from "../../data/queries";
 import type { LeadFilters } from "../../data/services";
 import type { Lead } from "../../data/types";
 import { now } from "../../lib/clock";
@@ -12,7 +11,7 @@ import { StatusTag } from "../../ui/StatusTag";
 import { Surface } from "../../ui/Surface";
 import { LeadsEmpty } from "./LeadsFilterBar";
 import { useSettledLeads } from "./leads-data";
-import { groupByTrip, initialOf, STATUS_TONE, tripWhen } from "./leads-model";
+import { groupByService, initialOf, STATUS_TONE } from "./leads-model";
 
 export interface LeadsListProps {
   filters: LeadFilters;
@@ -24,14 +23,12 @@ export interface LeadsListProps {
   onClear: () => void;
 }
 
-/** The white card with the leads table, grouped by trip, as on the Leads board. */
+/** The white card with the leads table, grouped by the service they asked about. */
 export function LeadsTableView({ filters, selectedId, leadHref, filtered, onClear }: LeadsListProps) {
   const { leadsCopy: copy } = useCopy();
   const { locale } = useLocale();
   const leads = useSettledLeads(filters);
-  const groups = useGroups();
-  const groupList = groups.data;
-  const failed = leads.isError || (!groupList && groups.isError);
+  const failed = leads.isError;
   const reference = now();
 
   const columns: DataColumn<Lead>[] = [
@@ -40,7 +37,14 @@ export function LeadsTableView({ filters, selectedId, leadHref, filtered, onClea
       header: copy.table.name,
       isRowHeader: true,
       wrap: true,
-      cell: (lead) => <PersonCell name={lead.name} initial={initialOf(lead.name)} detail={lead.lastNote} to={leadHref(lead.id)} />,
+      cell: (lead) => (
+        <PersonCell
+          name={lead.name}
+          initial={initialOf(lead.name)}
+          detail={lead.archived ? `${copy.archived}${copy.separator}${lead.lastNote}` : lead.lastNote}
+          to={leadHref(lead.id)}
+        />
+      ),
     },
     { key: "phone", header: copy.table.phone, cell: (lead) => <Ltr>{maskPhone(lead.phone)}</Ltr> },
     { key: "source", header: copy.table.source, cell: (lead) => copy.sources[lead.source] },
@@ -49,23 +53,14 @@ export function LeadsTableView({ filters, selectedId, leadHref, filtered, onClea
   ];
 
   let body;
-  if (failed)
-    body = (
-      <ErrorState
-        onRetry={() => {
-          void leads.refetch();
-          void groups.refetch();
-        }}
-      />
-    );
-  else if (!leads.data || !groupList) body = <LeadsTableSkeleton />;
+  if (failed) body = <ErrorState onRetry={() => void leads.refetch()} />;
+  else if (!leads.data) body = <LeadsTableSkeleton />;
   else {
-    const trips: DataRowGroup<Lead>[] = groupByTrip(leads.data, groupList).map((trip) => ({
-      key: trip.key,
-      title: trip.group?.name ?? copy.noGroup,
-      count: trip.leads.length,
-      meta: trip.group ? tripWhen(trip.group, locale, copy.departs) : undefined,
-      rows: trip.leads,
+    const trips: DataRowGroup<Lead>[] = groupByService(leads.data).map((group) => ({
+      key: group.key,
+      title: group.service ? copy.services[group.service] : copy.noService,
+      count: group.leads.length,
+      rows: group.leads,
     }));
     body = (
       <DataTable

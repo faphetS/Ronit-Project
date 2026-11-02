@@ -2,7 +2,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useId } from "react";
 import { PhoneTopBar } from "../../app/phone/PhoneTopBar";
 import { useCopy, useLocale } from "../../content/locale";
-import { useGroups, useLeadCounts } from "../../data/queries";
+import { useLeadCounts } from "../../data/queries";
 import type { Lead } from "../../data/types";
 import { now } from "../../lib/clock";
 import { formatNumber, formatRelative, maskPhone } from "../../lib/format";
@@ -21,18 +21,16 @@ import { StatusTag } from "../../ui/StatusTag";
 import { Surface } from "../../ui/Surface";
 import { LeadsEmpty, StatusChips } from "./LeadsFilterBar";
 import { useSearchDraft, useSettledLeads } from "./leads-data";
-import { groupByTrip, initialOf, STATUS_TONE } from "./leads-model";
+import { groupByService, initialOf, STATUS_TONE } from "./leads-model";
 import { countActiveFilters, toLeadFilters, useLeadsUrl } from "./leads-url";
 
-/** The phone leads list, as on Mobile-Leads: the count, search, status chips, and the leads grouped by trip. */
+/** The phone leads list: the count, search, status chips, and the leads grouped by service. */
 export function LeadsPhoneList() {
   const { leadsCopy: copy } = useCopy();
   const url = useLeadsUrl();
   const counts = useLeadCounts();
   const filters = toLeadFilters(url.state, { status: true, search: true });
   const leads = useSettledLeads(filters);
-  const groups = useGroups();
-  const groupList = groups.data;
 
   const { update } = url;
   const commitSearch = useCallback((search: string) => update({ search }), [update]);
@@ -40,18 +38,13 @@ export function LeadsPhoneList() {
   const open = counts.data ? formatNumber(counts.data.all) : copy.pending;
 
   let content;
-  if (leads.isError || (!groupList && groups.isError))
+  if (leads.isError)
     content = (
       <Surface variant="card" compact>
-        <ErrorState
-          onRetry={() => {
-            void leads.refetch();
-            void groups.refetch();
-          }}
-        />
+        <ErrorState onRetry={() => void leads.refetch()} />
       </Surface>
     );
-  else if (!leads.data || !groupList) content = <PhoneListSkeleton />;
+  else if (!leads.data) content = <PhoneListSkeleton />;
   else if (leads.data.length === 0)
     content = (
       <Surface variant="card" compact>
@@ -59,8 +52,8 @@ export function LeadsPhoneList() {
       </Surface>
     );
   else
-    content = groupByTrip(leads.data, groupList).map((trip) => (
-      <TripSection key={trip.key} title={trip.group?.shortName ?? copy.noGroup} leads={trip.leads} leadHref={url.leadHref} />
+    content = groupByService(leads.data).map((group) => (
+      <TripSection key={group.key} title={group.service ? copy.services[group.service] : copy.noService} leads={group.leads} leadHref={url.leadHref} />
     ));
 
   return (

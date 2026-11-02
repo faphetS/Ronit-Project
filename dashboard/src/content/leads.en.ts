@@ -4,12 +4,12 @@ import type { Widen } from "./types";
 export const leadsCopy: Widen<typeof he> = {
   status: {
     new: "New",
+    "no-answer": "No answer",
     talking: "In talks",
     "details-sent": "Details sent",
     registered: "Registered",
     "not-relevant": "Not relevant",
   },
-  statusChanged: (label) => `Status updated: ${label}`,
 
   title: "Leads",
   summary: (open, newThisWeek) => `${open} open · ${newThisWeek} new this week`,
@@ -21,13 +21,13 @@ export const leadsCopy: Widen<typeof he> = {
   view: { label: "View", table: "Table", board: "Board" },
   filter: "Filters",
   activeFilters: (count) => (count === 1 ? "1 filter on" : `${count} filters on`),
-  newLead: "New lead",
 
   monday: {
-    label: "The Monday.com import",
-    note: "Every lead came over from Monday.com, with its notes and activity history.",
-    imported: (count) => `${count} imported`,
-    details: "Import details",
+    label: "The copy from Monday.com",
+    note: "Leads are copied from Monday.com every 2 hours, with their notes. Leads are edited in Monday.",
+    copiedAt: (when) => `Updated ${when}`,
+    notYet: "Not copied yet",
+    details: "Copy details",
   },
 
   filters: {
@@ -36,6 +36,7 @@ export const leadsCopy: Widen<typeof he> = {
     statusOptions: {
       all: "All",
       new: "New",
+      "no-answer": "No answer",
       talking: "In talks",
       "details-sent": "Details sent",
       registered: "Registered",
@@ -43,35 +44,37 @@ export const leadsCopy: Widen<typeof he> = {
     },
     source: "Source",
     allSources: "All sources",
-    group: "Group",
-    allGroups: "All groups",
-    assignee: "Assignee",
-    allAssignees: "Assignee: everyone",
-    assignedTo: (name) => `Assignee: ${name}`,
+    service: "Service",
+    allServices: "All services",
     clear: "Clear filters",
   },
 
   sources: {
-    "landing-page": "Landing page",
+    "landing-page": "Website",
     instagram: "Instagram",
     facebook: "Facebook",
     whatsapp: "WhatsApp",
     referral: "Referral",
   },
 
+  services: {
+    uman: "Uman flights",
+    challah: "Challah evenings",
+  },
+  noService: "No service given",
+
   search: "Search by name or phone",
 
   table: {
-    label: "Leads by group",
+    label: "Leads by service",
     name: "Name and last note",
     phone: "Phone",
     source: "Source",
     status: "Status",
     updated: "Updated",
   },
-  departs: (date) => `Departs ${date}`,
-  noGroup: "No group",
   leadCount: (count) => (count === 1 ? "1 lead" : `${count} leads`),
+  archived: "Archive",
 
   board: {
     label: "Leads board by status",
@@ -85,7 +88,7 @@ export const leadsCopy: Widen<typeof he> = {
 
   hint: {
     title: "Choose a lead from the list",
-    text: "Its details, status, history and notes will show up here.",
+    text: "Its details, calls and notes from Monday will show up here.",
   },
 
   detail: {
@@ -96,22 +99,19 @@ export const leadsCopy: Widen<typeof he> = {
     newTab: (label) => `${label} (opens in a new tab)`,
     phone: "Phone",
     source: "Source",
-    assignee: "Assignee",
-    created: "Created",
-    unassigned: "Unassigned",
-    status: "Status",
-    changeStatus: "Change status",
-    statusFailed: "The status wasn’t updated. Please try again.",
-    history: "History",
-    noHistory: "No activity yet",
+    service: "Service",
+    mondayGroup: "Monday group",
+    inquiry: "First contact",
+    calls: "Calls",
+    callsLine: (count, last) => (count === 0 ? "None yet" : last ? `${count} · last ${last}` : String(count)),
+    inMonday: "In Monday",
+    openInMonday: "Open in Monday",
+    editInMonday: "Statuses and notes are changed in Monday until the switch-over.",
+    nextStep: "Next step",
+    lastMessage: "Last Instagram message",
+    history: "Notes and calls",
+    noHistory: "No notes yet",
     historyMeta: (date, by) => `${date} · ${by}`,
-    mondayBoard: (board) => `Monday board: ${board}`,
-    note: "New note",
-    notePlaceholder: "What was agreed on the call?",
-    save: "Save",
-    noteSaved: "Note saved",
-    noteEmpty: "Write a note before saving",
-    noteFailed: "The note wasn’t saved. Please try again.",
     notFound: "This lead wasn’t found",
     backToList: "Back to leads",
   },

@@ -7,13 +7,31 @@ import { ListRow } from "../../ui/ListRow";
 import { SectionHeader } from "../../ui/SectionHeader";
 import { EmptyState, ErrorState } from "../../ui/states";
 import { Surface } from "../../ui/Surface";
+import type { Copy } from "../../content/copy";
+import type { Activity } from "../../data/types";
+import { formatNumber } from "../../lib/format";
 import { ACTIVITY_ICON, SHOWN, isToday, timeOfDay } from "./overview-model";
 import { RowsSkeleton } from "./OverviewStates";
 
+/** A line of the feed in words: its title and the detail under it. */
+function activityText(item: Activity, copy: Copy): { title: string; detail: string } {
+  const text = copy.overview.activity;
+  switch (item.kind) {
+    case "lead":
+      return { title: item.name, detail: text.lead(copy.leadsCopy.sources[item.source], item.service ? copy.leadsCopy.services[item.service] : null) };
+    case "registration":
+      return { title: item.name, detail: text.registration(item.group) };
+    case "passport":
+      return { title: item.name, detail: text.passport[item.result] };
+    case "import":
+      return { title: text.importTitle, detail: text.importDetail(formatNumber(item.leads), formatNumber(item.customers)) };
+  }
+}
+
 /** The latest things that happened in the business, newest first: five on desktop, three on phones. */
 export function ActivityCard({ phone, className }: { phone: boolean; className?: string }) {
-  const { overview } = useCopy();
-  const copy = overview.activity;
+  const allCopy = useCopy();
+  const copy = allCopy.overview.activity;
   const { locale } = useLocale();
   const activity = useActivity();
   const headingId = useId();
@@ -28,18 +46,21 @@ export function ActivityCard({ phone, className }: { phone: boolean; className?:
       {activity.data && items.length === 0 ? <EmptyState message={copy.empty} /> : null}
       {items.length > 0 ? (
         <ul>
-          {items.map((item) => (
-            <ListRow
-              key={item.id}
-              as="li"
-              leading={<IconCircle icon={ACTIVITY_ICON[item.kind]} />}
-              // Titles and details are stored text in Hebrew; <bdi> keeps their order in English too.
-              title={<bdi>{item.title}</bdi>}
-              titleClassName={phone ? "text-small" : undefined}
-              description={<bdi className={phone ? undefined : "text-small"}>{item.detail}</bdi>}
-              trailing={<span className={cx("shrink-0 text-mute", phone ? "text-caption" : "text-small")}>{timeOfDay(item.at, locale)}</span>}
-            />
-          ))}
+          {items.map((item) => {
+            const { title, detail } = activityText(item, allCopy);
+            return (
+              <ListRow
+                key={item.id}
+                as="li"
+                leading={<IconCircle icon={ACTIVITY_ICON[item.kind]} />}
+                // Names and trips are stored in Hebrew; <bdi> keeps their order in English too.
+                title={<bdi>{title}</bdi>}
+                titleClassName={phone ? "text-small" : undefined}
+                description={<bdi className={phone ? undefined : "text-small"}>{detail}</bdi>}
+                trailing={<span className={cx("shrink-0 text-mute", phone ? "text-caption" : "text-small")}>{timeOfDay(item.at, locale)}</span>}
+              />
+            );
+          })}
         </ul>
       ) : null}
     </Surface>

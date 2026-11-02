@@ -1,9 +1,9 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient, type QueryKey } from "@tanstack/react-query";
 import { now } from "../lib/clock";
 import { estimateSendMinutes } from "./rules";
-import type { BirthdaySettingsPatch, CampaignPatch, CustomerQuery, LeadFilters, PassportPart, ProfilePatch, SignedIn } from "./services";
+import type { BirthdaySettingsPatch, CampaignPatch, CustomerQuery, InviteInput, LeadFilters, PassportPart, ProfilePatch, SignedIn } from "./services";
 import { useServices } from "./services-context";
-import type { AudienceOption, BirthdaySettings, Customer, HolidayCampaign, ImportRun, Lead, LeadStatus, SecuritySettings, SecuritySwitch } from "./types";
+import type { AudienceOption, BirthdaySettings, Customer, HolidayCampaign, MondayCopy, SecuritySettings, SecuritySwitch } from "./types";
 
 export const queryKeys = {
   session: ["session"] as const,
@@ -67,7 +67,7 @@ export function useSession() {
   return useQuery({ queryKey: queryKeys.session, queryFn: () => session.current() });
 }
 
-/** "Continue with Google": the screen follows `redirectTo`, or (on the demo data) goes to the code. */
+/** "Continue with Google" by redirect: the screen follows `redirectTo` (test services may go straight to the code). */
 export function useStartGoogle() {
   const { session } = useServices();
   return useMutation({ mutationFn: (options: { remember: boolean; returnTo: string }) => session.startGoogle(options) });
@@ -136,47 +136,6 @@ export function useLead(id: string) {
   return useQuery({ queryKey: queryKeys.lead(id), queryFn: () => leads.get(id) });
 }
 
-/** Changes a lead's status on screen right away, rolls back if the call fails, then refreshes lists and counts. */
-export function useUpdateLeadStatus() {
-  const { leads } = useServices();
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, status }: { id: string; status: LeadStatus }) => leads.updateStatus(id, status),
-    onMutate: async ({ id, status }) => {
-      await client.cancelQueries({ queryKey: queryKeys.lead(id) });
-      const previous = client.getQueryData<Lead>(queryKeys.lead(id));
-      if (previous) client.setQueryData<Lead>(queryKeys.lead(id), { ...previous, status });
-      return { previous };
-    },
-    onError: (_error, { id }, context) => {
-      if (context?.previous) client.setQueryData(queryKeys.lead(id), context.previous);
-    },
-    onSettled: async () => {
-      await client.invalidateQueries({ queryKey: ["leads"] });
-      await client.invalidateQueries({ queryKey: ["overview"] });
-    },
-  });
-}
-
-/** Adds a note: it tops the lead's history right away, rolls back if the call fails, then refreshes the leads. */
-export function useAddLeadNote() {
-  const { leads } = useServices();
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, text }: { id: string; text: string }) => leads.addNote(id, text),
-    onMutate: ({ id, text }) =>
-      changeCached<Lead>(client, queryKeys.lead(id), (lead) => ({
-        ...lead,
-        lastNote: text,
-        history: [{ id: `${id}-pending`, at: now().toISOString(), text, byUserId: signedInUserId(client), mondayBoard: null }, ...lead.history],
-      })),
-    onError: (_error, _variables, snapshot) => rollBack(client, snapshot),
-    onSettled: async () => {
-      await client.invalidateQueries({ queryKey: ["leads"] });
-    },
-  });
-}
-
 // ---- Customers and passports ----
 
 export function useCustomers(query: CustomerQuery = {}) {
@@ -231,7 +190,7 @@ export function useAddCustomerNote() {
   });
 }
 
-/** Records a passport view (the fields, or the photo behind "הצגה"), then refreshes the access logs. */
+/** Records a passport view (the fields, or the photo behind "הצגה") and returns the full number, then refreshes the access logs. */
 export function useLogPassportView() {
   const { customers } = useServices();
   const client = useQueryClient();
@@ -275,7 +234,7 @@ export function useActivity() {
 
 // ---- Holiday greetings ----
 
-/** The next greeting that has not gone out (Hanukkah 5787 in the demo), or null. */
+/** The next greeting that has not gone out, or null. */
 export function useCurrentCampaign() {
   const { greetings } = useServices();
   return useQuery({ queryKey: queryKeys.campaign, queryFn: () => greetings.current() });
@@ -287,7 +246,7 @@ export function useCampaignHistory() {
   return useQuery({ queryKey: queryKeys.campaignHistory, queryFn: () => greetings.history() });
 }
 
-/** The last greeting that finished sending (Sukkot 5787 in the demo), read from the history. */
+/** The last greeting that finished sending, read from the history. */
 export function useLastCampaign() {
   const { greetings } = useServices();
   return useQuery({
@@ -423,8 +382,7 @@ export function useUpdateSecuritySwitch() {
   });
 }
 
-/** Sensitive actions by staff, newest first. */
-/** Saves the signed-in user's own name and email; the session and the team list pick them up. */
+/** Saves the signed-in user's own name; the session and the team list pick it up. */
 export function useUpdateProfile() {
   const { users } = useServices();
   const client = useQueryClient();
@@ -437,31 +395,64 @@ export function useUpdateProfile() {
   });
 }
 
+/** Sensitive actions, newest first. */
 export function useAuditLog() {
   const { users } = useServices();
   return useQuery({ queryKey: queryKeys.audit, queryFn: () => users.audit() });
 }
 
-// ---- Monday.com import ----
-
-export function useImportRun() {
-  const { imports } = useServices();
-  return useQuery({ queryKey: queryKeys.importRun, queryFn: () => imports.latest() });
+/** Gives someone an account and emails the invite; the team list and the log pick it up. */
+export function useInviteUser() {
+  const { users } = useServices();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: InviteInput) => users.invite(input),
+    onSettled: async () => {
+      await client.invalidateQueries({ queryKey: queryKeys.users });
+      await client.invalidateQueries({ queryKey: queryKeys.audit });
+    },
+  });
 }
 
-/** Approves the import and closes Monday.com: it shows as closed right away and rolls back if the call fails. */
-export function useCloseMonday() {
+/** Closes someone's account and signs them out everywhere. */
+export function useRemoveUser() {
+  const { users } = useServices();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) => users.remove(userId),
+    onSettled: async () => {
+      await client.invalidateQueries({ queryKey: queryKeys.users });
+      await client.invalidateQueries({ queryKey: queryKeys.audit });
+    },
+  });
+}
+
+// ---- The copy from Monday ----
+
+/** While a copy runs, ask again every few seconds. */
+const COPY_POLL_MS = 3000;
+
+/** How the copy from Monday stands. Asks again every few seconds while a copy is running. */
+export function useImportRun() {
+  const { imports } = useServices();
+  return useQuery({
+    queryKey: queryKeys.importRun,
+    queryFn: () => imports.latest(),
+    refetchInterval: (query) => (query.state.data?.lastRun?.status === "running" ? COPY_POLL_MS : false),
+  });
+}
+
+/** Copies from Monday now. The page shows the run right away and follows it; when it's done, every list refreshes. */
+export function useCopyNow() {
   const { imports } = useServices();
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => imports.closeMonday(id),
-    onMutate: (id) =>
-      changeCached<ImportRun>(client, queryKeys.importRun, (run) =>
-        run.id === id ? { ...run, monday: "closed", mondayClosedAt: now().toISOString(), mondayClosedByUserId: signedInUserId(client) } : run,
-      ),
-    onError: (_error, _variables, snapshot) => rollBack(client, snapshot),
+    mutationFn: () => imports.copyNow(),
+    onSuccess: (run) => {
+      client.setQueryData<MondayCopy>(queryKeys.importRun, (copy) => (copy ? { ...copy, lastRun: run } : copy));
+    },
     onSettled: async () => {
-      await client.invalidateQueries({ queryKey: ["imports"] });
+      await client.invalidateQueries({ queryKey: queryKeys.importRun });
       await client.invalidateQueries({ queryKey: queryKeys.audit });
     },
   });

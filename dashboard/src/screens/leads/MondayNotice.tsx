@@ -1,19 +1,28 @@
 import { motion } from "motion/react";
-import { useCopy } from "../../content/locale";
+import { useCopy, useLocale } from "../../content/locale";
 import { useImportRun } from "../../data/queries";
-import { formatNumber } from "../../lib/format";
+import { now } from "../../lib/clock";
+import { formatRelative } from "../../lib/format";
 import { cardVariants } from "../../motion/variants";
 import { IconCircle } from "../../ui/IconCircle";
 import { Skeleton } from "../../ui/states";
 import { StatusTag } from "../../ui/StatusTag";
 import { TextLink } from "../../ui/TextLink";
 
-/** The glass strip under the header: everything came over from Monday.com, how many leads, and a link to the import. */
+/** The glass strip under the header: the leads are a copy of Monday.com, when it was last copied, and a link to the copy's page. */
 export function MondayNotice() {
   const { leadsCopy: copy, states } = useCopy();
+  const { locale } = useLocale();
   const run = useImportRun();
   let count;
-  if (run.data) count = <StatusTag tone="registered">{copy.monday.imported(formatNumber(run.data.totals.leadsImported))}</StatusTag>;
+  if (run.data) {
+    const copiedAt = run.data.lastCopiedAt;
+    count = copiedAt ? (
+      <StatusTag tone="registered">{copy.monday.copiedAt(formatRelative(new Date(copiedAt), now(), locale))}</StatusTag>
+    ) : (
+      <StatusTag>{copy.monday.notYet}</StatusTag>
+    );
+  }
   else if (run.isError)
     count = (
       <TextLink size="sm" onClick={() => void run.refetch()}>

@@ -1,8 +1,11 @@
 import type { HolidayKey } from "../lib/holidays";
 
 export type Role = "admin" | "office" | "sales";
-export type LeadStatus = "new" | "talking" | "details-sent" | "registered" | "not-relevant";
+/** "no-answer" is Monday's "אין מענה": called, and nobody answered yet. */
+export type LeadStatus = "new" | "no-answer" | "talking" | "details-sent" | "registered" | "not-relevant";
 export type LeadSource = "landing-page" | "instagram" | "facebook" | "whatsapp" | "referral";
+/** What the lead asked about, from Monday's "שירות". Monday doesn't say which trip. */
+export type LeadService = "uman" | "challah";
 
 export interface StaffUser {
   id: string;
@@ -17,29 +20,52 @@ export interface Session {
   signedInAt: string;
 }
 
+/** A note on a lead: in Monday, an "update" the team wrote or a call summary. */
 export interface LeadEvent {
   id: string;
   at: string;
   text: string;
+  /** A dashboard user; null for notes written in Monday. */
   byUserId: string | null;
-  /** On events that came over in the Monday.com import: the board they came from, e.g. "פולין". */
+  /** Who wrote it in Monday, as Monday names them. */
+  author: string | null;
+  /** The Monday board the note is on. */
   mondayBoard: string | null;
 }
 
+/**
+ * A lead, as copied from Monday's CRM board. Read-only here: the team edits leads in Monday until
+ * the switch-over, and every lead links back to its row there.
+ */
 export interface Lead {
   id: string;
   name: string;
   phone: string;
   source: LeadSource;
   status: LeadStatus;
+  service: LeadService | null;
+  /** Empty for leads from Monday, which doesn't say which trip or which dashboard user. */
   groupId: string | null;
   assigneeId: string | null;
+  /** The Monday board and group the lead sits in, e.g. "פולואפ" or "לידים נווה" (often the agent's name). */
+  mondayBoard: string;
+  mondayGroup: string;
+  /** The lead's row in Monday. */
+  mondayUrl: string;
   createdAt: string;
   updatedAt: string;
   lastNote: string;
-  /** Leads from past trips are archived and never show in the pipeline. */
+  /** Leads from the old CRM board: found by search, never in the pipeline. */
   archived: boolean;
-  /** Newest first. */
+  /** Calls made, from Salestrail through Monday. */
+  calls: number;
+  lastCallOn: string | null;
+  inquiryOn: string | null;
+  /** The last Instagram message, for leads that wrote on Instagram. */
+  lastMessage: string | null;
+  /** Monday's "שלב הבא": what the team said comes next. */
+  nextStep: string | null;
+  /** Newest first. Empty in lists. */
   history: LeadEvent[];
 }
 
@@ -56,6 +82,12 @@ export interface Passport {
 
 export type PassportSource = Passport["receivedVia"];
 
+/** Monday's own passport column on a trip ("יש" / "בהנפקה"), shown while no passport is on file. */
+export type MondayPassport = "yes" | "in-progress";
+
+/** Customers from Monday's trip boards have no lead source of their own unless a lead had their phone. */
+export type CustomerSource = LeadSource | "monday" | "manual";
+
 export interface Note {
   id: string;
   at: string;
@@ -70,16 +102,18 @@ export interface Customer {
   phone: string;
   whatsappConnected: boolean;
   groupIds: string[];
-  source: LeadSource;
+  source: CustomerSource;
   assigneeId: string | null;
   since: string;
   updatedAt: string;
+  /** Null without one, and for people without passport access. */
   passport: Passport | null;
+  mondayPassport: MondayPassport | null;
   /** Newest first. */
   notes: Note[];
   /** The lead this customer came from, when it is in the dashboard. */
   leadId: string | null;
-  /** The Monday.com board the card was imported from, e.g. "פולין". Null for customers who came in after the import. */
+  /** The Monday board of her newest row there, e.g. "טיסה טו באב 26". */
   mondayBoard: string | null;
 }
 
@@ -124,17 +158,22 @@ export interface Group {
   shortName: string;
   type: "flight" | "event";
   womenOnly: boolean;
-  capacity: number;
-  startsOn: string;
+  /** Null when nobody set one (Monday has none). */
+  capacity: number | null;
+  /** Null while the trip has no date. */
+  startsOn: string | null;
   endsOn: string | null;
-  /** Shown instead of exact dates while they are not fixed. */
+  /** Shown instead of exact dates while they are not fixed, or for a whole month ("נובמבר 2026"). */
   dateLabel: string | null;
   /** Null for events, which have no travel. */
   flight: Flight | null;
+  /** The Monday board it's copied from. */
+  mondayBoard: string | null;
 }
 
 export interface GroupSummary extends Group {
   registered: number;
+  /** A passport on file, or Monday's "יש". */
   passportsReceived: number;
   /** registered − passportsReceived. */
   missingPassports: number;
@@ -152,26 +191,24 @@ export interface GroupParticipant {
   passportExpiry: string | null;
   /** The passport expires within EXPIRING_WITHIN_DAYS of today. */
   passportExpiringSoon: boolean;
-  /** The office's note for this trip, e.g. "חדר קרוב למעלית". */
+  /** The office's note for this trip, e.g. "חדר: לבד", or a challah booking's type and city. */
   note: string | null;
+  mondayPassport: MondayPassport | null;
+  /** Monday's own status for her on a flight: תשלום חלקי, נסגר, צוות… */
+  mondayStatus: string | null;
+  /** A challah booking's date. */
+  eventOn: string | null;
 }
 
-/** A note about one participant on one trip (stored in the mock database). */
-export interface ParticipantNote {
-  groupId: string;
-  customerId: string;
-  text: string;
-}
+/** One line of the activity feed; the screen words each kind. */
+export type Activity = { id: string; at: string } & (
+  | { kind: "lead"; name: string; source: LeadSource; service: LeadService | null }
+  | { kind: "registration"; name: string; group: string }
+  | { kind: "passport"; name: string; result: IntakeResult }
+  | { kind: "import"; leads: number; customers: number }
+);
 
-export type ActivityKind = "passport" | "lead" | "greeting" | "birthday" | "import";
-
-export interface Activity {
-  id: string;
-  kind: ActivityKind;
-  at: string;
-  title: string;
-  detail: string;
-}
+export type ActivityKind = Activity["kind"];
 
 export interface WeeklyCount {
   weekStart: string;
@@ -394,10 +431,12 @@ export type AuditEntry = AuditBase &
     | { action: "passport-view" | "passport-photo-view"; customerId: string; customerName: string }
     | { action: "passport-received"; customerId: string; customerName: string; via: PassportSource }
     | { action: "greeting-edit" | "greeting-approve"; campaignId: string; holiday: HolidayKey }
-    | { action: "role-change"; userId: string; userName: string; role: Role }
-    | { action: "new-device-sign-in" }
     | { action: "security-change"; setting: SecuritySwitch; enabled: boolean }
-    | { action: "monday-close"; runId: string }
+    /** A sign-in from a new device; an account locked after wrong codes; a copy from Monday asked for now. */
+    | { action: "new-device-sign-in" | "sign-in-locked" | "monday-copy" }
+    | { action: "staff-invited" | "staff-removed"; userId: string; userName: string }
+    /** A Google account that isn't registered tried to sign in. */
+    | { action: "sign-in-refused"; email: string }
   );
 
 export type AuditAction = AuditEntry["action"];
@@ -405,82 +444,60 @@ export type AuditAction = AuditEntry["action"];
 /** The entries about one customer's passport. */
 export type PassportAccessEntry = Extract<AuditEntry, { customerId: string }>;
 
-// ---- Monday.com import ----
+// ---- The copy from Monday ----
 
-export type ImportStepKey = "connect" | "boards" | "fields" | "duplicates" | "import";
-export type StepState = "done" | "current" | "pending";
+export type BoardKind = "crm" | "crm-archive" | "flight" | "challah";
 
-export interface ImportStep {
-  key: ImportStepKey;
-  state: StepState;
-  completedAt: string | null;
-}
-
-export interface MondayBoard {
+export interface CopiedBoard {
   id: string;
-  /** As named in Monday.com, e.g. "CRM כללי". */
+  /** As named in Monday.com, e.g. "רונית - CRM". */
   name: string;
-  /** Monday groups on the board. */
-  groups: number;
+  kind: BoardKind;
   items: number;
-  selected: boolean;
+  groups: number;
+  copiedAt: string | null;
 }
 
-/** Where a Monday column lands in the dashboard. */
-export type ImportField = "fullName" | "phone" | "source" | "group" | "status" | "notes";
-
-export interface FieldMapping {
-  /** The column as named in Monday.com, e.g. "עדכונים". */
-  mondayColumn: string;
-  field: ImportField;
-  check: "ok" | "warning" | "error";
-}
-
-export interface ImportTotals {
+export interface CopyTotals {
+  /** Rows on the boards the copy reads. */
   itemsFound: number;
-  leadsImported: number;
+  /** Leads from the live CRM board, every status. */
+  leads: number;
+  archivedLeads: number;
+  /** CRM rows without a phone: Instagram chats that never left a number. */
+  withoutPhone: number;
+  customers: number;
+  /** Trips and challah months. */
+  groups: number;
+  /** Rows that joined a customer already there (the same phone on another board). */
   duplicatesMerged: number;
-  notesSaved: number;
-  errors: number;
+  notes: number;
 }
 
-export interface ImportRun {
+export type CopyStatus = "running" | "completed" | "failed" | "skipped";
+
+export interface CopyRun {
   id: string;
-  status: "running" | "completed" | "failed";
+  trigger: "schedule" | "startup" | "manual";
+  byUserId: string | null;
+  status: CopyStatus;
   startedAt: string;
-  completedAt: string | null;
-  boards: MondayBoard[];
-  /** In order. */
-  steps: ImportStep[];
-  fields: FieldMapping[];
-  totals: ImportTotals;
-  /** How duplicates were matched. */
-  duplicatesBy: "phone";
-  /** Monday stays read-only until Ronit confirms everything came over, then it is closed. */
-  monday: "read-only" | "closed";
-  mondayClosedAt: string | null;
-  mondayClosedByUserId: string | null;
+  finishedAt: string | null;
+  boardsRead: number;
+  apiCalls: number;
+  totals: CopyTotals | null;
+  error: string | null;
 }
 
-// ---- The mock store ----
-
-export interface Database {
-  users: UserAccount[];
-  invites: UserInvite[];
-  leads: Lead[];
-  customers: Customer[];
-  intakes: PassportIntake[];
-  groups: Group[];
-  participantNotes: ParticipantNote[];
-  activity: Activity[];
-  campaigns: HolidayCampaign[];
-  audiences: Audience[];
-  /** Messages that went out (or are due) to customers. The pending holiday greeting is not stored per customer. */
-  messages: CustomerMessage[];
-  birthdaySettings: BirthdaySettings;
-  permissions: PermissionMatrix;
-  security: SecuritySettings;
-  /** Sensitive actions by staff. Passport arrivals are read off the passport itself. */
-  audit: AuditEntry[];
-  importRun: ImportRun;
+/** How the copy from Monday stands. Monday stays the team's tool until the switch-over. */
+export interface MondayCopy {
+  /** Copies on the schedule; "sync now" needs it too. */
+  enabled: boolean;
+  /** The latest run, whatever happened to it. */
+  lastRun: CopyRun | null;
+  /** When the dashboard's data was last brought up to date. */
+  lastCopiedAt: string | null;
+  nextRunAt: string | null;
+  boards: CopiedBoard[];
+  totals: CopyTotals;
 }

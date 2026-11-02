@@ -5,10 +5,10 @@ import { Button } from "../../ui/Button";
 import { ScreenFrame } from "../../ui/ScreenFrame";
 import { EmptyState, ErrorState } from "../../ui/states";
 import { Surface } from "../../ui/Surface";
-import { LeadBodySkeleton, LeadContactLinks, LeadFacts, LeadHeader, LeadHeaderSkeleton, LeadHistory, LeadNoteForm, LeadStatusPicker } from "./LeadDetailParts";
+import { LeadBodySkeleton, LeadContactLinks, LeadFacts, LeadHeader, LeadHeaderSkeleton, LeadHistory, LeadInMonday } from "./LeadDetailParts";
 import { useLeadDetail } from "./leads-data";
 
-/** The lead as a pushed phone screen, with the same parts as the desktop panel: header, contact and details on glass, then status, history and a new note. */
+/** The lead as a pushed phone screen, with the same parts as the desktop panel: header, contact and details on glass, then Monday and the notes. */
 export function LeadPhoneDetail({ leadId }: { leadId: string }) {
   const { leadsCopy: copy } = useCopy();
   const detail = useLeadDetail(leadId);
@@ -24,13 +24,10 @@ export function LeadPhoneDetail({ leadId }: { leadId: string }) {
           <LeadFacts lead={lead} surface="glass" />
         </Surface>
         <Surface variant="card" compact>
-          <LeadStatusPicker lead={lead} level={2} onPaper />
+          <LeadInMonday lead={lead} level={2} />
         </Surface>
         <Surface variant="card" compact>
           <LeadHistory lead={lead} level={2} surface="card" />
-        </Surface>
-        <Surface variant="card" compact>
-          <LeadNoteForm leadId={lead.id} onPaper />
         </Surface>
       </>
     );

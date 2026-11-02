@@ -3,26 +3,16 @@ import { render } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { createMemoryRouter, type RouteObject } from "react-router";
 import { RouterProvider } from "react-router/dom";
-import { createMockServices, type MockOptions } from "../data/mock/createMockServices";
-import { createDatabase } from "../data/mock/generate";
 import type { Services } from "../data/services";
 import { ServicesProvider } from "../data/ServicesProvider";
-import { dayAt } from "../lib/clock";
 import { MotionRoot } from "../motion/MotionRoot";
+import { createTestServices, type TestServicesOptions } from "./services";
 
-const demoDb = createDatabase({ seed: 5787, today: dayAt("2026-10-28") });
+export { createTestServices } from "./services";
 
-/** Mock services on the demo data that answer instantly. Each call works on its own copy. */
-export function createTestServices(options: MockOptions = {}): Services {
-  return createMockServices({ db: demoDb, latency: [0, 0], now: () => dayAt("2026-10-28", "15:30"), ...options });
-}
-
-/** Mock services with Ronit already signed in, so guarded screens render. */
-export async function signedInServices(options: MockOptions = {}): Promise<Services> {
-  const services = createTestServices(options);
-  await services.session.startGoogle({ remember: false, returnTo: "/" });
-  await services.session.verifyCode("000000");
-  return services;
+/** Test services with Ronit already signed in, so guarded screens render. */
+export async function signedInServices(options: Omit<TestServicesOptions, "signedIn"> = {}): Promise<Services> {
+  return createTestServices({ ...options, signedIn: true });
 }
 
 export function createTestClient(): QueryClient {

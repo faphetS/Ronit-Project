@@ -29,15 +29,16 @@ describe("DesktopShell", () => {
     renderApp(routes, { services: await signedInServices() });
     expect(await screen.findByRole("link", { name: "לידים, 14 חדשים" })).toBeInTheDocument();
     expect(await screen.findByRole("link", { name: "דרכונים מוואטסאפ, 3 חדשים" })).toHaveAttribute("href", "/customers?filter=whatsapp");
-    expect(await screen.findByRole("button", { name: "התראות, 2 חדשות" })).toBeInTheDocument();
+    // One passport waits for review; no greeting waits for approval.
+    expect(await screen.findByRole("button", { name: "התראות, 1 חדשות" })).toBeInTheDocument();
   });
 
   it("opens a tool from the rail and highlights it", async () => {
     const { router } = renderApp(routes, { services: await signedInServices() });
-    await userEvent.click(await screen.findByRole("link", { name: "ייבוא מ-Monday" }));
+    await userEvent.click(await screen.findByRole("link", { name: "העתקה מ-Monday" }));
     expect(await screen.findByRole("heading", { name: "import page" })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/import");
-    expect(screen.getByRole("link", { name: "ייבוא מ-Monday" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "העתקה מ-Monday" })).toHaveAttribute("aria-current", "page");
   });
 
   it("signs out from the avatar", async () => {

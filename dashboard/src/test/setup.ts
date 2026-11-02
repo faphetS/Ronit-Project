@@ -1,8 +1,13 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, configure } from "@testing-library/react";
 import { MotionGlobalConfig } from "motion/react";
-import { afterEach } from "vitest";
+import { afterEach, vi } from "vitest";
 import { setViewportWidth } from "./viewport";
+
+// The clock stands at 2026-10-28 15:30 Israel time, so dates on screen are the same in every run.
+// Only Date is faked: timers stay real for React Query and user events.
+vi.useFakeTimers({ toFake: ["Date"] });
+vi.setSystemTime(new Date("2026-10-28T13:30:00Z"));
 
 // Springs finish instantly in tests, so assertions never wait on animation.
 MotionGlobalConfig.skipAnimations = true;
