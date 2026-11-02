@@ -1,32 +1,28 @@
 import { z } from "zod";
 
-// Long enough for any real password; the length rule for new ones is in lib/password.ts.
-const password = z.string().min(1).max(512);
+// Query strings are parsed in the controllers: Express 5 makes req.query read-only, so the
+// validate() middleware can only take body and params here.
 
-export const SignInSchema = z.object({
-  email: z.string().trim().min(3).max(254),
-  password,
-  remember: z.boolean().default(false),
+export const GoogleStartQuerySchema = z.object({
+  remember: z
+    .enum(["0", "1"])
+    .default("0")
+    .transform((value) => value === "1"),
+  returnTo: z.string().max(300).default("/"),
+});
+
+export const GoogleCallbackQuerySchema = z.object({
+  code: z.string().max(2048).optional(),
+  state: z.string().max(200).optional(),
+  error: z.string().max(200).optional(),
 });
 
 export const VerifyCodeSchema = z.object({
-  // People type "123 456" as the app shows it.
+  // People type "123 456" when they copy it with a space.
   code: z
     .string()
     .transform((value) => value.replace(/\s/g, ""))
     .pipe(z.string().regex(/^\d{6}$/, "The code is 6 digits")),
 });
 
-export const SetupLinkParamsSchema = z.object({
-  token: z.string().regex(/^[\w-]{20,100}$/),
-});
-
-export const CompleteSetupLinkSchema = z.object({
-  password,
-  remember: z.boolean().default(false),
-});
-
-export type SignInBody = z.infer<typeof SignInSchema>;
 export type VerifyCodeBody = z.infer<typeof VerifyCodeSchema>;
-export type SetupLinkParams = z.infer<typeof SetupLinkParamsSchema>;
-export type CompleteSetupLinkBody = z.infer<typeof CompleteSetupLinkSchema>;

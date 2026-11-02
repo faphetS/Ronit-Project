@@ -230,28 +230,31 @@ Status of each integration. When a new decision is made, update this section and
 
 ### Staff sign-in (the dashboard)
 - **Decision (2026-11-02):**
-  - Staff accounts live in `staff_users`, by invitation only.
-  - Sign-in is a password, then a 6-digit code from an authenticator app (TOTP). "Remember me" skips the code on that device for 30 days.
+  - Staff accounts live in `staff_users` and are registered by the office. There's no sign-up and no passwords.
+  - Sign-in is "Continue with Google" (OIDC code flow with PKCE, from the server). Only a registered email gets in, and the first sign-in links that Google account.
+  - On a device that isn't remembered, a 6-digit code is emailed over SMTP. "Remember me" skips it for 30 days.
   - Sessions are server-side, with an HttpOnly cookie. They end after 30 minutes without requests while the `auto_sign_out` switch is on.
   - The dashboard moves to `app.ronitbarash.site`. On `*.vercel.app` the API's cookie is third-party, and Safari drops it.
 - **Code** ([domains/auth/](Server/src/domains/auth/), mounted at `/api/auth`):
-  - [auth.service.ts](Server/src/domains/auth/auth.service.ts) holds the flows: sign-in, verify the code, setup links, sessions.
-  - [staff-accounts.service.ts](Server/src/domains/auth/staff-accounts.service.ts) creates and looks after accounts.
+  - [auth.service.ts](Server/src/domains/auth/auth.service.ts): the Google leg, the code, sessions and devices.
+  - [staff-accounts.service.ts](Server/src/domains/auth/staff-accounts.service.ts): registering, resetting and disabling accounts.
+  - [auth.emails.ts](Server/src/domains/auth/auth.emails.ts): the Hebrew emails.
   - `requireStaff` in [auth.middleware.ts](Server/src/domains/auth/auth.middleware.ts) guards the dashboard API routes that come next.
-  - The building blocks are in `lib/`: [password.ts](Server/src/lib/password.ts) (scrypt), [totp.ts](Server/src/lib/totp.ts), [secret-box.ts](Server/src/lib/secret-box.ts) (AES-GCM) and [tokens.ts](Server/src/lib/tokens.ts). None of them adds a dependency.
-  - The database stores only token hashes. Authenticator keys are sealed with `AUTH_SECRET`.
+  - Building blocks in `lib/`: [google-oidc.ts](Server/src/lib/google-oidc.ts), [mailer.ts](Server/src/lib/mailer.ts) (nodemailer), [secret-box.ts](Server/src/lib/secret-box.ts) (AES-GCM) and [tokens.ts](Server/src/lib/tokens.ts).
+  - The database stores only token hashes, and codes as HMACs keyed with `AUTH_SECRET`.
 - **Protection:**
-  - 5 wrong passwords or codes lock the account for 15 minutes.
-  - Each IP gets 30 sign-in requests per 15 minutes.
+  - 5 wrong codes lock the account for 15 minutes.
+  - Each IP gets 30 code requests per 15 minutes.
   - Every state-changing `/api/auth` request must carry `Origin: DASHBOARD_URL`, because n8n on a sibling subdomain counts as the same site.
 - **Accounts from the console**, until the users screen is connected:
   - `docker exec root-crm-1 node dist/scripts/staff-user.js invite --email … --name "…" --role admin|office|sales [--passport-access]`
-  - also `reset-password`, `reset-two-step` and `disable`.
-  - `invite` and `reset-password` print a one-time link to send by hand.
+  - also `reset-sign-in` (a replaced Google account or a lost phone) and `disable`.
 - **Env:**
-  - `AUTH_SECRET` is 64 hex characters (`openssl rand -hex 32`). Never change it once accounts exist.
+  - `AUTH_SECRET` is 64 hex characters.
   - `DASHBOARD_URL` is `https://app.ronitbarash.site`. It's added to CORS automatically.
-  - Sign-in answers 503 `SIGN_IN_UNAVAILABLE` until `DATABASE_URL`, `AUTH_SECRET` and `DASHBOARD_URL` are all set.
+  - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are for the OAuth client, whose redirect URI is `<BACKEND_URL>/api/auth/google/callback`.
+  - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` and `MAIL_FROM` are for Resend's SMTP.
+  - Sign-in answers 503 `SIGN_IN_UNAVAILABLE` until all of them and `DATABASE_URL` are set.
 - **Design:** [docs/superpowers/specs/2026-11-02-staff-sign-in-design.md](docs/superpowers/specs/2026-11-02-staff-sign-in-design.md).
 
 ### Hosting

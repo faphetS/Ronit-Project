@@ -18,6 +18,8 @@ export class ApiError extends Error {
 export interface ApiClient {
   get<T>(path: string): Promise<T>;
   post<T>(path: string, body?: unknown): Promise<T>;
+  /** The full address of an API path, for a browser navigation (like "Continue with Google"). */
+  url(path: string): string;
 }
 
 export interface ApiClientOptions {
@@ -55,5 +57,6 @@ export function createApiClient({ baseUrl, fetch: fetchImpl }: ApiClientOptions)
     get: (path) => call("GET", path),
     // Always a JSON body, so the server's JSON parser and the Origin check see a normal request.
     post: (path, body = {}) => call("POST", path, body),
+    url: (path) => `${origin}${path}`,
   };
 }

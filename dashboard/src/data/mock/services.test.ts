@@ -8,28 +8,21 @@ const db = createDatabase({ seed: 5787, today: dayAt("2026-10-28") });
 const make = (options: MockOptions = {}) => createMockServices({ db, latency: [0, 0], now: () => dayAt("2026-10-28", "15:30"), ...options });
 
 describe("mock services", () => {
-  it("signs in like the real sign-in: any password, then any 6 digits", async () => {
+  it("signs in like the real sign-in: Google, then any 6 digits", async () => {
     const services = make();
     expect(await services.session.current()).toBeNull();
-    await expect(services.session.signIn("", "x", false)).rejects.toEqual(new SignInError("invalid-credentials"));
+    expect(await services.session.pendingCode()).toBeNull();
     await expect(services.session.verifyCode("123456")).rejects.toEqual(new SignInError("step-expired"));
-    expect(await services.session.signIn("ronit@example.com", "secret", false)).toEqual({ step: "code-required" });
+    expect(await services.session.startGoogle({ remember: true, returnTo: "/" })).toEqual({ step: "code-required" });
+    expect(await services.session.pendingCode()).toEqual({ email: expect.stringMatching(/^\w\*\*\*@/) });
+    await services.session.resendCode();
     await expect(services.session.verifyCode("12345")).rejects.toEqual(new SignInError("invalid-code"));
-    const { user } = await services.session.verifyCode("123456");
-    expect(user.name).toBe("רונית ברש");
+    const { signedIn, returnTo } = await services.session.verifyCode("123456");
+    expect(signedIn.user.name).toBe("רונית ברש");
+    expect(returnTo).toBe("/");
     expect((await services.session.current())?.user.id).toBe("u-ronit");
     await services.session.signOut();
     expect(await services.session.current()).toBeNull();
-  });
-
-  it("takes the demo invite link through setting up the codes", async () => {
-    const services = make();
-    await expect(services.session.setupLink("nope")).rejects.toEqual(new SignInError("link-invalid"));
-    expect(await services.session.setupLink("demo")).toMatchObject({ name: "רונית ברש", purpose: "invite" });
-    await expect(services.session.completeSetupLink("demo", "short", true)).rejects.toEqual(new SignInError("password-too-short"));
-    expect(await services.session.completeSetupLink("demo", "a long password", true)).toMatchObject({ step: "setup-required", setup: { secret: "JBSWY3DPEHPK3PXP" } });
-    await services.session.verifyCode("654321");
-    expect(await services.session.current()).not.toBeNull();
   });
 
   it("lists the open pipeline with counts, newest first", async () => {

@@ -1,44 +1,27 @@
-import { SignInError, type SessionService, type SetupLinkInfo, type SignedIn, type SignInErrorCode, type SignInStep, type TwoStepSetup } from "../services";
+import { SignInError, type PendingCode, type SessionService, type SignedIn, type SignInErrorCode } from "../services";
 import type { Session, StaffUser } from "../types";
 import { ApiError, type ApiClient } from "./client";
 
-/** Sign-in against /api/auth. The API keeps the session in an HttpOnly cookie, so no token passes through here. */
-
-type StepBody =
-  | ({ step: "signed-in" } & SignedIn)
-  | { step: "code-required" }
-  | { step: "setup-required"; setup: TwoStepSetup };
+/**
+ * Sign-in against /api/auth: "Continue with Google" is a browser navigation through the API,
+ * then the emailed code. The API keeps the session in an HttpOnly cookie, so no token passes
+ * through here.
+ */
 
 const ERRORS: Record<string, SignInErrorCode> = {
-  INVALID_CREDENTIALS: "invalid-credentials",
   TOO_MANY_ATTEMPTS: "too-many-attempts",
   RATE_LIMITED: "too-many-attempts",
   INVALID_CODE: "invalid-code",
   CHALLENGE_EXPIRED: "step-expired",
-  LINK_INVALID: "link-invalid",
-  PASSWORD_TOO_SHORT: "password-too-short",
-  PASSWORD_TOO_LONG: "password-too-long",
-  PASSWORD_SAME_AS_EMAIL: "password-same-as-email",
-  PASSWORD_TOO_COMMON: "password-too-common",
+  EMAIL_FAILED: "email-failed",
+  RESEND_TOO_SOON: "resend-too-soon",
+  SIGN_IN_UNAVAILABLE: "unavailable",
 };
 
 function translate(err: unknown): never {
   if (err instanceof ApiError && ERRORS[err.code]) throw new SignInError(ERRORS[err.code]);
   throw err;
 }
-
-function toStep(body: StepBody): SignInStep {
-  switch (body.step) {
-    case "signed-in":
-      return { step: "signed-in", signedIn: { session: body.session, user: body.user } };
-    case "setup-required":
-      return { step: "setup-required", setup: body.setup };
-    default:
-      return { step: "code-required" };
-  }
-}
-
-const linkPath = (token: string) => `/api/auth/setup-links/${encodeURIComponent(token)}`;
 
 export function createHttpSessionService(api: ApiClient): SessionService {
   return {
@@ -52,25 +35,29 @@ export function createHttpSessionService(api: ApiClient): SessionService {
       }
     },
 
-    signIn: (email, password, remember) => api.post<StepBody>("/api/auth/sign-in", { email, password, remember }).then(toStep, translate),
-
-    async verifyCode(code) {
-      const step = await api.post<StepBody>("/api/auth/verify", { code }).then(toStep, translate);
-      if (step.step !== "signed-in") throw new SignInError("step-expired");
-      return step.signedIn;
+    async startGoogle({ remember, returnTo }) {
+      const query = new URLSearchParams({ remember: remember ? "1" : "0", returnTo });
+      return { redirectTo: api.url(`/api/auth/google?${query}`) };
     },
 
-    async setupLink(token) {
+    async pendingCode() {
       try {
-        return (await api.get<{ link: SetupLinkInfo }>(linkPath(token))).link;
+        const { email } = await api.get<PendingCode>("/api/auth/code");
+        return { email };
       } catch (err) {
-        // A malformed token is refused before the lookup (400); to the person it's the same dead link.
-        if (err instanceof ApiError && (err.status === 400 || err.status === 404)) throw new SignInError("link-invalid");
+        if (err instanceof ApiError && err.status === 401) return null;
         throw err;
       }
     },
 
-    completeSetupLink: (token, password, remember) => api.post<StepBody>(linkPath(token), { password, remember }).then(toStep, translate),
+    async resendCode() {
+      await api.post("/api/auth/code/resend").catch(translate);
+    },
+
+    async verifyCode(code) {
+      const body = await api.post<SignedIn & { returnTo: string }>("/api/auth/verify", { code }).catch(translate);
+      return { signedIn: { session: body.session, user: body.user }, returnTo: body.returnTo };
+    },
 
     async signOut() {
       await api.post("/api/auth/sign-out");

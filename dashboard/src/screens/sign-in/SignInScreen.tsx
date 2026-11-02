@@ -1,92 +1,67 @@
-import { useState, type FormEvent } from "react";
-import { useLocation, useNavigate } from "react-router";
+import { useCallback, useState } from "react";
+import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { useCopy } from "../../content/locale";
-import { useSignIn } from "../../data/queries";
-import { Field } from "../../ui/Field";
-import { GooButton } from "../../ui/GooButton";
+import { useStartGoogle } from "../../data/queries";
+import { SIGN_IN_ERRORS } from "../../data/services";
 import { Headline } from "../../ui/Headline";
+import { EmailCodeStage } from "./EmailCodeStage";
+import { GoogleButton } from "./GoogleButton";
 import { SignInLayout } from "./SignInLayout";
 import { signInMessage } from "./signInMessage";
-import { TwoStepStage, type TwoStepState } from "./TwoStepStage";
 
-type Stage = { kind: "password" } | TwoStepState;
-
-/** Sign in: email and password, then the 6-digit code (or setting the codes up the first time). */
+/**
+ * Sign in: "Continue with Google" for the email the office registered, then, on a device that
+ * isn't remembered, the 6-digit code from the email. Google sends the browser back through the
+ * API to /login?step=code, or /login?error=… when it didn't work.
+ */
 export function SignInScreen() {
   const { signIn: copy } = useCopy();
   const navigate = useNavigate();
   const location = useLocation();
-  const signInMutation = useSignIn();
-  const [stage, setStage] = useState<Stage>({ kind: "password" });
-  const [message, setMessage] = useState("");
+  const [params] = useSearchParams();
+  const startGoogle = useStartGoogle();
+  const [stage, setStage] = useState<"google" | "code">(params.get("step") === "code" ? "code" : "google");
+  const [remember, setRemember] = useState(true);
+  const [message, setMessage] = useState(() => {
+    // "cancelled" (backing out of Google's page) isn't in the list, so it says nothing.
+    const code = SIGN_IN_ERRORS.find((known) => known === params.get("error"));
+    return code ? copy.errors[code] : "";
+  });
   const returnTo = (location.state as { from?: string } | null)?.from ?? "/";
-  const done = () => navigate(returnTo, { replace: true });
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const email = String(form.get("email") ?? "").trim();
-    const password = String(form.get("password") ?? "");
-    if (!email || !password) {
-      setMessage(copy.errors["missing-credentials"]);
-      return;
-    }
+  const begin = () => {
     setMessage("");
-    signInMutation.mutate(
-      { email, password, remember: form.get("remember") === "on" },
+    startGoogle.mutate(
+      { remember, returnTo },
       {
-        onSuccess: (step) => {
-          if (step.step === "signed-in") done();
-          else setStage(step.step === "code-required" ? { kind: "code" } : { kind: "setup", setup: step.setup });
+        onSuccess: (start) => {
+          if ("redirectTo" in start) window.location.assign(start.redirectTo);
+          else setStage("code");
         },
         onError: (error) => setMessage(signInMessage(copy, error)),
       },
     );
   };
 
-  const backToPassword = (notice = "") => {
-    setStage({ kind: "password" });
+  const restart = useCallback((notice = "") => {
+    setStage("google");
     setMessage(notice);
-  };
+  }, []);
 
   return (
     <SignInLayout label={copy.title} message={message} onHelp={() => setMessage(copy.helpNotice)}>
-      {stage.kind === "password" ? (
+      {stage === "google" ? (
         <>
-          <Headline title={copy.title} size="display-3" className="mt-5 mb-4" />
-          <form onSubmit={submit} noValidate className="flex flex-col gap-4">
-            <Field label={copy.email} icon="at" name="email" type="email" autoComplete="username" />
-            <Field
-              label={copy.password}
-              icon="key"
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              trailing={
-                <button type="button" onClick={() => setMessage(copy.forgotNotice)} className="inline-flex h-[42px] items-center rounded-full bg-paper px-4 text-small font-medium text-ink">
-                  {copy.forgot}
-                </button>
-              }
-            />
-            <div className="flex items-center justify-between gap-4">
-              <label className="flex items-center gap-2.5 px-2 text-small text-mute-2">
-                <input type="checkbox" name="remember" defaultChecked className="size-[18px] accent-ink" />
-                {copy.remember}
-              </label>
-              <GooButton type="submit" disabled={signInMutation.isPending}>
-                {copy.submit}
-              </GooButton>
-            </div>
-          </form>
+          <Headline title={copy.title} size="display-3" className="mt-5 mb-2" />
+          <p className="mb-5 text-small text-copy">{copy.intro}</p>
+          <GoogleButton label={copy.google} onClick={begin} disabled={startGoogle.isPending} />
+          <label className="mt-4 flex items-center gap-2.5 px-2 text-small text-mute-2">
+            <input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} className="size-[18px] accent-ink" />
+            {copy.remember}
+          </label>
         </>
       ) : (
-        <TwoStepStage
-          state={stage}
-          onSignedIn={done}
-          onMessage={setMessage}
-          onExpired={() => backToPassword(copy.errors["step-expired"])}
-          onBack={() => backToPassword()}
-        />
+        <EmailCodeStage onSignedIn={(to) => navigate(to, { replace: true })} onMessage={setMessage} onRestart={restart} />
       )}
     </SignInLayout>
   );

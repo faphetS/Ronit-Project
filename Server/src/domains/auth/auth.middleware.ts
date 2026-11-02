@@ -3,6 +3,8 @@ import rateLimit from "express-rate-limit";
 import { env } from "../../config/env.js";
 import { crmDatabase } from "../../db/startup.js";
 import { AppError } from "../../lib/errors.js";
+import { googleSignIn, type GoogleSignIn } from "../../lib/google-oidc.js";
+import { smtpMailerFromEnv } from "../../lib/mailer.js";
 import { keyFromHex } from "../../lib/secret-box.js";
 import { SESSION_COOKIE, clearAuthCookie, readCookie } from "./auth.cookies.js";
 import { authenticate, type AuthDeps, type SignedInDto } from "./auth.service.js";
@@ -16,13 +18,25 @@ declare global {
   }
 }
 
-/** Sign-in on this server: answers 503 until the CRM database, AUTH_SECRET and DASHBOARD_URL are all there. */
+let google: GoogleSignIn | null = null;
+
+/**
+ * Sign-in on this server. Answers 503 until the CRM database, AUTH_SECRET, DASHBOARD_URL, the
+ * Google client and SMTP are all there.
+ */
 export async function authDepsFromEnv(): Promise<AuthDeps> {
   const db = await crmDatabase();
-  if (!db || !env.AUTH_SECRET || !env.DASHBOARD_URL) {
+  const mailer = smtpMailerFromEnv();
+  const { AUTH_SECRET, DASHBOARD_URL, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } = env;
+  if (!db || !mailer || !AUTH_SECRET || !DASHBOARD_URL || !GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
     throw new AppError(503, "Sign-in is not set up on this server", "SIGN_IN_UNAVAILABLE");
   }
-  return { db, secretKey: keyFromHex(env.AUTH_SECRET), dashboardUrl: env.DASHBOARD_URL, now: () => new Date() };
+  google ??= googleSignIn({
+    clientId: GOOGLE_CLIENT_ID,
+    clientSecret: GOOGLE_CLIENT_SECRET,
+    redirectUri: `${env.BACKEND_URL.replace(/\/+$/, "")}/api/auth/google/callback`,
+  });
+  return { db, secretKey: keyFromHex(AUTH_SECRET), dashboardUrl: DASHBOARD_URL, google, mailer, now: () => new Date() };
 }
 
 export type AuthDepsResolver = () => Promise<AuthDeps>;
@@ -53,7 +67,7 @@ export function requireDashboardOrigin(req: Request, res: Response, next: NextFu
   next();
 }
 
-/** On top of the server's general /api limit: guessing passwords and codes from one IP. */
+/** On top of the server's general /api limit: guessing codes from one IP. */
 export function signInLimiter(limit = 30) {
   return rateLimit({
     windowMs: 15 * 60_000,

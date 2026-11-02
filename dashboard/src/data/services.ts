@@ -74,40 +74,23 @@ export interface CampaignPatch {
 
 export type BirthdaySettingsPatch = Partial<Pick<BirthdaySettings, "enabled" | "sendTime" | "shabbatRule" | "template">>;
 
-/** The authenticator key to add on the first sign-in. */
-export interface TwoStepSetup {
-  /** The key in base32, for typing into the app by hand. */
-  secret: string;
-  /** The same key as an otpauth:// link: the QR code, and the "add to app" link on phones. */
-  otpauthUrl: string;
-}
+/** Where "Continue with Google" leads: Google itself (through the API), or, on the demo data, straight to the code. */
+export type GoogleStart = { redirectTo: string } | { step: "code-required" };
 
-/** What comes after a correct password: straight in, the 6-digit code, or setting the codes up. */
-export type SignInStep =
-  | { step: "signed-in"; signedIn: SignedIn }
-  | { step: "code-required" }
-  | { step: "setup-required"; setup: TwoStepSetup };
-
-export type SetupLinkPurpose = "invite" | "reset";
-
-/** Who an invite or password-reset link is for. */
-export interface SetupLinkInfo {
-  name: string;
+/** The code waiting after Google: where it was emailed, partly hidden (r***@gmail.com). */
+export interface PendingCode {
   email: string;
-  purpose: SetupLinkPurpose;
 }
 
 export const SIGN_IN_ERRORS = [
-  "missing-credentials",
-  "invalid-credentials",
+  "not-registered",
+  "google-failed",
   "too-many-attempts",
   "invalid-code",
   "step-expired",
-  "link-invalid",
-  "password-too-short",
-  "password-too-long",
-  "password-same-as-email",
-  "password-too-common",
+  "email-failed",
+  "resend-too-soon",
+  "unavailable",
 ] as const;
 export type SignInErrorCode = (typeof SIGN_IN_ERRORS)[number];
 
@@ -121,12 +104,13 @@ export class SignInError extends Error {
 
 export interface SessionService {
   current(): Promise<SignedIn | null>;
-  signIn(email: string, password: string, remember: boolean): Promise<SignInStep>;
-  /** The 6-digit code from the authenticator app, for the step signIn or completeSetupLink asked for. */
-  verifyCode(code: string): Promise<SignedIn>;
-  setupLink(token: string): Promise<SetupLinkInfo>;
-  /** Sets the password from an invite or reset link, then continues like signIn. */
-  completeSetupLink(token: string, password: string, remember: boolean): Promise<SignInStep>;
+  /** Starts "Continue with Google". `returnTo` is the page to land on afterwards. */
+  startGoogle(options: { remember: boolean; returnTo: string }): Promise<GoogleStart>;
+  /** The emailed code waiting after Google, or null when there's none. */
+  pendingCode(): Promise<PendingCode | null>;
+  resendCode(): Promise<void>;
+  /** The 6-digit code from the email. */
+  verifyCode(code: string): Promise<{ signedIn: SignedIn; returnTo: string }>;
   signOut(): Promise<void>;
 }
 

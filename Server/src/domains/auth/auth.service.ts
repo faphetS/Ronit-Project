@@ -1,14 +1,17 @@
+import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
 import type { Db, Queryable } from "../../config/pg.js";
 import { AppError } from "../../lib/errors.js";
-import { burnPasswordCheck, hashPassword, passwordProblem, verifyPassword } from "../../lib/password.js";
+import { pkceChallenge, type GoogleIdentity, type GoogleSignIn } from "../../lib/google-oidc.js";
+import type { Mailer } from "../../lib/mailer.js";
 import { openSecret, sealSecret } from "../../lib/secret-box.js";
 import { hashToken, newToken } from "../../lib/tokens.js";
-import { base32Encode, matchTotp, newTotpSecret, otpauthUrl } from "../../lib/totp.js";
+import { signInCodeEmail } from "./auth.emails.js";
 
 /**
- * Staff sign-in for the dashboard: password, then a code from an authenticator app (skipped
- * on a remembered device), then a server-side session. The HTTP layer (auth.controller.ts)
- * turns the tokens returned here into HttpOnly cookies; nothing here knows about HTTP.
+ * Staff sign-in for the dashboard: "Continue with Google" for a registered email, then a
+ * 6-digit code by email on a device that isn't remembered, then a server-side session. The
+ * HTTP layer (auth.controller.ts) turns the tokens returned here into HttpOnly cookies;
+ * nothing here knows about HTTP.
  * Design: docs/superpowers/specs/2026-11-02-staff-sign-in-design.md
  */
 
@@ -35,10 +38,12 @@ export interface SignedInDto {
 
 export interface AuthDeps {
   db: Db;
-  /** AUTH_SECRET: seals the authenticator keys stored in staff_users. */
+  /** AUTH_SECRET: seals the cookie that carries the Google step, and keys the emailed codes. */
   secretKey: Buffer;
-  /** DASHBOARD_URL: setup links point here. */
+  /** DASHBOARD_URL: where sign-in lands. */
   dashboardUrl: string;
+  google: GoogleSignIn;
+  mailer: Mailer;
   now: () => Date;
 }
 
@@ -50,49 +55,72 @@ export interface DeviceContext {
   userAgent: string | null;
 }
 
-export interface TwoStepSetup {
-  /** The key in base32, for typing into the app by hand. */
-  secret: string;
-  /** The same key as an otpauth:// link: the QR code's content, and the "add to app" link on phones. */
-  otpauthUrl: string;
-}
-
 export type SignedInOutcome = {
   step: "signed-in";
   signedIn: SignedInDto;
   sessionToken: string;
   remember: boolean;
   deviceToken: string;
+  /** The dashboard page to land on. */
+  returnTo: string;
 };
 
-export type SignInOutcome =
-  | SignedInOutcome
-  | { step: "code-required"; challengeToken: string }
-  | { step: "setup-required"; challengeToken: string; setup: TwoStepSetup };
+export type GoogleOutcome = SignedInOutcome | { step: "code-sent"; challengeToken: string; returnTo: string };
 
 export const SESSION_HOURS = 12;
 export const REMEMBERED_SESSION_DAYS = 30;
 export const TRUSTED_DEVICE_DAYS = 30;
-export const CHALLENGE_MINUTES = 10;
-export const CHALLENGE_MAX_ATTEMPTS = 5;
+/** The round trip to Google and back. */
+export const GOOGLE_STEP_MINUTES = 10;
+export const CODE_MINUTES = 10;
+export const CODE_MAX_ATTEMPTS = 5;
+export const CODE_MAX_SENDS = 3;
+export const RESEND_AFTER_SECONDS = 60;
 export const MAX_FAILED_SIGN_INS = 5;
 export const LOCK_MINUTES = 15;
 /** last_seen_at is written at most once a minute, not on every request. */
 const LAST_SEEN_RESOLUTION_MS = 60_000;
-const ISSUER = "Or HaTzadik";
+const GOOGLE_STEP_CONTEXT = "google-sign-in";
 
 const minutesAfter = (at: Date, minutes: number) => new Date(at.getTime() + minutes * 60_000);
 
-export const invalidCredentials = () => new AppError(401, "Wrong email or password", "INVALID_CREDENTIALS");
 export const tooManyAttempts = () => new AppError(429, "Too many attempts — try again in 15 minutes", "TOO_MANY_ATTEMPTS");
+const googleFailed = (why: string) => new AppError(400, `Google sign-in didn't complete: ${why}`, "GOOGLE_FAILED");
+const googleCancelled = () => new AppError(400, "Google sign-in was cancelled", "GOOGLE_CANCELLED");
+const notRegistered = () => new AppError(403, "This Google account isn't registered", "NOT_REGISTERED");
 const invalidCode = () => new AppError(401, "Wrong code", "INVALID_CODE");
 const challengeExpired = () => new AppError(401, "This sign-in step expired — sign in again", "CHALLENGE_EXPIRED");
+const resendTooSoon = () => new AppError(429, "A new code can be sent a minute after the last one", "RESEND_TOO_SOON");
 const unauthenticated = () => new AppError(401, "Not signed in", "UNAUTHENTICATED");
 const sessionExpired = () => new AppError(401, "The session ended — sign in again", "SESSION_EXPIRED");
-export const linkInvalid = () => new AppError(404, "This link is no longer valid", "LINK_INVALID");
 
 export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
+}
+
+function hasControlCharacter(value: string): boolean {
+  return [...value].some((char) => char.charCodeAt(0) < 0x20 || char.charCodeAt(0) === 0x7f);
+}
+
+/** Where to land after signing in: a path inside the dashboard, never another site. */
+export function safeReturnTo(value: unknown): string {
+  if (typeof value !== "string" || value.length > 300) return "/";
+  // Browsers drop tabs and newlines from URLs, so "/\t/evil.example" would become "//evil.example".
+  if (!value.startsWith("/") || value.startsWith("//") || /[\\\s]/.test(value) || hasControlCharacter(value)) return "/";
+  if (value === "/login" || value.startsWith("/login?") || value.startsWith("/login/")) return "/";
+  return value;
+}
+
+/** r***@gmail.com: enough to recognize the mailbox on the code screen. */
+export function maskEmail(email: string): string {
+  const at = email.lastIndexOf("@");
+  return at < 1 ? "***" : `${email[0]}***${email.slice(at)}`;
+}
+
+function sameText(a: string, b: string): boolean {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  return left.length === right.length && timingSafeEqual(left, right);
 }
 
 interface UserRow {
@@ -101,16 +129,14 @@ interface UserRow {
   name: string;
   role: Role;
   passport_access: boolean;
-  password_hash: string | null;
-  totp_secret: string | null;
-  totp_enabled_at: Date | null;
+  google_sub: string | null;
   locked_until: Date | null;
   disabled_at: Date | null;
 }
 
-const USER_COLUMNS = "id, email, name, role, passport_access, password_hash, totp_secret, totp_enabled_at, locked_until, disabled_at";
+const USER_COLUMNS = "id, email, name, role, passport_access, google_sub, locked_until, disabled_at";
 
-async function findUser(q: Queryable, where: "email" | "id", value: string): Promise<UserRow | null> {
+async function findUser(q: Queryable, where: "email" | "id" | "google_sub", value: string): Promise<UserRow | null> {
   const { rows } = await q.query<UserRow>(`SELECT ${USER_COLUMNS} FROM staff_users WHERE ${where} = $1`, [value]);
   return rows[0] ?? null;
 }
@@ -141,17 +167,7 @@ export async function recordAudit(
   ]);
 }
 
-const totpContext = (userId: string) => `totp:${userId}`;
-
-function openTotpSecret(deps: AuthDeps, sealed: string, userId: string): Buffer {
-  try {
-    return openSecret(sealed, deps.secretKey, totpContext(userId));
-  } catch {
-    throw new AppError(500, "An authenticator key can't be opened — was AUTH_SECRET changed?", "TWO_STEP_KEY_UNREADABLE", false);
-  }
-}
-
-/** Counts a wrong password or code; the fifth in a row locks the account. */
+/** Counts a wrong code; the fifth in a row locks the account for 15 minutes. */
 async function recordFailure(deps: AuthDeps, userId: string, now: Date): Promise<"counted" | "locked"> {
   const { rows } = await deps.db.query<{ failed_sign_ins: number }>(
     `UPDATE staff_users
@@ -169,42 +185,68 @@ async function recordFailure(deps: AuthDeps, userId: string, now: Date): Promise
 
 const isLocked = (user: UserRow, now: Date) => user.locked_until !== null && user.locked_until > now;
 
-export async function signIn(
-  deps: AuthDeps,
-  input: { email: string; password: string; remember: boolean },
-  device: DeviceContext,
-): Promise<SignInOutcome> {
-  const now = deps.now();
-  const user = await findUser(deps.db, "email", normalizeEmail(input.email));
-  if (!user || !user.password_hash || user.disabled_at) {
-    await burnPasswordCheck(input.password);
-    throw invalidCredentials();
-  }
-  if (isLocked(user, now)) throw tooManyAttempts();
-  if (!(await verifyPassword(input.password, user.password_hash))) {
-    throw (await recordFailure(deps, user.id, now)) === "locked" ? tooManyAttempts() : invalidCredentials();
-  }
-  return deps.db.transaction((tx) => continueAfterPassword(tx, deps, user, input.remember, device, now));
+interface GoogleStep {
+  state: string;
+  nonce: string;
+  verifier: string;
+  remember: boolean;
+  returnTo: string;
+  startedAt: number;
 }
 
-/** After a correct password: straight in, a code, or setting the codes up. */
-async function continueAfterPassword(
-  tx: Queryable,
-  deps: AuthDeps,
-  user: UserRow,
-  remember: boolean,
-  device: DeviceContext,
-  now: Date,
-): Promise<SignInOutcome> {
-  if (user.totp_enabled_at) {
-    if (device.deviceToken && (await isTrustedDevice(tx, device.deviceToken, user.id, now))) {
-      return startSession(tx, user, { remember, trust: remember, device }, now);
-    }
-    return createChallenge(tx, deps, user, "code", remember, now);
+/**
+ * The first leg: where to send the browser, and the sealed value for the cookie that has to
+ * come back with Google's answer (state, nonce and PKCE verifier, so nobody else's answer fits).
+ */
+export function startGoogleSignIn(
+  deps: Pick<AuthDeps, "secretKey" | "google" | "now">,
+  input: { remember: boolean; returnTo: string },
+): { redirectUrl: string; googleStep: string } {
+  const step: GoogleStep = {
+    state: newToken(),
+    nonce: newToken(),
+    verifier: newToken(),
+    remember: input.remember,
+    returnTo: safeReturnTo(input.returnTo),
+    startedAt: deps.now().getTime(),
+  };
+  return {
+    redirectUrl: deps.google.authorizeUrl({ state: step.state, nonce: step.nonce, codeChallenge: pkceChallenge(step.verifier) }),
+    googleStep: sealSecret(Buffer.from(JSON.stringify(step)), deps.secretKey, GOOGLE_STEP_CONTEXT),
+  };
+}
+
+function openGoogleStep(deps: AuthDeps, sealed: string | null, now: Date): GoogleStep {
+  if (!sealed) throw googleFailed("no sign-in in progress on this browser");
+  let step: GoogleStep;
+  try {
+    step = JSON.parse(openSecret(sealed, deps.secretKey, GOOGLE_STEP_CONTEXT).toString("utf8")) as GoogleStep;
+  } catch {
+    throw googleFailed("unreadable sign-in step");
   }
-  const { rows } = await tx.query<{ two_step_required: boolean }>("SELECT two_step_required FROM security_settings");
-  if (rows[0]?.two_step_required ?? true) return createChallenge(tx, deps, user, "setup", remember, now);
-  return startSession(tx, user, { remember, trust: false, device }, now);
+  if (now.getTime() - step.startedAt > GOOGLE_STEP_MINUTES * 60_000) throw googleFailed("the Google step took too long");
+  return step;
+}
+
+/**
+ * The staff member behind a Google identity. The first sign-in binds the Google account to the
+ * registered email; after that only that account gets in, even if someone else later gets a
+ * Google account under the same address.
+ */
+async function registeredUser(deps: AuthDeps, identity: GoogleIdentity, now: Date): Promise<UserRow> {
+  const bound = await findUser(deps.db, "google_sub", identity.sub);
+  if (bound && !bound.disabled_at) return bound;
+  const byEmail = bound ? null : await findUser(deps.db, "email", identity.email);
+  if (!byEmail || byEmail.disabled_at || byEmail.google_sub) {
+    await recordAudit(deps.db, now, "sign-in-refused", bound?.id ?? byEmail?.id ?? null, { email: identity.email });
+    throw notRegistered();
+  }
+  await deps.db.query("UPDATE staff_users SET google_sub = $2, updated_at = $3 WHERE id = $1 AND google_sub IS NULL", [
+    byEmail.id,
+    identity.sub,
+    now,
+  ]);
+  return { ...byEmail, google_sub: identity.sub };
 }
 
 async function isTrustedDevice(q: Queryable, deviceToken: string, userId: string, now: Date): Promise<boolean> {
@@ -215,29 +257,144 @@ async function isTrustedDevice(q: Queryable, deviceToken: string, userId: string
   return rows.length > 0;
 }
 
-async function createChallenge(
-  tx: Queryable,
+/** Google's answer: who it is, whether they're registered, and whether a code is needed. */
+export async function finishGoogleSignIn(
   deps: AuthDeps,
-  user: UserRow,
-  kind: "code" | "setup",
-  remember: boolean,
-  now: Date,
-): Promise<SignInOutcome> {
-  const challengeToken = newToken();
-  let setup: TwoStepSetup | null = null;
-  let pendingSecret: string | null = null;
-  if (kind === "setup") {
-    const secret = newTotpSecret();
-    pendingSecret = sealSecret(secret, deps.secretKey, totpContext(user.id));
-    const encoded = base32Encode(secret);
-    setup = { secret: encoded, otpauthUrl: otpauthUrl({ secret: encoded, issuer: ISSUER, account: user.email }) };
+  input: { googleStep: string | null; state: string | null; code: string | null; error: string | null },
+  device: DeviceContext,
+): Promise<GoogleOutcome> {
+  const now = deps.now();
+  if (input.error === "access_denied") throw googleCancelled();
+  const step = openGoogleStep(deps, input.googleStep, now);
+  if (input.error) throw googleFailed(input.error);
+  if (!input.state || !sameText(input.state, step.state)) throw googleFailed("state mismatch");
+  if (!input.code) throw googleFailed("no code from Google");
+  const identity = await deps.google.exchange({ code: input.code, codeVerifier: step.verifier, nonce: step.nonce });
+
+  const user = await registeredUser(deps, identity, now);
+  if (isLocked(user, now)) throw tooManyAttempts();
+
+  const { rows } = await deps.db.query<{ two_step_required: boolean }>("SELECT two_step_required FROM security_settings");
+  const twoStep = rows[0]?.two_step_required ?? true;
+  const trusted = twoStep && device.deviceToken !== null && (await isTrustedDevice(deps.db, device.deviceToken, user.id, now));
+  if (!twoStep || trusted) {
+    return deps.db.transaction((tx) =>
+      startSession(tx, user, { remember: step.remember, trust: twoStep && step.remember, device, returnTo: step.returnTo }, now),
+    );
   }
-  await tx.query(
-    `INSERT INTO staff_sign_in_challenges (user_id, token_hash, kind, remember, pending_totp_secret, created_at, expires_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    [user.id, hashToken(challengeToken), kind, remember, pendingSecret, now, minutesAfter(now, CHALLENGE_MINUTES)],
+  const challengeToken = await sendFirstCode(deps, user, { remember: step.remember, returnTo: step.returnTo }, now);
+  return { step: "code-sent", challengeToken, returnTo: step.returnTo };
+}
+
+function newCode(): string {
+  return String(randomInt(0, 1_000_000)).padStart(6, "0");
+}
+
+/** Keyed with AUTH_SECRET: a stolen database can't turn a stored hash back into the code. */
+function codeHash(secretKey: Buffer, challengeTokenHash: string, code: string): string {
+  return createHmac("sha256", secretKey).update(`${challengeTokenHash}:${code}`).digest("hex");
+}
+
+async function sendFirstCode(deps: AuthDeps, user: UserRow, options: { remember: boolean; returnTo: string }, now: Date): Promise<string> {
+  const challengeToken = newToken();
+  const tokenHash = hashToken(challengeToken);
+  const code = newCode();
+  await deps.db.query(
+    `INSERT INTO staff_sign_in_challenges (user_id, token_hash, code_hash, remember, return_to, last_sent_at, created_at, expires_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $6, $7)`,
+    [user.id, tokenHash, codeHash(deps.secretKey, tokenHash, code), options.remember, options.returnTo, now, minutesAfter(now, CODE_MINUTES)],
   );
-  return setup ? { step: "setup-required", challengeToken, setup } : { step: "code-required", challengeToken };
+  try {
+    await deps.mailer.send({ to: user.email, ...signInCodeEmail({ name: user.name, code }) });
+  } catch (err) {
+    // Nobody has this code; don't leave a step that can only fail.
+    await deps.db.query("DELETE FROM staff_sign_in_challenges WHERE token_hash = $1", [tokenHash]);
+    throw err;
+  }
+  return challengeToken;
+}
+
+/** Where the waiting code went, partly hidden, while it can still be used. */
+export async function pendingCode(deps: AuthDeps, challengeToken: string | null): Promise<{ email: string }> {
+  if (!challengeToken) throw challengeExpired();
+  const { rows } = await deps.db.query<{ email: string }>(
+    `SELECT u.email FROM staff_sign_in_challenges c JOIN staff_users u ON u.id = c.user_id
+     WHERE c.token_hash = $1 AND c.used_at IS NULL AND c.expires_at > $2 AND c.attempts < $3`,
+    [hashToken(challengeToken), deps.now(), CODE_MAX_ATTEMPTS],
+  );
+  if (!rows[0]) throw challengeExpired();
+  return { email: maskEmail(rows[0].email) };
+}
+
+/** A new code for the same step: a minute after the last one, three codes at most. The old code stops working. */
+export async function resendCode(deps: AuthDeps, challengeToken: string | null): Promise<void> {
+  if (!challengeToken) throw challengeExpired();
+  const now = deps.now();
+  const tokenHash = hashToken(challengeToken);
+  const { rows } = await deps.db.query<{ user_id: string; sends: number; last_sent_at: Date }>(
+    "SELECT user_id, sends, last_sent_at FROM staff_sign_in_challenges WHERE token_hash = $1 AND used_at IS NULL AND expires_at > $2",
+    [tokenHash, now],
+  );
+  const challenge = rows[0];
+  if (!challenge || challenge.sends >= CODE_MAX_SENDS) throw challengeExpired();
+  if (now.getTime() - challenge.last_sent_at.getTime() < RESEND_AFTER_SECONDS * 1000) throw resendTooSoon();
+  const user = await findUser(deps.db, "id", challenge.user_id);
+  if (!user || user.disabled_at) throw challengeExpired();
+  if (isLocked(user, now)) throw tooManyAttempts();
+
+  const code = newCode();
+  const updated = await deps.db.query(
+    `UPDATE staff_sign_in_challenges
+     SET code_hash = $2, attempts = 0, sends = sends + 1, last_sent_at = $3, expires_at = $4
+     WHERE token_hash = $1 AND used_at IS NULL AND sends = $5
+     RETURNING id`,
+    [tokenHash, codeHash(deps.secretKey, tokenHash, code), now, minutesAfter(now, CODE_MINUTES), challenge.sends],
+  );
+  if (updated.rows.length === 0) throw resendTooSoon(); // another resend got there first
+  await deps.mailer.send({ to: user.email, ...signInCodeEmail({ name: user.name, code }) });
+}
+
+interface ChallengeRow {
+  id: string;
+  user_id: string;
+  code_hash: string;
+  remember: boolean;
+  return_to: string;
+}
+
+/** The 6-digit code from the email. */
+export async function verifyCode(
+  deps: AuthDeps,
+  input: { challengeToken: string | null; code: string },
+  device: DeviceContext,
+): Promise<SignedInOutcome> {
+  const now = deps.now();
+  if (!input.challengeToken) throw challengeExpired();
+  const tokenHash = hashToken(input.challengeToken);
+  // Claim a try before checking the code, so parallel guesses can't go past the limit.
+  const { rows } = await deps.db.query<ChallengeRow>(
+    `UPDATE staff_sign_in_challenges SET attempts = attempts + 1
+     WHERE token_hash = $1 AND used_at IS NULL AND expires_at > $2 AND attempts < $3
+     RETURNING id, user_id, code_hash, remember, return_to`,
+    [tokenHash, now, CODE_MAX_ATTEMPTS],
+  );
+  const challenge = rows[0];
+  if (!challenge) throw challengeExpired();
+  const user = await findUser(deps.db, "id", challenge.user_id);
+  if (!user || user.disabled_at) throw challengeExpired();
+  if (isLocked(user, now)) throw tooManyAttempts();
+  if (!sameText(codeHash(deps.secretKey, tokenHash, input.code), challenge.code_hash)) {
+    throw (await recordFailure(deps, user.id, now)) === "locked" ? tooManyAttempts() : invalidCode();
+  }
+
+  return deps.db.transaction(async (tx) => {
+    const used = await tx.query("UPDATE staff_sign_in_challenges SET used_at = $2 WHERE id = $1 AND used_at IS NULL RETURNING id", [
+      challenge.id,
+      now,
+    ]);
+    if (used.rows.length === 0) throw challengeExpired();
+    return startSession(tx, user, { remember: challenge.remember, trust: challenge.remember, device, returnTo: challenge.return_to }, now);
+  });
 }
 
 /**
@@ -248,10 +405,10 @@ async function createChallenge(
 async function startSession(
   tx: Queryable,
   user: UserRow,
-  options: { remember: boolean; trust: boolean; device: DeviceContext },
+  options: { remember: boolean; trust: boolean; device: DeviceContext; returnTo: string },
   now: Date,
 ): Promise<SignedInOutcome> {
-  const { remember, trust, device } = options;
+  const { remember, trust, device, returnTo } = options;
   const userAgent = device.userAgent?.slice(0, 300) ?? null;
   const sessionToken = newToken();
   const expiresAt = remember ? minutesAfter(now, REMEMBERED_SESSION_DAYS * 24 * 60) : minutesAfter(now, SESSION_HOURS * 60);
@@ -282,67 +439,8 @@ async function startSession(
     sessionToken,
     remember,
     deviceToken,
+    returnTo,
   };
-}
-
-interface ChallengeRow {
-  id: string;
-  user_id: string;
-  kind: "code" | "setup";
-  remember: boolean;
-  pending_totp_secret: string | null;
-}
-
-/** The 6-digit code for the step signIn (or a setup link) asked for. */
-export async function verifyCode(
-  deps: AuthDeps,
-  input: { challengeToken: string | null; code: string },
-  device: DeviceContext,
-): Promise<SignedInOutcome> {
-  const now = deps.now();
-  if (!input.challengeToken) throw challengeExpired();
-  // Claim a try before checking the code, so parallel guesses can't go past the limit.
-  const { rows } = await deps.db.query<ChallengeRow>(
-    `UPDATE staff_sign_in_challenges SET attempts = attempts + 1
-     WHERE token_hash = $1 AND used_at IS NULL AND expires_at > $2 AND attempts < $3
-     RETURNING id, user_id, kind, remember, pending_totp_secret`,
-    [hashToken(input.challengeToken), now, CHALLENGE_MAX_ATTEMPTS],
-  );
-  const challenge = rows[0];
-  if (!challenge) throw challengeExpired();
-  const user = await findUser(deps.db, "id", challenge.user_id);
-  if (!user || user.disabled_at || !user.password_hash) throw challengeExpired();
-  if (isLocked(user, now)) throw tooManyAttempts();
-
-  const sealed = challenge.kind === "setup" ? challenge.pending_totp_secret : user.totp_secret;
-  if (!sealed) throw challengeExpired();
-  const step = matchTotp(openTotpSecret(deps, sealed, user.id), input.code, now);
-  if (step === null) {
-    throw (await recordFailure(deps, user.id, now)) === "locked" ? tooManyAttempts() : invalidCode();
-  }
-
-  return deps.db.transaction(async (tx) => {
-    const used = await tx.query("UPDATE staff_sign_in_challenges SET used_at = $2 WHERE id = $1 AND used_at IS NULL RETURNING id", [
-      challenge.id,
-      now,
-    ]);
-    if (used.rows.length === 0) throw challengeExpired();
-    if (challenge.kind === "setup") {
-      await tx.query(
-        "UPDATE staff_users SET totp_secret = $2, totp_enabled_at = $3, totp_last_step = $4, updated_at = $3 WHERE id = $1",
-        [user.id, challenge.pending_totp_secret, now, step],
-      );
-      await recordAudit(tx, now, "two-step-set-up", user.id);
-    } else {
-      // A code works once: a step at or before the last accepted one is refused.
-      const fresh = await tx.query(
-        "UPDATE staff_users SET totp_last_step = $2 WHERE id = $1 AND (totp_last_step IS NULL OR totp_last_step < $2) RETURNING id",
-        [user.id, step],
-      );
-      if (fresh.rows.length === 0) throw invalidCode();
-    }
-    return startSession(tx, user, { remember: challenge.remember, trust: challenge.remember, device }, now);
-  });
 }
 
 interface SessionRow {
@@ -365,7 +463,7 @@ interface SessionRow {
  * lifetime, or sat unused longer than the automatic sign-out allows; every call counts as
  * activity.
  */
-export async function authenticate(deps: AuthDeps, sessionToken: string | null): Promise<SignedInDto> {
+export async function authenticate(deps: Pick<AuthDeps, "db" | "now">, sessionToken: string | null): Promise<SignedInDto> {
   if (!sessionToken) throw unauthenticated();
   const now = deps.now();
   const { rows } = await deps.db.query<SessionRow>(
@@ -394,74 +492,10 @@ export async function authenticate(deps: AuthDeps, sessionToken: string | null):
   };
 }
 
-export async function signOut(deps: AuthDeps, sessionToken: string | null): Promise<void> {
+export async function signOut(deps: Pick<AuthDeps, "db" | "now">, sessionToken: string | null): Promise<void> {
   if (!sessionToken) return;
   await deps.db.query("UPDATE staff_sessions SET ended_at = $2 WHERE token_hash = $1 AND ended_at IS NULL", [
     hashToken(sessionToken),
     deps.now(),
   ]);
-}
-
-export type SetupLinkPurpose = "invite" | "reset";
-
-export interface SetupLinkInfo {
-  name: string;
-  email: string;
-  purpose: SetupLinkPurpose;
-}
-
-/** Who an invite or reset link is for, while it can still be used. */
-export async function readSetupLink(deps: AuthDeps, token: string): Promise<SetupLinkInfo> {
-  const { rows } = await deps.db.query<SetupLinkInfo>(
-    `SELECT u.name, u.email, l.purpose
-     FROM staff_setup_links l JOIN staff_users u ON u.id = l.user_id
-     WHERE l.token_hash = $1 AND l.used_at IS NULL AND l.expires_at > $2 AND u.disabled_at IS NULL`,
-    [hashToken(token), deps.now()],
-  );
-  if (!rows[0]) throw linkInvalid();
-  return rows[0];
-}
-
-const PASSWORD_ERRORS = {
-  "too-short": "PASSWORD_TOO_SHORT",
-  "too-long": "PASSWORD_TOO_LONG",
-  "same-as-email": "PASSWORD_SAME_AS_EMAIL",
-  "too-common": "PASSWORD_TOO_COMMON",
-} as const;
-
-/**
- * Sets the password from a link, ends the person's other sessions, then continues like a
- * sign-in. A reset link changes the password only: the code is still asked, so a leaked
- * link alone doesn't open the account.
- */
-export async function completeSetupLink(
-  deps: AuthDeps,
-  input: { token: string; password: string; remember: boolean },
-  device: DeviceContext,
-): Promise<SignInOutcome> {
-  const now = deps.now();
-  const link = await readSetupLink(deps, input.token);
-  const problem = passwordProblem(input.password, link.email);
-  if (problem) throw new AppError(400, `The new password can't be used: ${problem}`, PASSWORD_ERRORS[problem]);
-  const passwordHash = await hashPassword(input.password);
-
-  return deps.db.transaction(async (tx) => {
-    const used = await tx.query<{ user_id: string; purpose: SetupLinkPurpose }>(
-      `UPDATE staff_setup_links SET used_at = $2
-       WHERE token_hash = $1 AND used_at IS NULL AND expires_at > $2
-       RETURNING user_id, purpose`,
-      [hashToken(input.token), now],
-    );
-    const row = used.rows[0];
-    if (!row) throw linkInvalid();
-    await tx.query(
-      "UPDATE staff_users SET password_hash = $2, failed_sign_ins = 0, locked_until = NULL, updated_at = $3 WHERE id = $1",
-      [row.user_id, passwordHash, now],
-    );
-    await tx.query("UPDATE staff_sessions SET ended_at = $2 WHERE user_id = $1 AND ended_at IS NULL", [row.user_id, now]);
-    await recordAudit(tx, now, "password-set", row.user_id, { purpose: row.purpose });
-    const user = await findUser(tx, "id", row.user_id);
-    if (!user || user.disabled_at) throw linkInvalid();
-    return continueAfterPassword(tx, deps, user, input.remember, device, now);
-  });
 }

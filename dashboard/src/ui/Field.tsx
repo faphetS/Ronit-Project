@@ -22,7 +22,6 @@ interface FieldProps {
   inputMode?: "text" | "numeric" | "email";
   maxLength?: number;
   autoFocus?: boolean;
-  readOnly?: boolean;
   /** The direction of what's typed, e.g. "ltr" for a code in the Hebrew layout. */
   dir?: "ltr" | "rtl" | "auto";
   className?: string;
@@ -46,7 +45,6 @@ export function Field({
   inputMode,
   maxLength,
   autoFocus,
-  readOnly,
   dir,
   className,
 }: FieldProps) {
@@ -79,7 +77,6 @@ export function Field({
         inputMode={inputMode}
         maxLength={maxLength}
         autoFocus={autoFocus}
-        readOnly={readOnly}
         dir={dir}
         className="h-full min-w-0 flex-1 bg-transparent px-1 text-[15px] text-ink outline-none placeholder:text-mute"
       />

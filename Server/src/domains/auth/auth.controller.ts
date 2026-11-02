@@ -1,50 +1,98 @@
 import type { Request, Response } from "express";
+import { logger } from "../../config/logger.js";
+import { AppError } from "../../lib/errors.js";
 import {
   CHALLENGE_COOKIE,
   DEVICE_COOKIE,
+  GOOGLE_COOKIE,
   SESSION_COOKIE,
   clearAuthCookie,
   readCookie,
   setChallengeCookie,
   setDeviceCookie,
+  setGoogleCookie,
   setSessionCookie,
 } from "./auth.cookies.js";
 import { authDeps } from "./auth.middleware.js";
 import {
-  completeSetupLink,
-  readSetupLink,
-  signIn,
+  finishGoogleSignIn,
+  pendingCode,
+  resendCode,
   signOut,
+  startGoogleSignIn,
   verifyCode,
   type DeviceContext,
-  type SignInOutcome,
+  type SignedInOutcome,
 } from "./auth.service.js";
-import type { CompleteSetupLinkBody, SetupLinkParams, SignInBody, VerifyCodeBody } from "./auth.validator.js";
+import { GoogleCallbackQuerySchema, GoogleStartQuerySchema, type VerifyCodeBody } from "./auth.validator.js";
 
 function deviceOf(req: Pick<Request, "cookies" | "ip" | "get">): DeviceContext {
   return { deviceToken: readCookie(req, DEVICE_COOKIE), ip: req.ip ?? null, userAgent: req.get("user-agent") ?? null };
 }
 
-/** Tokens go into cookies; the body says what comes next. */
-function sendOutcome(res: Response, outcome: SignInOutcome): void {
-  if (outcome.step === "signed-in") {
-    setSessionCookie(res, outcome.sessionToken, outcome.remember);
-    setDeviceCookie(res, outcome.deviceToken);
-    clearAuthCookie(res, CHALLENGE_COOKIE);
-    res.json({ status: "ok", step: "signed-in", ...outcome.signedIn });
-    return;
-  }
-  setChallengeCookie(res, outcome.challengeToken);
-  res.json(outcome.step === "setup-required" ? { status: "ok", step: outcome.step, setup: outcome.setup } : { status: "ok", step: outcome.step });
+function setSignedInCookies(res: Response, outcome: SignedInOutcome): void {
+  setSessionCookie(res, outcome.sessionToken, outcome.remember);
+  setDeviceCookie(res, outcome.deviceToken);
+  clearAuthCookie(res, CHALLENGE_COOKIE);
 }
 
-export async function postSignIn(req: Request<unknown, unknown, SignInBody>, res: Response): Promise<void> {
-  sendOutcome(res, await signIn(authDeps(res), req.body, deviceOf(req)));
+/** "Continue with Google": a browser navigation, answered with a redirect to Google. */
+export function getGoogle(req: Request, res: Response): void {
+  const query = GoogleStartQuerySchema.parse(req.query);
+  const { redirectUrl, googleStep } = startGoogleSignIn(authDeps(res), query);
+  setGoogleCookie(res, googleStep);
+  res.redirect(302, redirectUrl);
+}
+
+/** How a failed callback is told to the dashboard's sign-in screen (?error=). */
+const CALLBACK_ERRORS: Record<string, string> = {
+  GOOGLE_CANCELLED: "cancelled",
+  NOT_REGISTERED: "not-registered",
+  TOO_MANY_ATTEMPTS: "too-many-attempts",
+  EMAIL_FAILED: "email-failed",
+};
+
+/** Google sends the browser back here. Always answers with a redirect to the dashboard, never with JSON. */
+export async function getGoogleCallback(req: Request, res: Response): Promise<void> {
+  const deps = authDeps(res);
+  const dashboard = deps.dashboardUrl.replace(/\/+$/, "");
+  const googleStep = readCookie(req, GOOGLE_COOKIE);
+  clearAuthCookie(res, GOOGLE_COOKIE);
+  try {
+    const query = GoogleCallbackQuerySchema.parse(req.query);
+    const outcome = await finishGoogleSignIn(
+      deps,
+      { googleStep, state: query.state ?? null, code: query.code ?? null, error: query.error ?? null },
+      deviceOf(req),
+    );
+    if (outcome.step === "signed-in") {
+      setSignedInCookies(res, outcome);
+      res.redirect(302, `${dashboard}${outcome.returnTo}`);
+    } else {
+      setChallengeCookie(res, outcome.challengeToken);
+      res.redirect(302, `${dashboard}/login?step=code`);
+    }
+  } catch (err) {
+    const known = err instanceof AppError ? CALLBACK_ERRORS[err.code ?? ""] : undefined;
+    if (!known) logger.warn({ err, requestId: req.id }, "Google sign-in failed");
+    res.redirect(302, `${dashboard}/login?error=${known ?? "google-failed"}`);
+  }
+}
+
+/** Where the waiting code was sent, partly hidden. */
+export async function getCode(req: Request, res: Response): Promise<void> {
+  res.json({ status: "ok", ...(await pendingCode(authDeps(res), readCookie(req, CHALLENGE_COOKIE))) });
+}
+
+export async function postResendCode(req: Request, res: Response): Promise<void> {
+  await resendCode(authDeps(res), readCookie(req, CHALLENGE_COOKIE));
+  res.json({ status: "ok" });
 }
 
 export async function postVerifyCode(req: Request<unknown, unknown, VerifyCodeBody>, res: Response): Promise<void> {
-  const challengeToken = readCookie(req, CHALLENGE_COOKIE);
-  sendOutcome(res, await verifyCode(authDeps(res), { challengeToken, code: req.body.code }, deviceOf(req)));
+  const outcome = await verifyCode(authDeps(res), { challengeToken: readCookie(req, CHALLENGE_COOKIE), code: req.body.code }, deviceOf(req));
+  setSignedInCookies(res, outcome);
+  res.json({ status: "ok", step: "signed-in", ...outcome.signedIn, returnTo: outcome.returnTo });
 }
 
 /** requireStaff has already checked the session. */
@@ -56,12 +104,4 @@ export async function postSignOut(req: Request, res: Response): Promise<void> {
   await signOut(authDeps(res), readCookie(req, SESSION_COOKIE));
   clearAuthCookie(res, SESSION_COOKIE);
   res.json({ status: "ok" });
-}
-
-export async function getSetupLink(req: Request<SetupLinkParams>, res: Response): Promise<void> {
-  res.json({ status: "ok", link: await readSetupLink(authDeps(res), req.params.token) });
-}
-
-export async function postSetupLink(req: Request<SetupLinkParams, unknown, CompleteSetupLinkBody>, res: Response): Promise<void> {
-  sendOutcome(res, await completeSetupLink(authDeps(res), { token: req.params.token, ...req.body }, deviceOf(req)));
 }

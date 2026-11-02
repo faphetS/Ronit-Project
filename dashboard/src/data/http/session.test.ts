@@ -52,32 +52,38 @@ describe("createHttpSessionService", () => {
     await expect(session.current()).rejects.toBeInstanceOf(ApiError);
   });
 
-  it("signs in through each step", async () => {
-    const setupBody = { secret: "JBSWY3DPEHPK3PXP", otpauthUrl: "otpauth://totp/x" };
+  it("sends 'Continue with Google' through the API, with where to land", async () => {
+    const { session, fetch } = setup();
+    await expect(session.startGoogle({ remember: true, returnTo: "/customers?filter=expiring" })).resolves.toEqual({
+      redirectTo: "https://api.example.com/api/auth/google?remember=1&returnTo=%2Fcustomers%3Ffilter%3Dexpiring",
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("reads the waiting code, and signs in with it", async () => {
     const { session, fetch } = setup(
-      json(200, { status: "ok", step: "code-required" }),
-      json(200, { status: "ok", step: "setup-required", setup: setupBody }),
-      json(200, { status: "ok", step: "signed-in", session: SESSION, user: USER }),
+      json(200, { status: "ok", email: "r***@gmail.com" }),
+      json(401, { status: "error", code: "CHALLENGE_EXPIRED" }),
+      json(200, { status: "ok", step: "signed-in", session: SESSION, user: USER, returnTo: "/groups" }),
     );
-    await expect(session.signIn("ronit@example.com", "pw", true)).resolves.toEqual({ step: "code-required" });
-    expect(JSON.parse(fetch.mock.calls[0][1]?.body as string)).toEqual({ email: "ronit@example.com", password: "pw", remember: true });
-    await expect(session.completeSetupLink("tok/en", "a new password", false)).resolves.toEqual({ step: "setup-required", setup: setupBody });
-    expect(fetch.mock.calls[1][0]).toBe("https://api.example.com/api/auth/setup-links/tok%2Fen");
-    await expect(session.verifyCode("123456")).resolves.toEqual({ session: SESSION, user: USER });
+    await expect(session.pendingCode()).resolves.toEqual({ email: "r***@gmail.com" });
+    await expect(session.pendingCode()).resolves.toBeNull();
+    await expect(session.verifyCode("123456")).resolves.toEqual({ signedIn: { session: SESSION, user: USER }, returnTo: "/groups" });
+    expect(JSON.parse(fetch.mock.calls[2][1]?.body as string)).toEqual({ code: "123456" });
   });
 
   it("words the API's refusals as sign-in errors", async () => {
     const { session } = setup(
-      json(401, { status: "error", code: "INVALID_CREDENTIALS" }),
+      json(401, { status: "error", code: "INVALID_CODE" }),
       json(429, { status: "error", code: "TOO_MANY_ATTEMPTS" }),
       json(401, { status: "error", code: "CHALLENGE_EXPIRED" }),
-      json(400, { status: "error", code: "PASSWORD_TOO_COMMON" }),
-      json(400, { status: "error", code: "VALIDATION_ERROR" }),
+      json(429, { status: "error", code: "RESEND_TOO_SOON" }),
+      json(502, { status: "error", code: "EMAIL_FAILED" }),
     );
-    await expect(session.signIn("a@b.c", "x", false)).rejects.toEqual(new SignInError("invalid-credentials"));
-    await expect(session.signIn("a@b.c", "x", false)).rejects.toEqual(new SignInError("too-many-attempts"));
-    await expect(session.verifyCode("123456")).rejects.toEqual(new SignInError("step-expired"));
-    await expect(session.completeSetupLink("t", "password1", false)).rejects.toEqual(new SignInError("password-too-common"));
-    await expect(session.setupLink("bad")).rejects.toEqual(new SignInError("link-invalid"));
+    await expect(session.verifyCode("000000")).rejects.toEqual(new SignInError("invalid-code"));
+    await expect(session.verifyCode("000000")).rejects.toEqual(new SignInError("too-many-attempts"));
+    await expect(session.verifyCode("000000")).rejects.toEqual(new SignInError("step-expired"));
+    await expect(session.resendCode()).rejects.toEqual(new SignInError("resend-too-soon"));
+    await expect(session.resendCode()).rejects.toEqual(new SignInError("email-failed"));
   });
 });

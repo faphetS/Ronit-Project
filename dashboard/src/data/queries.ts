@@ -7,7 +7,7 @@ import type { AudienceOption, BirthdaySettings, Customer, HolidayCampaign, Impor
 
 export const queryKeys = {
   session: ["session"] as const,
-  setupLink: (token: string) => ["setup-link", token] as const,
+  pendingCode: ["sign-in", "code"] as const,
   leads: (filters: LeadFilters) => ["leads", "list", filters] as const,
   leadCounts: ["leads", "counts"] as const,
   lead: (id: string) => ["leads", "detail", id] as const,
@@ -67,43 +67,30 @@ export function useSession() {
   return useQuery({ queryKey: queryKeys.session, queryFn: () => session.current() });
 }
 
-/** The password step. A "signed-in" answer goes straight into the session cache. */
-export function useSignIn() {
+/** "Continue with Google": the screen follows `redirectTo`, or (on the demo data) goes to the code. */
+export function useStartGoogle() {
   const { session } = useServices();
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: ({ email, password, remember }: { email: string; password: string; remember: boolean }) => session.signIn(email, password, remember),
-    onSuccess: (step) => {
-      if (step.step === "signed-in") client.setQueryData(queryKeys.session, step.signedIn);
-    },
-  });
+  return useMutation({ mutationFn: (options: { remember: boolean; returnTo: string }) => session.startGoogle(options) });
 }
 
-/** The 6-digit code from the authenticator app. */
+/** The code waiting after Google, read fresh each time the code step opens. */
+export function usePendingCode(enabled: boolean) {
+  const { session } = useServices();
+  return useQuery({ queryKey: queryKeys.pendingCode, queryFn: () => session.pendingCode(), enabled, retry: false, staleTime: 0, gcTime: 0 });
+}
+
+export function useResendCode() {
+  const { session } = useServices();
+  return useMutation({ mutationFn: () => session.resendCode() });
+}
+
+/** The 6-digit code from the email. Signing in puts the session straight into the cache. */
 export function useVerifyCode() {
   const { session } = useServices();
   const client = useQueryClient();
   return useMutation({
     mutationFn: (code: string) => session.verifyCode(code),
-    onSuccess: (signedIn) => client.setQueryData(queryKeys.session, signedIn),
-  });
-}
-
-/** Who an invite or reset link is for. A dead link doesn't come back to life, so no retries. */
-export function useSetupLink(token: string) {
-  const { session } = useServices();
-  return useQuery({ queryKey: queryKeys.setupLink(token), queryFn: () => session.setupLink(token), retry: false, staleTime: Infinity });
-}
-
-/** The new password from a link, then the same steps as signing in. */
-export function useCompleteSetupLink(token: string) {
-  const { session } = useServices();
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: ({ password, remember }: { password: string; remember: boolean }) => session.completeSetupLink(token, password, remember),
-    onSuccess: (step) => {
-      if (step.step === "signed-in") client.setQueryData(queryKeys.session, step.signedIn);
-    },
+    onSuccess: ({ signedIn }) => client.setQueryData(queryKeys.session, signedIn),
   });
 }
 

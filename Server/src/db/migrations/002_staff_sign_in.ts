@@ -1,30 +1,16 @@
 /**
- * Staff sign-in for the dashboard: passwords, authenticator codes, sessions, remembered
- * devices, invite and reset links, and the security switches of the users screen. Every
- * token is stored as its SHA-256 only; authenticator keys are sealed with AUTH_SECRET.
+ * Staff sign-in for the dashboard: "Continue with Google" for registered emails, then a
+ * 6-digit code by email on a new device, then a session. Also the security switches of the
+ * users screen. Tokens and codes are stored only as hashes.
  */
 export const STAFF_SIGN_IN = `
 ALTER TABLE staff_users
-  ADD COLUMN password_hash text,
-  ADD COLUMN totp_secret text,
-  ADD COLUMN totp_enabled_at timestamptz,
-  ADD COLUMN totp_last_step bigint,
+  ADD COLUMN google_sub text UNIQUE,
   ADD COLUMN failed_sign_ins integer NOT NULL DEFAULT 0,
   ADD COLUMN locked_until timestamptz,
   ADD COLUMN last_sign_in_at timestamptz,
   ADD COLUMN disabled_at timestamptz,
   ADD CONSTRAINT staff_users_email_lowercase CHECK (email = lower(email));
-
-CREATE TABLE staff_setup_links (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id uuid NOT NULL REFERENCES staff_users (id) ON DELETE CASCADE,
-  token_hash text NOT NULL UNIQUE,
-  purpose text NOT NULL CHECK (purpose IN ('invite', 'reset')),
-  created_at timestamptz NOT NULL,
-  expires_at timestamptz NOT NULL,
-  used_at timestamptz
-);
-CREATE INDEX staff_setup_links_user_idx ON staff_setup_links (user_id);
 
 CREATE TABLE staff_sessions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -51,19 +37,20 @@ CREATE TABLE staff_devices (
   PRIMARY KEY (token_hash, user_id)
 );
 
--- The step after a correct password: a code, or setting up the authenticator app.
+-- After Google: the code emailed to the person, until it's typed in.
 CREATE TABLE staff_sign_in_challenges (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES staff_users (id) ON DELETE CASCADE,
   token_hash text NOT NULL UNIQUE,
-  kind text NOT NULL CHECK (kind IN ('code', 'setup')),
+  code_hash text NOT NULL,
   remember boolean NOT NULL,
-  pending_totp_secret text,
+  return_to text NOT NULL,
   attempts integer NOT NULL DEFAULT 0,
+  sends integer NOT NULL DEFAULT 1,
+  last_sent_at timestamptz NOT NULL,
   created_at timestamptz NOT NULL,
   expires_at timestamptz NOT NULL,
-  used_at timestamptz,
-  CHECK ((kind = 'setup') = (pending_totp_secret IS NOT NULL))
+  used_at timestamptz
 );
 
 CREATE TABLE security_settings (

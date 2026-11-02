@@ -2,7 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 import { TestProviders, createTestClient, createTestServices } from "../test/app";
-import { queryKeys, useLead, useLeadCounts, useOverview, useSession, useSignIn, useUpdateLeadStatus, useVerifyCode } from "./queries";
+import { queryKeys, useLead, useLeadCounts, useOverview, useSession, useStartGoogle, useUpdateLeadStatus, useVerifyCode } from "./queries";
 import type { Lead } from "./types";
 
 function setup() {
@@ -17,12 +17,12 @@ function setup() {
 }
 
 describe("query hooks", () => {
-  it("signs in through the code step and updates the session", async () => {
+  it("signs in through the emailed code and updates the session", async () => {
     const { wrapper } = setup();
-    const { result } = renderHook(() => ({ session: useSession(), signIn: useSignIn(), verify: useVerifyCode() }), { wrapper });
+    const { result } = renderHook(() => ({ session: useSession(), google: useStartGoogle(), verify: useVerifyCode() }), { wrapper });
     await waitFor(() => expect(result.current.session.isSuccess).toBe(true));
     expect(result.current.session.data).toBeNull();
-    expect(await act(() => result.current.signIn.mutateAsync({ email: "ronit@example.com", password: "demo", remember: false }))).toEqual({ step: "code-required" });
+    expect(await act(() => result.current.google.mutateAsync({ remember: false, returnTo: "/" }))).toEqual({ step: "code-required" });
     expect(result.current.session.data).toBeNull();
     await act(() => result.current.verify.mutateAsync("123456"));
     await waitFor(() => expect(result.current.session.data?.user.name).toBe("רונית ברש"));

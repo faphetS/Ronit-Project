@@ -429,18 +429,30 @@ const envSchema = z.object({
   GREETINGS_MAX_PER_RUN: z.coerce.number().int().min(1).default(10),
   GREETINGS_PACING_MS: z.coerce.number().int().min(0).default(3000),
 
-  // --- Staff sign-in for the dashboard ---
-  // Sign-in answers 503 until DATABASE_URL, AUTH_SECRET and DASHBOARD_URL are all set.
-  // 64 hex characters (openssl rand -hex 32). Seals the authenticator keys stored in the
-  // database, so a dump or backup alone doesn't hold them. Never change it once accounts
-  // exist: everyone would have to set up their codes again.
+  // --- Staff sign-in for the dashboard: Google, then a code by email ---
+  // Sign-in answers 503 until DATABASE_URL, AUTH_SECRET, DASHBOARD_URL, the Google client and
+  // SMTP are all set.
+  // 64 hex characters (openssl rand -hex 32). Seals the cookie that carries the Google step
+  // and keys the emailed codes.
   AUTH_SECRET: z.preprocess(
     (v) => (v === "" ? undefined : v),
     z.string().regex(/^[0-9a-f]{64}$/i, "AUTH_SECRET must be 64 hex characters").optional(),
   ),
-  // Where the dashboard runs (https://app.ronitbarash.site): the base of setup links, the only
+  // Where the dashboard runs (https://app.ronitbarash.site): where sign-in lands, the only
   // Origin allowed to change anything under /api/auth, and added to CORS automatically.
   DASHBOARD_URL: z.preprocess((v) => (v === "" ? undefined : v), z.string().url().optional()),
+  // The Google OAuth client (Web application). Its redirect URI must be
+  // <BACKEND_URL>/api/auth/google/callback.
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  // SMTP for the sign-in codes and invites, e.g. Resend: smtp.resend.com, 465, user "resend",
+  // the API key as the password. Port 465 is TLS from the start; 587 upgrades with STARTTLS.
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().default(465),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASSWORD: z.string().optional(),
+  // The sender, e.g. "אור הצדיק <no-reply@ronitbarash.site>" (the domain must be verified at the provider).
+  MAIL_FROM: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

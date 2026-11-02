@@ -10,18 +10,17 @@ const routes = [
   { path: "/customers", element: <h1>customers</h1> },
 ];
 
-async function typePassword() {
-  await userEvent.type(await screen.findByLabelText("כתובת אימייל"), "ronit@example.com");
-  await userEvent.type(screen.getByLabelText("סיסמה"), "demo");
-  await userEvent.click(screen.getByRole("button", { name: "כניסה" }));
+async function continueWithGoogle() {
+  await userEvent.click(await screen.findByRole("button", { name: "המשך עם Google" }));
+  expect(await screen.findByRole("heading", { name: "קוד אימות" })).toBeInTheDocument();
 }
 
 describe("SignInScreen", () => {
-  it("signs in with the code and returns to the page that sent the visitor here", async () => {
+  it("signs in with Google and the emailed code, then returns to the page that sent the visitor here", async () => {
     const services = createTestServices();
     renderApp(routes, { path: "/login", state: { from: "/customers" }, services });
-    await typePassword();
-    expect(await screen.findByRole("heading", { name: "קוד אימות" })).toBeInTheDocument();
+    await continueWithGoogle();
+    expect(await screen.findByText(/^שלחנו קוד בן 6 ספרות אל \w\*\*\*@/)).toBeInTheDocument();
     expect(await services.session.current()).toBeNull();
     await userEvent.type(screen.getByLabelText("קוד בן 6 ספרות"), "123 456");
     await userEvent.click(screen.getByRole("button", { name: "כניסה" }));
@@ -29,28 +28,46 @@ describe("SignInScreen", () => {
     expect(await services.session.current()).not.toBeNull();
   });
 
-  it("asks for both fields, and checks the code is 6 digits before sending it", async () => {
+  it("checks the code is 6 digits before sending it, and sends a new one on request", async () => {
     renderApp(routes, { path: "/login" });
-    await userEvent.click(await screen.findByRole("button", { name: "כניסה" }));
-    expect(screen.getByRole("status")).toHaveTextContent("צריך להקליד אימייל וסיסמה.");
-    await typePassword();
-    await userEvent.type(await screen.findByLabelText("קוד בן 6 ספרות"), "12345");
+    await continueWithGoogle();
+    await userEvent.type(screen.getByLabelText("קוד בן 6 ספרות"), "12345");
     await userEvent.click(screen.getByRole("button", { name: "כניסה" }));
-    expect(screen.getByRole("status")).toHaveTextContent("הקוד לא נכון. כדאי לבדוק באפליקציה ולנסות שוב.");
+    expect(screen.getByRole("status")).toHaveTextContent("הקוד לא נכון. כדאי לבדוק במייל ולנסות שוב.");
+    await userEvent.click(screen.getByRole("button", { name: "שליחה מחדש" }));
+    expect(await screen.findByText("שלחנו קוד חדש.")).toBeInTheDocument();
   });
 
-  it("goes back from the code to the password", async () => {
+  it("goes back from the code to Google", async () => {
     renderApp(routes, { path: "/login" });
-    await typePassword();
-    await userEvent.click(await screen.findByRole("button", { name: "חזרה" }));
-    expect(screen.getByLabelText("כתובת אימייל")).toBeInTheDocument();
+    await continueWithGoogle();
+    await userEvent.click(screen.getByRole("button", { name: "חזרה" }));
+    expect(screen.getByRole("button", { name: "המשך עם Google" })).toBeInTheDocument();
   });
 
-  it("shows the forgot-password and help notices", async () => {
+  it("opens on the code after Google, or starts over when no code is waiting", async () => {
+    const services = createTestServices();
+    await services.session.startGoogle({ remember: true, returnTo: "/" });
+    const first = renderApp(routes, { path: "/login?step=code", services });
+    expect(await screen.findByRole("heading", { name: "קוד אימות" })).toBeInTheDocument();
+    first.unmount();
+
+    renderApp(routes, { path: "/login?step=code" });
+    expect(await screen.findByRole("button", { name: "המשך עם Google" })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("עבר יותר מדי זמן. צריך להיכנס שוב.");
+  });
+
+  it("says why Google sign-in didn't work, and nothing when it was cancelled", async () => {
+    const refused = renderApp(routes, { path: "/login?error=not-registered" });
+    expect(await screen.findByRole("status")).toHaveTextContent("החשבון הזה לא רשום במערכת. אפשר לבקש מהמשרד להוסיף אותו.");
+    refused.unmount();
+    renderApp(routes, { path: "/login?error=cancelled" });
+    expect(await screen.findByRole("status")).toHaveTextContent("");
+  });
+
+  it("shows the help notice", async () => {
     renderApp(routes, { path: "/login" });
-    await userEvent.click(await screen.findByRole("button", { name: "שכחתי" }));
-    expect(screen.getByRole("status")).toHaveTextContent("כדי לאפס את הסיסמה צריך קישור חדש. אפשר לבקש אותו מהמשרד.");
-    await userEvent.click(screen.getByRole("button", { name: "צריכים עזרה?" }));
+    await userEvent.click(await screen.findByRole("button", { name: "צריכים עזרה?" }));
     expect(screen.getByRole("status")).toHaveTextContent("אפשר לפנות למשרד בוואטסאפ או בטלפון.");
   });
 

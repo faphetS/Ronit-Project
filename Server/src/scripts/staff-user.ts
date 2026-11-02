@@ -1,14 +1,14 @@
 /**
  * Dashboard accounts from the server console, until the users screen is connected:
  *
- *   docker exec root-crm-1 node dist/scripts/staff-user.js invite --email <email> --name "<name>" --role admin|office|sales [--passport-access] [--phone <whatsapp>]
- *   docker exec root-crm-1 node dist/scripts/staff-user.js reset-password --email <email>
- *   docker exec root-crm-1 node dist/scripts/staff-user.js reset-two-step --email <email>
+ *   docker exec root-crm-1 node dist/scripts/staff-user.js invite --email <google email> --name "<name>" --role admin|office|sales [--passport-access] [--phone <whatsapp>]
+ *   docker exec root-crm-1 node dist/scripts/staff-user.js reset-sign-in --email <email>
  *   docker exec root-crm-1 node dist/scripts/staff-user.js disable --email <email>
  *
- * invite and reset-password print a one-time link to send to the person (72 and 24 hours).
- * reset-password changes the password only; after a lost phone, reset-two-step makes the
- * person set up their codes again. Needs DATABASE_URL and DASHBOARD_URL.
+ * invite registers the person and emails them where to sign in: "Continue with Google" with
+ * that email. reset-sign-in is for a replaced Google account or a lost phone: it unlinks the
+ * Google account and signs the person out everywhere. Needs DATABASE_URL and DASHBOARD_URL;
+ * without SMTP the invite is printed to pass on by hand.
  *
  * Lives in src/ because only src/ is compiled into the Docker image. It must not import
  * server.ts or anything that starts a cron or a listener.
@@ -20,18 +20,19 @@ import { logger } from "../config/logger.js";
 import { closeCrmDb, getCrmDb } from "../config/pg.js";
 import { migrate } from "../db/migrate.js";
 import type { Role } from "../domains/auth/auth.service.js";
-import { disableStaff, inviteStaff, issueResetLink, resetTwoStep, type AccountDeps } from "../domains/auth/staff-accounts.service.js";
+import { disableStaff, inviteStaff, resetSignIn, type AccountDeps } from "../domains/auth/staff-accounts.service.js";
 import { toMsisdn } from "../domains/whatsapp/whatsapp.gateway.js";
 import { AppError, ValidationError } from "../lib/errors.js";
+import { smtpMailerFromEnv } from "../lib/mailer.js";
 
 const ROLES: Role[] = ["admin", "office", "sales"];
 const USAGE =
-  "Usage: staff-user invite --email <email> --name <name> --role admin|office|sales [--passport-access] [--phone <number>]\n" +
-  "       staff-user reset-password|reset-two-step|disable --email <email>";
+  "Usage: staff-user invite --email <google email> --name <name> --role admin|office|sales [--passport-access] [--phone <number>]\n" +
+  "       staff-user reset-sign-in|disable --email <email>";
 
 export type StaffCommand =
   | { command: "invite"; email: string; name: string; role: Role; passportAccess: boolean; whatsappPhone: string | null }
-  | { command: "reset-password" | "reset-two-step" | "disable"; email: string };
+  | { command: "reset-sign-in" | "disable"; email: string };
 
 export function parseStaffArgs(argv: string[]): StaffCommand {
   const { values, positionals } = parseArgs({
@@ -49,7 +50,7 @@ export function parseStaffArgs(argv: string[]): StaffCommand {
   const [command] = positionals;
   const email = values.email?.trim();
   if (!email || !email.includes("@")) throw new ValidationError(USAGE);
-  if (command === "reset-password" || command === "reset-two-step" || command === "disable") return { command, email };
+  if (command === "reset-sign-in" || command === "disable") return { command, email };
   if (command !== "invite") throw new ValidationError(USAGE);
   const name = values.name?.trim();
   const role = ROLES.find((r) => r === values.role);
@@ -69,24 +70,22 @@ async function main(): Promise<void> {
   const db = getCrmDb();
   if (!db) throw new AppError(503, "DATABASE_URL is not set", "CRM_DB_NOT_CONFIGURED");
   if (!env.DASHBOARD_URL) throw new AppError(503, "DASHBOARD_URL is not set", "DASHBOARD_URL_NOT_SET");
-  const deps: AccountDeps = { db, dashboardUrl: env.DASHBOARD_URL, now: () => new Date() };
+  const deps: AccountDeps = { db, dashboardUrl: env.DASHBOARD_URL, mailer: smtpMailerFromEnv(), now: () => new Date() };
   try {
     await migrate(db);
     switch (args.command) {
       case "invite": {
         const { command: _command, ...invite } = args;
-        const { userId, link } = await inviteStaff(deps, invite);
-        logger.info({ userId, role: invite.role }, "staff user invited — the link below works once, for 72 hours");
-        process.stdout.write(`${link}\n`);
+        const { userId, emailed } = await inviteStaff(deps, invite);
+        logger.info({ userId, role: invite.role, emailed }, emailed ? "staff user invited — the invite was emailed" : "staff user registered — no email went out");
+        if (!emailed) {
+          process.stdout.write(`Pass this on: sign in at ${env.DASHBOARD_URL} with "Continue with Google", using ${invite.email}.\n`);
+        }
         break;
       }
-      case "reset-password":
-        logger.info("reset link created — it works once, for 24 hours");
-        process.stdout.write(`${await issueResetLink(deps, args.email)}\n`);
-        break;
-      case "reset-two-step":
-        await resetTwoStep(deps, args.email);
-        logger.info("codes reset — they are set up again at the next sign-in");
+      case "reset-sign-in":
+        await resetSignIn(deps, args.email);
+        logger.info("sign-in reset — the next Google account to sign in with this email is linked, and every session ended");
         break;
       case "disable":
         await disableStaff(deps, args.email);

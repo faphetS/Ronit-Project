@@ -41,7 +41,7 @@ export async function createTestDb(): Promise<TestDb> {
       await pglite.exec(`
         TRUNCATE audit_log, messages, campaigns, passport_intakes, group_members, groups,
           passports, customers, staff_sign_in_challenges, staff_devices, staff_sessions,
-          staff_setup_links, security_settings, staff_users;
+          security_settings, staff_users;
         INSERT INTO security_settings DEFAULT VALUES;
         UPDATE birthday_settings SET enabled = false, send_time = '09:00',
           shabbat_rule = 'after-shabbat', template = '';

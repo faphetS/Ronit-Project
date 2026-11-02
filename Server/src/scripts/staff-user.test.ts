@@ -26,13 +26,13 @@ describe("parseStaffArgs", () => {
   });
 
   it("reads the other commands", () => {
-    expect(parseStaffArgs(["reset-password", "--email", "ronit@example.com"])).toEqual({ command: "reset-password", email: "ronit@example.com" });
+    expect(parseStaffArgs(["reset-sign-in", "--email", "ronit@example.com"])).toEqual({ command: "reset-sign-in", email: "ronit@example.com" });
     expect(parseStaffArgs(["disable", "--email", "ronit@example.com"])).toEqual({ command: "disable", email: "ronit@example.com" });
   });
 
   it("refuses an unknown command, a missing email or a made-up role", () => {
     expect(() => parseStaffArgs(["promote", "--email", "ronit@example.com"])).toThrow(/Usage/);
-    expect(() => parseStaffArgs(["reset-password"])).toThrow(/Usage/);
+    expect(() => parseStaffArgs(["reset-sign-in"])).toThrow(/Usage/);
     expect(() => parseStaffArgs(["invite", "--email", "a@example.com", "--name", "A", "--role", "owner"])).toThrow(/Usage/);
     expect(() => parseStaffArgs(["invite", "--email", "a@example.com", "--role", "admin", "--bogus"])).toThrow();
   });

@@ -34,7 +34,6 @@ describe("migrate", () => {
       "security_settings",
       "staff_devices",
       "staff_sessions",
-      "staff_setup_links",
       "staff_sign_in_challenges",
       "staff_users",
     ]);
