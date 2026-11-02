@@ -203,7 +203,7 @@ Status of each integration. When a new decision is made, update this section and
   - It's the `postgres` service in `/root/docker-compose.yml`, on the private network only, with credentials in `/root/postgres.env`.
   - A nightly `pg_dump` (01:15 UTC, kept 14 days) writes to `/opt/ronit-backups` via `/usr/local/bin/ronit-pg-backup.sh`. Nothing is copied off the server yet.
   - Supabase was dropped.
-  - Monday stays the source of truth for leads until the import and cutover.
+  - Monday stays the source of truth for leads until the switch-over; the dashboard reads a copy of it (below).
 - **Code:**
   - [config/pg.ts](Server/src/config/pg.ts): `getCrmDb()` returns null without `DATABASE_URL`.
   - [db/migrations/](Server/src/db/migrations/): TypeScript modules, since tsc copies only `.ts`.
@@ -228,25 +228,40 @@ Status of each integration. When a new decision is made, update this section and
   - An outbox sends every minute through `GREETINGS_CHANNEL`: `dry-run`, which only logs and marks messages skipped (test data only), or `gateway`, which goes through `RONIT_WA_ALLOWED_NUMBERS` like the Uman flows.
   - Nothing is ever sent twice; an interrupted send is marked failed, never resent.
 
+### The dashboard's data: a copy of Monday + the dashboard API
+- **Decision (2026-11-02):** the dashboard shows only real data; the demo data is gone. Leads, trips and customers are a **read-only copy of Monday**, refreshed every 2 hours from 07:00 to 23:00 Israel time and on "sync now" (admins, 5 minutes apart). The team keeps working in Monday and the flows here keep writing there, untouched; leads are edited in Monday until the switch-over.
+- **The copy** ([domains/monday-copy/](Server/src/domains/monday-copy/)):
+  - Boards: the live CRM board → leads (only rows with a phone; 828 IG chats without one stay out and are counted); the old CRM board (`MONDAY_BOARD_CRM_ARCHIVE_ID`) → archived leads, read once a day; a board named with "טיסה"/"אומן" → one trip; a board named "הפרשות חלה" → one event per month group (ביטולים skipped).
+  - Columns are matched by **title** with aliases, so new year boards work unchanged. Statuses come from the group plus "נוצר קשר", with a new `no-answer` ("אין מענה"); sources from "מקור ליד" and the IG message. The rules are in [monday-copy.mapping.ts](Server/src/domains/monday-copy/monday-copy.mapping.ts), with tests.
+  - Customers are the people on trips and bookers of events, merged by phone; the copy only renames or removes customers it created (`customers.from_monday`).
+  - Monday's board `updated_at` does **not** change when rows change, so every copy reads every board in full (about 9 calls; the old board once a day). Notes ("updates") are read newest first down to the last copy. A run stops at 150 calls, reads everything before writing, and writes in one transaction. Runs are in `monday_copy_runs`.
+  - It goes through `monday.client.ts`, sharing its rate-limit breaker: a run during a Monday limit is recorded as skipped.
+- **The API** ([domains/dashboard/](Server/src/domains/dashboard/), mounted at `/api/dashboard`): every screen's data, behind `requireStaff` and the permission table in [dashboard.access.ts](Server/src/domains/dashboard/dashboard.access.ts) (sales: no passports, users or "sync now"; passports also need the person's passport access). Answers are `{ status: "ok", data }`; writes are POST with `Origin: DASHBOARD_URL`. Passport numbers leave masked while the switch is on; revealing one is logged.
+  - Vercel passes `/api/dashboard/*` on like `/api/auth/*`. The global `/api` limiter skips `/api/dashboard/` (all users share Vercel's address); the dashboard router limits 600 requests a minute per session instead.
+  - Users screen: invites (`inviteStaff`, emailed) and removal (`disableStaffById`) record which admin did it; inviting a removed email opens the account again. Nobody removes themself or the last admin.
+- **Env:** `MONDAY_COPY_ENABLED` (default `false`; the schedule and "sync now" both need it), `MONDAY_BOARD_CRM_ARCHIVE_ID` (default `5094895163`), `MONDAY_ACCOUNT_SLUG` (default `ronit550418`, for "open in Monday" links).
+- **Not yet:** greetings are read-only (nothing drafts a holiday campaign yet); passport photos wait for the WhatsApp channel; the switch-over off Monday.
+- **Design:** [docs/superpowers/specs/2026-11-02-dashboard-data-design.md](docs/superpowers/specs/2026-11-02-dashboard-data-design.md).
+
 ### Staff sign-in (the dashboard)
 - **Decision (2026-11-02):**
   - Staff accounts live in `staff_users` and are registered by the office. There's no sign-up and no passwords.
   - Sign-in is Google's own button (Google Identity Services: "Continue as …", Google's pop-up picker), and the server checks the ID token against Google's signing keys. A server-run OIDC code flow with PKCE is the fallback. Only a registered email gets in, and the first sign-in links that Google account.
   - On a device that isn't remembered, a 6-digit code is emailed over SMTP. "Remember me" skips it for 30 days.
   - Sessions are server-side, with an HttpOnly cookie. They end after 30 minutes without requests while the `auto_sign_out` switch is on.
-  - The browser never calls this server directly. The dashboard's Vercel host passes `/api/auth/*` on to `api.ronitbarash.site` (`dashboard/vercel.json`); the dashboard API's routes join it in step 2, so the cookies are first-party on the dashboard's host. That's `or-hatzadik-dashboard.vercel.app` for now and `app.ronitbarash.site` once the DNS can be changed.
+  - The browser never calls this server directly. The dashboard's Vercel host passes `/api/auth/*` and `/api/dashboard/*` on to `api.ronitbarash.site` (`dashboard/vercel.json`), so the cookies are first-party on the dashboard's host. That's `or-hatzadik-dashboard.vercel.app` for now and `app.ronitbarash.site` once the DNS can be changed.
 - **Code** ([domains/auth/](Server/src/domains/auth/), mounted at `/api/auth`):
   - [auth.service.ts](Server/src/domains/auth/auth.service.ts): the Google leg, the code, sessions and devices.
   - [staff-accounts.service.ts](Server/src/domains/auth/staff-accounts.service.ts): registering, resetting and disabling accounts.
   - [auth.emails.ts](Server/src/domains/auth/auth.emails.ts): the Hebrew emails.
-  - `requireStaff` in [auth.middleware.ts](Server/src/domains/auth/auth.middleware.ts) guards the dashboard API routes that come next.
+  - `requireStaff` in [auth.middleware.ts](Server/src/domains/auth/auth.middleware.ts) guards the dashboard API.
   - Building blocks in `lib/`: [google-oidc.ts](Server/src/lib/google-oidc.ts), [mailer.ts](Server/src/lib/mailer.ts) (nodemailer), [secret-box.ts](Server/src/lib/secret-box.ts) (AES-GCM) and [tokens.ts](Server/src/lib/tokens.ts).
   - The database stores only token hashes, and codes as HMACs keyed with `AUTH_SECRET`.
 - **Protection:**
   - 5 wrong codes lock the account for 15 minutes.
   - Each IP gets 30 code requests per 15 minutes.
   - Every state-changing `/api/auth` request must carry `Origin: DASHBOARD_URL`, because n8n on a sibling subdomain counts as the same site.
-- **Accounts from the console**, until the users screen is connected:
+- **Accounts:** admins invite and remove people on the dashboard's users screen. From the console too:
   - `docker exec root-crm-1 node dist/scripts/staff-user.js invite --email … --name "…" --role admin|office|sales [--passport-access]`
   - also `reset-sign-in` (a replaced Google account or a lost phone) and `disable`.
 - **Env:**

@@ -41,10 +41,10 @@ Columns are matched by **title**, not id, with aliases (`עיר` / `עיר מג�
 
 Monday's plan allows 1,000 API calls a day, shared with Justin's automations (no rate-limit errors in the 7 days before this step).
 
-- One call lists the boards. A board whose `updated_at` didn't change since its last copy is skipped, except that every board is read in full at least once a day.
-- A changed board costs one call per 500 rows, plus one for its columns and groups.
+- One call lists the boards, and one reads every board's columns and groups.
+- Monday's board `updated_at` does **not** change when rows change (the 2026 challah board said May while rows were added in September), so every copy reads every board in full: one call per 500 rows. The old CRM board, which no longer changes, is read once a day.
 - Notes (Monday "updates") are read newest first, 100 per call, until the copy reaches notes it already has. The first copy reads them all.
-- A copy is about 5 to 10 calls, so at most about 90 a day on the schedule. A run stops at 60 calls.
+- A copy is about 9 calls, so about 90 a day on the schedule. The first copy, with every note, is about 40. A run stops at 150 calls.
 - Calls go through `monday.client.ts`, so the copy shares its rate-limit circuit breaker: while Monday is limiting calls, a copy is recorded as skipped.
 
 ### Leads (the CRM boards)
@@ -129,6 +129,8 @@ Mounted at `/api/dashboard`, behind `noStore`, the sign-in dependencies, `requir
 
 Passports also need the user's own passport access. Everyone signed in can read the staff names (for "who did it" lines), the permission table, the latest copy's summary, and change their own name.
 
+**Request limit:** every dashboard request reaches the server through Vercel, so all users share Vercel's address. The server's global `/api` limit (100 a minute per address) skips `/api/dashboard/`; the dashboard router limits 600 requests a minute per session instead.
+
 **Routes**
 
 - `leads`: `GET /leads?status&service&source&search`, `GET /leads/counts`, `GET /leads/:id`
@@ -151,7 +153,7 @@ Passports also need the user's own passport access. Everyone signed in can read 
 - `createServices` builds every service on the API. `src/data/mock/` (the fixtures, the generator, the demo sign-in) and `VITE_HTTP_SERVICES` are deleted.
 - Tests use a small set of test services in `src/test/` instead of the demo database.
 - Screen changes:
-  - **Leads:** the "אין מענה" status; the service and Monday group in place of a trip and an assignee; "open in Monday" in place of changing the status or adding a note; the Monday details (calls, last call, Instagram message, next step). The Monday strip says when the last copy ran.
+  - **Leads:** the "אין מענה" status (a sixth board column); the table grouped by service, and filtered by status, source and service (Monday has no trip or assignee per lead); the Monday group on each lead; "open in Monday" in place of changing the status or adding a note; the Monday details (calls, last call, Instagram message, next step). A search also finds archived leads, tagged "ארכיון". The Monday strip says when the last copy ran.
   - **Customers:** Monday's passport mark while no scan is on file; the "Monday" source.
   - **Trips:** trips without a capacity or a date; past trips and events hidden; Monday's passport mark and status on participants.
   - **Import:** becomes the copy's page: the last copy, the boards, the counts (leads, archived, chats without a phone, customers, trips, notes), "sync now" for admins. "Close Monday" waits for the switch-over.
@@ -164,6 +166,7 @@ Passports also need the user's own passport access. Everyone signed in can read 
 |---|---|---|
 | `MONDAY_COPY_ENABLED` | `false` | `Server/.env` on the VPS: `true` to copy on the schedule |
 | `MONDAY_BOARD_CRM_ARCHIVE_ID` | `5094895163` | `Server/.env` |
+| `MONDAY_ACCOUNT_SLUG` | `ronit550418` | `Server/.env`: for "open in Monday" links |
 | Vercel rewrite `/api/dashboard/(.*)` | | `dashboard/vercel.json` |
 
 `VITE_HTTP_SERVICES` is removed from Vercel.
@@ -174,6 +177,7 @@ Passports also need the user's own passport access. Everyone signed in can read 
 - **The copy**, on PGlite with a fake Monday: inserts, updates, rows that disappear and come back, phone merges, skipped boards, notes paging, the call cap, rate limits.
 - **The API**, with supertest: each route's answer, and the access table (sales gets 403 on passports, users and import).
 - **The dashboard:** the HTTP adapters (stubbed fetch), then one type-check and lint. Screens are checked by eye on the deployed site.
+- **Checked on the real boards** before building the API, as a read-only dry run (17 calls): 276 live leads (165 אין מענה, 91 talking, 19 not relevant, 1 registered), 650 archived, the flight with 45 people (14 with "יש", 1 "בהנפקה"), 12 challah months, about 139 customers with 9 phones on two boards.
 
 ## 9. Going live
 
