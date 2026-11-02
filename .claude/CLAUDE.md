@@ -22,6 +22,8 @@ Backend-only automation for an Israeli religious-influencer client. Ingests lead
 - [Server/src/domains/](Server/src/domains/) — one folder per integration; pattern is `{name}.controller.ts`, `{name}.service.ts`, `{name}.routes.ts`, `{name}.validator.ts`
   - `meta/` — Instagram DM webhook ingest, HMAC verification, lead classification (fully implemented)
   - `monday/` — GraphQL client + lead-row creation service (partially implemented — no webhook handler yet)
+  - `passports/`, `greetings/` — the dashboard's automations on the Postgres CRM database (see Database and "Passports + greetings" below)
+- [Server/src/db/](Server/src/db/) — Postgres CRM database: migrations, runner, startup, PGlite test helper
 - [Server/scripts/](Server/scripts/) — utility scripts (`inspect-monday.ts`, `restructure-monday.ts`)
 - [rawNote.md](rawNote.md) — original business requirements notes
 - [PLAN.md](PLAN.md) — full domain plan (flows, board structure, env vars, Hebrew column values)
@@ -195,9 +197,35 @@ Status of each integration. When a new decision is made, update this section and
 - **Notes:** REST API at `https://www.hebcal.com/hebcal?v=1&cfg=json&maj=on&min=on&i=on&year={year}`. Daily cron at 08:00 Asia/Jerusalem checks for holidays at `today + 3 days`.
 
 ### Database
-- **Decision:** _TBD_ — leaning Supabase (managed Postgres + Storage). pg-boss runs on the same DB so no Redis needed.
-- **Notes:** Holds `processed_webhooks` (dedup), `followup_log`, `holiday_campaign`, `holiday_campaign_send`, plus pg-boss's own `pgboss.*` schema. Monday is the source of truth for lead data.
-- **Env to add when chosen:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`.
+- **Decision (2026-11-02):** two stores. SQLite (`DB_FILE_PATH`) keeps this server's own state as before: dedup, known senders, queues, settings. The dashboard's CRM data lives in **Postgres 17 on the VPS**:
+  - It holds customers, passports, trips, passport intakes, greetings and their history.
+  - It's the `postgres` service in `/root/docker-compose.yml`, on the private network only, with credentials in `/root/postgres.env`.
+  - A nightly `pg_dump` (01:15 UTC, kept 14 days) writes to `/opt/ronit-backups` via `/usr/local/bin/ronit-pg-backup.sh`. Nothing is copied off the server yet.
+  - Supabase was dropped.
+  - Monday stays the source of truth for leads until the import and cutover.
+- **Code:**
+  - [config/pg.ts](Server/src/config/pg.ts): `getCrmDb()` returns null without `DATABASE_URL`.
+  - [db/migrations/](Server/src/db/migrations/): TypeScript modules, since tsc copies only `.ts`.
+  - [db/migrate.ts](Server/src/db/migrate.ts): runs at startup under an advisory lock.
+  - [db/startup.ts](Server/src/db/startup.ts): `startCrmAutomations()` never throws, so a missing or broken database leaves every other flow untouched.
+  - Tests run the SQL on PGlite ([db/test-db.ts](Server/src/db/test-db.ts)).
+- **Env:** `DATABASE_URL=postgres://ronit:<password>@postgres:5432/ronit`. An empty value counts as unset.
+- **Design:** [docs/superpowers/specs/2026-11-02-automation-foundation-design.md](docs/superpowers/specs/2026-11-02-automation-foundation-design.md).
+
+### Passports + greetings (the dashboard's automations)
+- **Status (2026-11-02):** built, and off by default (`PASSPORTS_ENABLED`, `GREETINGS_ENABLED`). The WhatsApp connection is undecided: the `ronit-send` gateway carries no photos, and the PRD names DualHook.
+- **Passports** ([domains/passports/](Server/src/domains/passports/)):
+  - A photo is saved to `PASSPORT_FILES_DIR` (`/data/passports`).
+  - `OPENROUTER_PASSPORT_MODEL` reads it, with `provider.data_collection: "deny"`.
+  - The details are written only when the MRZ check digits hold ([lib/passport-mrz.ts](Server/src/lib/passport-mrz.ts)).
+  - Matching is by name, as the PRD says: one namesake gets the passport; none gets a new card with the sender's number; ambiguous goes to review.
+  - Reasons are stored as codes.
+  - Until a channel delivers photos, feed one with `docker exec root-crm-1 node dist/scripts/ingest-passport.js --file /data/inbox/x.jpg --phone 05…`.
+- **Greetings** ([domains/greetings/](Server/src/domains/greetings/)):
+  - Birthdays are queued hourly, by the Shabbat rule.
+  - A `scheduled` holiday campaign is queued at its rate (50 every 10 minutes).
+  - An outbox sends every minute through `GREETINGS_CHANNEL`: `dry-run`, which only logs and marks messages skipped (test data only), or `gateway`, which goes through `RONIT_WA_ALLOWED_NUMBERS` like the Uman flows.
+  - Nothing is ever sent twice; an interrupted send is marked failed, never resent.
 
 ### Hosting
 - **Decision:** Hostinger VPS (locked — client-provided)
