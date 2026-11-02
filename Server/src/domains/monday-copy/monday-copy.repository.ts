@@ -21,6 +21,7 @@ export interface StoredBoard {
   items: number;
   copiedAt: Date | null;
   notesThrough: Date | null;
+  notesRefreshedAt: Date | null;
   removedAt: Date | null;
 }
 
@@ -32,12 +33,22 @@ export async function storedBoards(db: Queryable): Promise<Map<string, StoredBoa
     items: number;
     copied_at: Date | null;
     notes_through: Date | null;
+    notes_refreshed_at: Date | null;
     removed_at: Date | null;
-  }>("SELECT id, name, kind, items, copied_at, notes_through, removed_at FROM monday_boards");
+  }>("SELECT id, name, kind, items, copied_at, notes_through, notes_refreshed_at, removed_at FROM monday_boards");
   return new Map(
     rows.map((row) => [
       row.id,
-      { id: row.id, name: row.name, kind: row.kind, items: row.items, copiedAt: row.copied_at, notesThrough: row.notes_through, removedAt: row.removed_at },
+      {
+        id: row.id,
+        name: row.name,
+        kind: row.kind,
+        items: row.items,
+        copiedAt: row.copied_at,
+        notesThrough: row.notes_through,
+        notesRefreshedAt: row.notes_refreshed_at,
+        removedAt: row.removed_at,
+      },
     ]),
   );
 }
@@ -49,13 +60,15 @@ export interface BoardUpdate {
   read: { rows: number; groups: number } | null;
   /** Set when its notes were read through to the end. */
   notesThrough: Date | null;
+  /** Set when every row's notes were read one by one. */
+  notesRefreshedAt: Date | null;
 }
 
 export async function saveBoard(tx: Queryable, update: BoardUpdate, now: Date): Promise<void> {
   const { info, kind, read } = update;
   await tx.query(
-    `INSERT INTO monday_boards (id, name, kind, items, groups, monday_updated_at, copied_at, notes_through, removed_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL)
+    `INSERT INTO monday_boards (id, name, kind, items, groups, monday_updated_at, copied_at, notes_through, notes_refreshed_at, removed_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $10, NULL)
      ON CONFLICT (id) DO UPDATE SET
        name = EXCLUDED.name,
        kind = EXCLUDED.kind,
@@ -64,8 +77,9 @@ export async function saveBoard(tx: Queryable, update: BoardUpdate, now: Date): 
        monday_updated_at = EXCLUDED.monday_updated_at,
        copied_at = COALESCE(EXCLUDED.copied_at, monday_boards.copied_at),
        notes_through = COALESCE(EXCLUDED.notes_through, monday_boards.notes_through),
+       notes_refreshed_at = COALESCE(EXCLUDED.notes_refreshed_at, monday_boards.notes_refreshed_at),
        removed_at = NULL`,
-    [info.id, info.name, kind, read?.rows ?? info.items, read?.groups ?? 0, info.updatedAt, read ? now : null, update.notesThrough, read !== null],
+    [info.id, info.name, kind, read?.rows ?? info.items, read?.groups ?? 0, info.updatedAt, read ? now : null, update.notesThrough, read !== null, update.notesRefreshedAt],
   );
 }
 
@@ -129,15 +143,29 @@ export async function saveLeads(tx: Queryable, boardId: string, leads: LeadRecor
   );
 }
 
-export async function saveNotes(tx: Queryable, boardId: string, notes: MondayNote[]): Promise<void> {
-  if (notes.length === 0) return;
-  await tx.query(
-    `INSERT INTO monday_notes (id, monday_item_id, board_id, at, author, body)
-     SELECT r.id, r.item_id, $2, r.at, r.author, r.body
-     FROM jsonb_to_recordset($1::jsonb) AS r(id text, item_id text, at timestamptz, author text, body text)
-     ON CONFLICT (id) DO NOTHING`,
-    [JSON.stringify(notes.map((note) => ({ id: note.id, item_id: note.itemId, at: note.at, author: note.author, body: note.body }))), boardId],
-  );
+/**
+ * Saves the notes of rows on the board, and forgets the notes of rows no longer on it. Monday's
+ * board feed also returns notes of rows deleted or moved off the board (leads closed into a trip):
+ * those aren't kept. `everyNote` is a read of every row's own notes: notes edited in Monday take
+ * the new text, and notes deleted there go.
+ */
+export async function saveNotes(tx: Queryable, boardId: string, notes: MondayNote[], rowIds: string[], everyNote: boolean): Promise<void> {
+  const onBoard = new Set(rowIds);
+  const kept = notes.filter((note) => onBoard.has(note.itemId));
+  if (kept.length > 0) {
+    await tx.query(
+      `INSERT INTO monday_notes (id, monday_item_id, board_id, at, author, body)
+       SELECT r.id, r.item_id, $2, r.at, r.author, r.body
+       FROM jsonb_to_recordset($1::jsonb) AS r(id text, item_id text, at timestamptz, author text, body text)
+       ON CONFLICT (id) DO ${everyNote ? "UPDATE SET monday_item_id = EXCLUDED.monday_item_id, board_id = EXCLUDED.board_id, at = EXCLUDED.at, author = EXCLUDED.author, body = EXCLUDED.body" : "NOTHING"}`,
+      [JSON.stringify(kept.map((note) => ({ id: note.id, item_id: note.itemId, at: note.at, author: note.author, body: note.body }))), boardId],
+    );
+  }
+  if (everyNote) {
+    await tx.query("DELETE FROM monday_notes WHERE board_id = $1 AND id <> ALL($2::text[])", [boardId, kept.map((note) => note.id)]);
+  } else {
+    await tx.query("DELETE FROM monday_notes WHERE board_id = $1 AND monday_item_id <> ALL($2::text[])", [boardId, rowIds]);
+  }
 }
 
 // ---- Trips, events and their people ----
@@ -158,62 +186,46 @@ async function removeTripsExcept(tx: Queryable, boardId: string, keep: string[],
   if (rows.length > 0) await tx.query("DELETE FROM group_members WHERE group_id = ANY($1::uuid[])", [rows.map((row) => row.id)]);
 }
 
+/** "שרה  כהן " and "שרה כהן" are the same name. */
+const sameName = "regexp_replace(btrim(first_name || ' ' || last_name), '\\s+', ' ', 'g')";
+
 /**
- * The customer a Monday row belongs to: the same phone is the same customer; a row without a
- * phone is its own customer. Customers the copy created take the newest row's name.
+ * The customer a Monday row belongs to. A row keeps the customer it was first linked to (so a
+ * rename or a new phone in Monday follows her). A new row is the same person as a customer with the
+ * same phone and the same name; a phone shared under another name (a mother and her daughter) is
+ * someone else. Customers the copy created take the name and phone of their newest row.
  */
 async function customerFor(tx: Queryable, member: MemberRecord): Promise<{ id: string; created: boolean }> {
   const { firstName, lastName } = splitName(member.name);
-  let found: { id: string } | undefined;
-  if (member.phone) {
-    found = (await tx.query<{ id: string }>("SELECT id FROM customers WHERE phone = $1 ORDER BY created_at, id LIMIT 1", [member.phone])).rows[0];
-    if (!found) {
-      // A row that had no phone before: its customer gets the phone now.
-      found = (
-        await tx.query<{ id: string }>("UPDATE customers SET phone = $2, monday_item_id = NULL WHERE monday_item_id = $1 RETURNING id", [
-          member.itemId,
-          member.phone,
-        ])
-      ).rows[0];
-    }
-  } else {
-    found = (await tx.query<{ id: string }>("SELECT id FROM customers WHERE monday_item_id = $1", [member.itemId])).rows[0];
+  const name = [firstName, lastName].filter(Boolean).join(" ");
+  let id = (await tx.query<{ customer_id: string }>("SELECT customer_id FROM group_members WHERE monday_item_id = $1", [member.itemId])).rows[0]?.customer_id;
+  if (!id && member.phone) {
+    id = (
+      await tx.query<{ id: string }>(`SELECT id FROM customers WHERE phone = $1 AND ${sameName} = $2 ORDER BY created_at, id LIMIT 1`, [member.phone, name])
+    ).rows[0]?.id;
   }
-
-  if (found) {
+  if (id) {
     await tx.query(
       `UPDATE customers SET
          first_name = CASE WHEN $4 >= updated_at THEN $2 ELSE first_name END,
          last_name = CASE WHEN $4 >= updated_at THEN $3 ELSE last_name END,
+         phone = CASE WHEN $4 >= updated_at THEN COALESCE($6, phone) ELSE phone END,
          updated_at = GREATEST(updated_at, $4),
          created_at = LEAST(created_at, $5)
        WHERE id = $1 AND from_monday`,
-      [found.id, firstName, lastName, member.updatedAt, member.createdAt],
+      [id, firstName, lastName, member.updatedAt, member.createdAt, member.phone],
     );
-    return { id: found.id, created: false };
+    return { id, created: false };
   }
-
   const { rows } = await tx.query<{ id: string }>(
-    `INSERT INTO customers (first_name, last_name, phone, source, monday_item_id, from_monday, created_at, updated_at)
-     VALUES ($1, $2, $3, 'monday', $4, true, $5, $6) RETURNING id`,
-    [firstName, lastName, member.phone, member.phone ? null : member.itemId, member.createdAt, member.updatedAt],
+    `INSERT INTO customers (first_name, last_name, phone, source, from_monday, created_at, updated_at)
+     VALUES ($1, $2, $3, 'monday', true, $4, $5) RETURNING id`,
+    [firstName, lastName, member.phone, member.createdAt, member.updatedAt],
   );
   return { id: rows[0].id, created: true };
 }
 
-interface Membership {
-  groupId: string;
-  customerId: string;
-  itemId: string;
-  addedAt: string;
-  updatedAt: string;
-  notes: string[];
-  mondayStatus: string | null;
-  mondayPassport: string | null;
-  eventOn: string | null;
-}
-
-/** Upserts a trip board's trips and their people, and removes what's gone from the board. Returns customers created. */
+/** Upserts a trip board's trips and their people (one membership per row), and removes what's gone from the board. Returns customers created. */
 export async function saveTrips(tx: Queryable, boardId: string, trips: TripRecord[], members: MemberRecord[], now: Date): Promise<number> {
   const groupIds = new Map<string, string>();
   for (const trip of trips) {
@@ -231,54 +243,30 @@ export async function saveTrips(tx: Queryable, boardId: string, trips: TripRecor
   }
   await removeTripsExcept(tx, boardId, [...groupIds.keys()], now);
 
-  // The same person twice on one trip (a duplicate row, two bookings in a month) is one membership.
   let created = 0;
-  const memberships = new Map<string, Membership>();
+  const kept: string[] = [];
   for (const member of members) {
     const groupId = groupIds.get(member.tripKey);
     if (!groupId) continue;
     const customer = await customerFor(tx, member);
     if (customer.created) created += 1;
-    const key = `${groupId}:${customer.id}`;
-    const seen = memberships.get(key);
-    if (!seen) {
-      memberships.set(key, {
-        groupId,
-        customerId: customer.id,
-        itemId: member.itemId,
-        addedAt: member.createdAt,
-        updatedAt: member.updatedAt,
-        notes: member.note ? [member.note] : [],
-        mondayStatus: member.mondayStatus,
-        mondayPassport: member.mondayPassport,
-        eventOn: member.eventOn,
-      });
-      continue;
-    }
-    if (member.note && !seen.notes.includes(member.note)) seen.notes.push(member.note);
-    if (member.createdAt < seen.addedAt) seen.addedAt = member.createdAt;
-    if (member.eventOn && (!seen.eventOn || member.eventOn < seen.eventOn)) seen.eventOn = member.eventOn;
-    if (member.updatedAt > seen.updatedAt) {
-      seen.updatedAt = member.updatedAt;
-      seen.mondayStatus = member.mondayStatus ?? seen.mondayStatus;
-      seen.mondayPassport = member.mondayPassport ?? seen.mondayPassport;
-    }
-  }
-
-  for (const m of memberships.values()) {
     await tx.query(
       `INSERT INTO group_members (group_id, customer_id, note, added_at, monday_item_id, monday_status, monday_passport, event_on)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       ON CONFLICT (group_id, customer_id) DO UPDATE SET
-         note = EXCLUDED.note, added_at = EXCLUDED.added_at, monday_item_id = EXCLUDED.monday_item_id,
+       ON CONFLICT (monday_item_id) WHERE monday_item_id IS NOT NULL DO UPDATE SET
+         group_id = EXCLUDED.group_id, customer_id = EXCLUDED.customer_id, note = EXCLUDED.note, added_at = EXCLUDED.added_at,
          monday_status = EXCLUDED.monday_status, monday_passport = EXCLUDED.monday_passport, event_on = EXCLUDED.event_on`,
-      [m.groupId, m.customerId, m.notes.join(" · ") || null, m.addedAt, m.itemId, m.mondayStatus, m.mondayPassport, m.eventOn],
+      [groupId, customer.id, member.note, member.createdAt, member.itemId, member.mondayStatus, member.mondayPassport, member.eventOn],
     );
+    kept.push(member.itemId);
   }
-  for (const groupId of groupIds.values()) {
-    const keep = [...memberships.values()].filter((m) => m.groupId === groupId).map((m) => m.customerId);
-    await tx.query("DELETE FROM group_members WHERE group_id = $1 AND customer_id <> ALL($2::uuid[])", [groupId, keep]);
-  }
+  const [boardKey, monthPattern] = tripKeysOf(boardId);
+  await tx.query(
+    `DELETE FROM group_members m USING groups g
+     WHERE m.group_id = g.id AND (g.monday_key = $1 OR g.monday_key LIKE $2)
+       AND m.monday_item_id IS NOT NULL AND m.monday_item_id <> ALL($3::text[])`,
+    [boardKey, monthPattern, kept],
+  );
   return created;
 }
 
@@ -317,7 +305,7 @@ export interface CopyTotals {
   customers: number;
   /** Trips and challah months. */
   groups: number;
-  /** Monday rows that joined a customer already counted (the same phone on another row). */
+  /** Monday rows of a customer already counted (the same phone and name on another row). */
   duplicatesMerged: number;
   notes: number;
 }

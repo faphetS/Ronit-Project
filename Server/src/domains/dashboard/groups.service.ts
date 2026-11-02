@@ -30,7 +30,7 @@ export interface GroupDto {
   flight: FlightDto | null;
   mondayBoard: string | null;
   registered: number;
-  /** A passport on file, or Monday's "יש". */
+  /** Seats or bookings with a passport on file, or Monday's "יש". */
   passportsReceived: number;
   missingPassports: number;
   /** Flights only: the share with a passport, 0–100. */
@@ -38,6 +38,8 @@ export interface GroupDto {
 }
 
 export interface GroupParticipantDto {
+  /** The row: a seat on a flight, a booking in a challah month. One person can have two. */
+  id: string;
   customerId: string;
   firstName: string;
   lastName: string;
@@ -112,6 +114,7 @@ export async function groupParticipants(db: Queryable, viewer: Viewer, id: strin
   await getGroup(db, id);
   const soon = addDays(israelDay(now), EXPIRING_WITHIN_DAYS);
   const { rows } = await db.query<{
+    id: string;
     customer_id: string;
     first_name: string;
     last_name: string;
@@ -123,7 +126,7 @@ export async function groupParticipants(db: Queryable, viewer: Viewer, id: strin
     monday_status: string | null;
     event_on: string | null;
   }>(
-    `SELECT m.customer_id, c.first_name, c.last_name, c.phone, p.customer_id IS NOT NULL AS has_passport, p.expiry_date,
+    `SELECT m.id, m.customer_id, c.first_name, c.last_name, c.phone, p.customer_id IS NOT NULL AS has_passport, p.expiry_date,
             m.note, m.monday_passport, m.monday_status, m.event_on
      FROM group_members m JOIN customers c ON c.id = m.customer_id LEFT JOIN passports p ON p.customer_id = m.customer_id
      WHERE m.group_id = $1
@@ -133,6 +136,7 @@ export async function groupParticipants(db: Queryable, viewer: Viewer, id: strin
   return rows.map((row) => {
     const expiry = viewer.passports ? row.expiry_date : null;
     return {
+      id: row.id,
       customerId: row.customer_id,
       firstName: row.first_name,
       lastName: row.last_name,

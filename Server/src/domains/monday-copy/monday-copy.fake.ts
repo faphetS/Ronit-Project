@@ -54,6 +54,8 @@ export function fakeAccount(): FakeBoard[] {
       notes: [
         { id: "n2", item_id: "101", created_at: "2026-10-29T10:00:00Z", text_body: "שלחתי לה את המסלול", creator: { name: "Ronit" } },
         { id: "n1", item_id: "101", created_at: "2026-10-28T10:00:00Z", text_body: "אין מענה, לחזור מחר", creator: { name: "Ronit" } },
+        // Monday's board feed also returns notes of rows deleted or moved off the board.
+        { id: "n0", item_id: "555", created_at: "2026-10-20T10:00:00Z", text_body: "ליד שנסגר ועבר לטיסה", creator: { name: "Ronit" } },
       ],
     },
     {
@@ -152,6 +154,14 @@ export function fakeMonday(boards: FakeBoard[]): FakeMonday {
     if (query.includes("items_page")) {
       fake.calls.push("rows");
       return { boards: [{ items_page: page(find((variables.ids as string[])[0])!, 0) }] };
+    }
+    if (query.includes("items(ids:")) {
+      fake.calls.push("row-notes");
+      const wanted = new Set((variables.ids as string[]).map(String));
+      const notes = fake.boards.flatMap((board) => board.notes).filter((note) => wanted.has(note.item_id));
+      return {
+        items: [...wanted].map((id) => ({ id, updates: notes.filter((note) => note.item_id === id) })).filter((item) => fake.boards.some((board) => board.rows.some((row) => row.id === item.id))),
+      };
     }
     if (query.includes("updates(")) {
       fake.calls.push("notes");

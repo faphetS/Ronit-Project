@@ -14,8 +14,11 @@ CREATE TABLE monday_boards (
   groups integer NOT NULL DEFAULT 0,
   monday_updated_at timestamptz,
   copied_at timestamptz,
-  -- The newest note copied, so the next copy reads only newer ones.
+  -- The newest note copied, so the next copy reads only newer ones from the board's feed.
   notes_through timestamptz,
+  -- When every row's notes were last read one by one (daily): catches notes edited or deleted in
+  -- Monday, and notes of rows moved in from another board, which the board's feed doesn't list.
+  notes_refreshed_at timestamptz,
   -- Gone from the account (deleted or archived in Monday).
   removed_at timestamptz
 );
@@ -81,16 +84,21 @@ ALTER TABLE groups
   ADD COLUMN monday_board_name text,
   ADD COLUMN removed_at timestamptz;
 
+-- One membership per Monday row (a seat on a flight, a booking in a challah month), so a woman
+-- booked twice in a month shows twice. Memberships added in the dashboard stay one per person per trip.
+ALTER TABLE group_members DROP CONSTRAINT group_members_pkey;
 ALTER TABLE group_members
+  ADD COLUMN id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   ADD COLUMN monday_item_id text,
   ADD COLUMN monday_status text,
   ADD COLUMN monday_passport text CHECK (monday_passport IN ('yes', 'in-progress')),
   ADD COLUMN event_on date;
+CREATE UNIQUE INDEX group_members_monday_item_idx ON group_members (monday_item_id) WHERE monday_item_id IS NOT NULL;
+CREATE UNIQUE INDEX group_members_person_idx ON group_members (group_id, customer_id) WHERE monday_item_id IS NULL;
+CREATE INDEX group_members_group_idx ON group_members (group_id);
 
 -- Customers the copy created. Only these does it rename or remove.
 ALTER TABLE customers ADD COLUMN from_monday boolean NOT NULL DEFAULT false;
--- A Monday row without a phone is its own customer, keyed by the row.
-CREATE UNIQUE INDEX customers_monday_item_idx ON customers (monday_item_id) WHERE monday_item_id IS NOT NULL;
 
 -- Notes the staff add on a customer's card in the dashboard.
 CREATE TABLE customer_notes (

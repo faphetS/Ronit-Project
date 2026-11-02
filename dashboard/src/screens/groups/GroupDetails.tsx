@@ -136,7 +136,7 @@ export function ParticipantsCard({ group, className }: GroupProps) {
           label={text.table(name)}
           columns={columns}
           rows={participants.data}
-          rowKey={(row) => row.customerId}
+          rowKey={(row) => row.id}
           rowHref={(row) => `/customers/${row.customerId}`}
           empty={<EmptyState message={text.empty} />}
           pageSize={CARD_PAGE_SIZE}
@@ -169,7 +169,7 @@ export function MissingPassportsCard({ group }: { group: GroupSummary }) {
             {missing.map((person) => (
               <ListRow
                 as="li"
-                key={person.customerId}
+                key={person.id}
                 to={`/customers/${person.customerId}`}
                 leading={<Avatar initial={person.firstName.charAt(0)} />}
                 title={fullName(person)}
@@ -208,7 +208,7 @@ export function ParticipantsList({ group }: { group: GroupSummary }) {
           {shown.map((person) => (
             <ListRow
               as="li"
-              key={person.customerId}
+              key={person.id}
               to={`/customers/${person.customerId}`}
               leading={<Avatar initial={person.firstName.charAt(0)} />}
               title={fullName(person)}

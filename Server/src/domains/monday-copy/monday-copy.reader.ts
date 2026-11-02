@@ -13,6 +13,7 @@ export class CopyCallLimitError extends AppError {
 
 const ROWS_PER_CALL = 500;
 const NOTES_PER_CALL = 100;
+const ITEMS_PER_CALL = 100;
 
 const ROW_FIELDS = "id name created_at updated_at group { id } column_values { id text }";
 
@@ -50,6 +51,8 @@ export interface MondayReader {
    * `complete` is false when it stopped at `maxCalls` before reaching `since` or the end.
    */
   readNotes(boardId: string, since: Date | null, maxCalls: number): Promise<{ notes: MondayNote[]; complete: boolean }>;
+  /** Every note of these rows, from each row itself, 100 rows per call. Exact, but a call per 100 rows. */
+  readItemNotes(itemIds: string[]): Promise<MondayNote[]>;
 }
 
 /** Reads Ronit's boards; read-only. Stops the whole copy at `maxCalls`. */
@@ -127,6 +130,24 @@ export function mondayReader(gql: Gql, maxCalls: number): MondayReader {
         if (reachedKnown || updates.length < NOTES_PER_CALL) return { notes, complete: true };
       }
       return { notes, complete: false };
+    },
+
+    async readItemNotes(itemIds) {
+      const notes: MondayNote[] = [];
+      for (let start = 0; start < itemIds.length; start += ITEMS_PER_CALL) {
+        const data = await call<{
+          items: Array<{ id: string; updates: Array<{ id: string; created_at: string; text_body: string | null; creator: { name: string } | null }> }>;
+        }>(`query ($ids: [ID!]) { items(ids: $ids, limit: ${ITEMS_PER_CALL}) { id updates(limit: 100) { id created_at text_body creator { name } } } }`, {
+          ids: itemIds.slice(start, start + ITEMS_PER_CALL),
+        });
+        for (const item of data.items) {
+          for (const update of item.updates) {
+            const body = update.text_body?.trim();
+            if (body) notes.push({ id: String(update.id), itemId: String(item.id), at: update.created_at, author: update.creator?.name ?? null, body });
+          }
+        }
+      }
+      return notes;
     },
   };
 }

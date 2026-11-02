@@ -43,8 +43,8 @@ Monday's plan allows 1,000 API calls a day, shared with Justin's automations (no
 
 - One call lists the boards, and one reads every board's columns and groups.
 - Monday's board `updated_at` does **not** change when rows change (the 2026 challah board said May while rows were added in September), so every copy reads every board in full: one call per 500 rows. The old CRM board, which no longer changes, is read once a day.
-- Notes (Monday "updates") are read newest first, 100 per call, until the copy reaches notes it already has. The first copy reads them all.
-- A copy is about 9 calls, so about 90 a day on the schedule. The first copy, with every note, is about 40. A run stops at 150 calls.
+- Notes (Monday "updates"): each copy reads the board's feed newest first, 100 per call, down to the notes it already has (usually one call). The feed also lists notes of rows deleted or moved off the board (those aren't kept), and it misses notes edited or deleted in Monday and notes of rows moved in from another board. So once a day, and on the first copy, every row's notes are read from the row itself, 100 rows per call (about 23 calls for both boards).
+- A copy is about 9 calls, about 110 a day on the schedule with the daily notes read. The first copy is about 34. A run stops at 150 calls.
 - Calls go through `monday.client.ts`, so the copy shares its rate-limit circuit breaker: while Monday is limiting calls, a copy is recorded as skipped.
 
 ### Leads (the CRM boards)
@@ -75,20 +75,22 @@ Only rows with a phone become leads. On 2026-11-02, the live board had 276 of 1,
 ### Trips and events
 
 - **A flight board** becomes one trip (`flight`), named as the board.
-  - Each row becomes a participant, linked to a customer.
+  - Each row becomes one entry on the trip (a seat), linked to a customer.
   - The trip note is the room (`חדר`).
   - `סטטוס` (תשלום חלקי, נסגר, צוות, בתהליך) is kept as the participant's Monday status.
   - `דרכון` ("יש" / "בהנפקה") is kept as Monday's passport mark. Readiness counts a passport on file or "יש".
   - Dates come from the rows' `Date` column when filled; until then the trip has no date. Capacity isn't in Monday, so trips have none.
 - **A challah board** becomes one event per month group, such as "הפרשות חלה · נובמבר 2026".
   - The month's dates come from the group title. A group with no rows, and `ביטולים`, are skipped.
-  - Each booking's woman (`שם המזמינה`) becomes a participant. The note holds the event's date, type and city.
+  - Each booking is one entry (a woman who booked twice in a month shows twice); its woman (`שם המזמינה`) is the customer. The note holds the event's type and city, and the entry its date.
 
 ### Customers
 
-Every participant and booker is a customer. **The same phone is the same customer** across boards; a row without a phone is its own customer, keyed by its Monday row.
+Every participant and booker is a customer.
 
-- The name is the newest Monday row's name, split at the last space (first name(s), then last name).
+- **The same phone and the same name are the same person**, across boards. A phone shared under another name (a mother and her daughter) is someone else, and a row without a phone is its own customer.
+- A row keeps the customer it was first linked to, so a rename or a new phone in Monday follows her.
+- The name and phone are the newest Monday row's, the name split at the last space (first name(s), then last name).
 - The source comes from her lead with the same phone, else `שיווק` "אינסטגרם" → `instagram`, else `monday`.
 - A customer that came from Monday, and no longer has a row there, a passport, notes or messages, is removed.
 
@@ -102,12 +104,12 @@ Each run is recorded with its trigger (schedule or manual), the boards it read, 
 
 ## 4. Database (migration 003)
 
-- `monday_boards`: the boards the copy knows, with kind, row count, `updated_at` in Monday, when it was last copied, and the newest note copied.
+- `monday_boards`: the boards the copy knows, with kind, row count, `updated_at` in Monday, when it was last copied, the newest note copied, and when every row's notes were last read.
 - `monday_copy_runs`: one row per run, as above.
 - `leads`: the copied leads (fields as in section 3), unique by Monday row id, with `archived` and `removed_at`.
 - `monday_notes`: Monday notes by row id (any row, so a chat that gains a phone keeps its history).
 - `groups` gains `monday_key` (unique: the board, or the board and month group), `monday_board_name` and `removed_at`.
-- `group_members` gains `monday_item_id` (unique), `monday_status`, `monday_passport` (`yes` / `in-progress`) and `event_on`.
+- `group_members` gets its own `id`, and one row per Monday row: `monday_item_id` (unique), `monday_status`, `monday_passport` (`yes` / `in-progress`) and `event_on`. Memberships added in the dashboard stay one per person per trip.
 - `customer_notes`: notes the staff add in the dashboard.
 
 Customers keep their existing table. Monday-born rows have `source = 'monday'` (or the source found above) and `monday_item_id` when they have no phone.
@@ -177,7 +179,14 @@ Passports also need the user's own passport access. Everyone signed in can read 
 - **The copy**, on PGlite with a fake Monday: inserts, updates, rows that disappear and come back, phone merges, skipped boards, notes paging, the call cap, rate limits.
 - **The API**, with supertest: each route's answer, and the access table (sales gets 403 on passports, users and import).
 - **The dashboard:** the HTTP adapters (stubbed fetch), then one type-check and lint. Screens are checked by eye on the deployed site.
-- **Checked on the real boards** before building the API, as a read-only dry run (17 calls): 276 live leads (165 אין מענה, 91 talking, 19 not relevant, 1 registered), 650 archived, the flight with 45 people (14 with "יש", 1 "בהנפקה"), 12 challah months, about 139 customers with 9 phones on two boards.
+- **Checked on the real boards** (2026-11-02): the real copy ran into a scratch database on the server (dropped afterwards), and everything the API answered was compared with an independent read of Monday, notes from each row. All checks passed:
+  - every row with a phone is a lead (277 live, 650 archived), with every field equal to Monday;
+  - the 1,135 notes on CRM rows are copied word for word, and nothing else;
+  - 13 trips and events with their 149 seats and bookings, one entry each;
+  - 139 customers;
+  - the lead counts, the pipeline, the overview and the Import page's totals.
+
+  The check found and fixed three things: notes of deleted rows were kept, a double booking showed once, and two people sharing a phone would have been one customer.
 
 ## 9. Going live
 

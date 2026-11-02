@@ -182,6 +182,8 @@ export interface GroupSummary extends Group {
 }
 
 export interface GroupParticipant {
+  /** The row: a seat on a flight, a booking in a challah month. The same person can have two. */
+  id: string;
   customerId: string;
   firstName: string;
   lastName: string;

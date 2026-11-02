@@ -98,15 +98,15 @@ export async function recentActivity(db: Queryable, now: Date): Promise<Activity
     items.push({ id: `lead-${lead.id}`, at: lead.created_at.toISOString(), kind: "lead", name: lead.name, source: lead.source, service: lead.service });
   }
 
-  const joined = await db.query<{ group_id: string; customer_id: string; added_at: Date; name: string; group_name: string }>(
-    `SELECT m.group_id, m.customer_id, m.added_at, c.first_name || ' ' || c.last_name AS name, COALESCE(g.short_name, g.name) AS group_name
+  const joined = await db.query<{ id: string; added_at: Date; name: string; group_name: string }>(
+    `SELECT m.id, m.added_at, c.first_name || ' ' || c.last_name AS name, COALESCE(g.short_name, g.name) AS group_name
      FROM group_members m JOIN customers c ON c.id = m.customer_id JOIN groups g ON g.id = m.group_id
      WHERE g.removed_at IS NULL AND m.added_at >= $1 AND m.added_at <= $2
      ORDER BY m.added_at DESC LIMIT ${ACTIVITY_SHOWN}`,
     [since, now],
   );
   for (const row of joined.rows) {
-    items.push({ id: `joined-${row.group_id}-${row.customer_id}`, at: row.added_at.toISOString(), kind: "registration", name: row.name.trim(), group: row.group_name });
+    items.push({ id: `joined-${row.id}`, at: row.added_at.toISOString(), kind: "registration", name: row.name.trim(), group: row.group_name });
   }
 
   const passports = await db.query<{ id: string; received_at: Date; status: string; name: string | null }>(

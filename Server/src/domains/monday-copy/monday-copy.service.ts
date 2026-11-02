@@ -40,8 +40,10 @@ export const COPY_HOURS = [7, 9, 11, 13, 15, 17, 19, 21, 23];
 export const COPY_SCHEDULE = "0 7-23/2 * * *";
 /** The old CRM board barely changes: it's read at most this often. */
 const ARCHIVE_EVERY_MS = 20 * 60 * 60_000;
-/** Notes: the whole history on the first copy, then usually one call. */
+/** Notes from the board's feed: newest first down to the last copy, usually one call. */
 const NOTE_CALLS_PER_BOARD = 50;
+/** Every row's notes, read one by one, at most this often (and on the first copy): about 12 calls a board. */
+const EVERY_NOTE_EVERY_MS = 20 * 60 * 60_000;
 const MAX_CALLS = 150;
 /** A run left "running" by a restart counts as failed after this long. */
 const STALE_RUN_MS = 30 * 60_000;
@@ -124,6 +126,8 @@ export function copyRunning(): boolean {
 interface NotesRead {
   notes: MondayNote[];
   complete: boolean;
+  /** Every row's notes, read from each row. */
+  everyNote: boolean;
 }
 
 /** Reads every board the copy needs, then writes the copy. Returns how many boards were read. */
@@ -150,12 +154,20 @@ async function copyBoards(deps: CopyDeps, reader: MondayReader): Promise<number>
     if (!shape) continue;
     snapshots.push({ board: { ...info, kind }, columns: shape.columns, groups: shape.groups, rows: await reader.readRows(info.id) });
   }
+  // Notes: the board's feed lists new notes cheaply, but not notes edited or deleted in Monday, nor
+  // notes of rows moved in from another board. Once a day every row's notes are read one by one.
   const notes = new Map<string, NotesRead>();
   for (const snapshot of snapshots) {
     if (snapshot.board.kind !== "crm" && snapshot.board.kind !== "crm-archive") continue;
-    const read = await reader.readNotes(snapshot.board.id, known.get(snapshot.board.id)?.notesThrough ?? null, NOTE_CALLS_PER_BOARD);
+    const stored = known.get(snapshot.board.id);
+    const everyNote = !stored?.notesRefreshedAt || at.getTime() - stored.notesRefreshedAt.getTime() >= EVERY_NOTE_EVERY_MS;
+    if (everyNote) {
+      notes.set(snapshot.board.id, { notes: await reader.readItemNotes(snapshot.rows.map((row) => row.id)), complete: true, everyNote });
+      continue;
+    }
+    const read = await reader.readNotes(snapshot.board.id, stored?.notesThrough ?? null, NOTE_CALLS_PER_BOARD);
     if (!read.complete) logger.warn({ boardId: snapshot.board.id }, "Monday copy: more notes than one copy reads; the oldest wait");
-    notes.set(snapshot.board.id, read);
+    notes.set(snapshot.board.id, { ...read, everyNote });
   }
 
   await db.transaction(async (tx) => {
@@ -167,7 +179,11 @@ async function copyBoards(deps: CopyDeps, reader: MondayReader): Promise<number>
       const snapshot = snapshots.find((s) => s.board.id === info.id);
       const read = notes.get(info.id);
       const newest = read?.complete && read.notes.length > 0 ? new Date(Math.max(...read.notes.map((note) => Date.parse(note.at)))) : null;
-      await saveBoard(tx, { info, kind, read: snapshot ? { rows: snapshot.rows.length, groups: snapshot.groups.length } : null, notesThrough: newest }, at);
+      await saveBoard(
+        tx,
+        { info, kind, read: snapshot ? { rows: snapshot.rows.length, groups: snapshot.groups.length } : null, notesThrough: newest, notesRefreshedAt: read?.everyNote ? at : null },
+        at,
+      );
     }
     for (const snapshot of snapshots) {
       if (snapshot.board.kind === "crm" || snapshot.board.kind === "crm-archive") {
@@ -177,7 +193,7 @@ async function copyBoards(deps: CopyDeps, reader: MondayReader): Promise<number>
         await saveTrips(tx, snapshot.board.id, trips, members, at);
       }
       const read = notes.get(snapshot.board.id);
-      if (read) await saveNotes(tx, snapshot.board.id, read.notes);
+      if (read) await saveNotes(tx, snapshot.board.id, read.notes, snapshot.rows.map((row) => row.id), read.everyNote);
     }
     await tidyCustomers(tx);
   });

@@ -105,8 +105,9 @@ interface CustomerRow {
 
 const CUSTOMER_SELECT = `
   SELECT c.id, c.first_name, c.last_name, c.phone, c.source, c.created_at, c.updated_at,
-    ARRAY(SELECT m.group_id::text FROM group_members m JOIN groups g ON g.id = m.group_id
-          WHERE m.customer_id = c.id AND g.removed_at IS NULL ORDER BY g.starts_on NULLS FIRST) AS group_ids,
+    ARRAY(SELECT g.id::text FROM groups g
+          WHERE g.removed_at IS NULL AND EXISTS (SELECT 1 FROM group_members m WHERE m.group_id = g.id AND m.customer_id = c.id)
+          ORDER BY g.starts_on NULLS FIRST, g.name) AS group_ids,
     (SELECT m.monday_passport FROM group_members m WHERE m.customer_id = c.id AND m.monday_passport IS NOT NULL
      ORDER BY m.monday_passport = 'yes' DESC LIMIT 1) AS monday_passport,
     (SELECT g.monday_board_name FROM group_members m JOIN groups g ON g.id = m.group_id

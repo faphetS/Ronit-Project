@@ -128,7 +128,7 @@ export async function audiences(db: Queryable, now: Date): Promise<AudienceOptio
   const all = await db.query<{ n: number }>("SELECT count(*)::int AS n FROM customers WHERE NOT greetings_opt_out");
   const groups = await db.query<{ id: string; name: string; short_name: string | null; n: number }>(
     `SELECT g.id, g.name, g.short_name,
-       (SELECT count(*)::int FROM group_members m JOIN customers c ON c.id = m.customer_id WHERE m.group_id = g.id AND NOT c.greetings_opt_out) AS n
+       (SELECT count(DISTINCT m.customer_id)::int FROM group_members m JOIN customers c ON c.id = m.customer_id WHERE m.group_id = g.id AND NOT c.greetings_opt_out) AS n
      FROM groups g
      WHERE g.removed_at IS NULL AND (COALESCE(g.ends_on, g.starts_on) IS NULL OR COALESCE(g.ends_on, g.starts_on) >= $1::date)
      ORDER BY g.starts_on NULLS FIRST, g.name`,

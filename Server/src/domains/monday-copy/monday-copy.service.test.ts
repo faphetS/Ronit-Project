@@ -7,7 +7,7 @@ vi.mock("../../config/logger.js", () => ({
 import { createTestDb, TEST_DB_TIMEOUT_MS, type TestDb } from "../../db/test-db.js";
 import { MondayRateLimitError } from "../monday/monday.client.js";
 import { copyFromMonday, copyIfStale, latestRun, nextScheduledCopy, startManualCopy, type CopyDeps } from "./monday-copy.service.js";
-import { ARCHIVE, CRM, FLIGHT, fakeAccount, fakeMonday, type FakeMonday } from "./monday-copy.fake.js";
+import { ARCHIVE, CHALLAH, CRM, FLIGHT, fakeAccount, fakeMonday, type FakeMonday } from "./monday-copy.fake.js";
 
 // ---- The tests ----
 
@@ -87,8 +87,8 @@ describe("copyFromMonday", () => {
       duplicatesMerged: 1,
       notes: 2,
     });
-    // list, structure, rows (CRM 2 pages, archive, flight, challah), notes (CRM, archive)
-    expect(monday.calls).toEqual(["list", "structure", "rows", "rows", "rows", "rows", "rows", "notes", "notes"]);
+    // list, structure, rows (CRM 2 pages, archive, flight, challah), then every row's notes (CRM, archive): the first copy reads them all
+    expect(monday.calls).toEqual(["list", "structure", "rows", "rows", "rows", "rows", "rows", "row-notes", "row-notes"]);
     expect(run.apiCalls).toBe(9);
   });
 
@@ -116,6 +116,50 @@ describe("copyFromMonday", () => {
     // The archive was read 2 hours ago: skipped. The CRM's 2 rows fit one page. The notes stop at the ones already copied.
     expect(monday.calls.slice(9)).toEqual(["list", "structure", "rows", "rows", "rows", "notes"]);
     expect((await db.query("SELECT count(*)::int AS n FROM monday_notes")).rows[0]).toEqual({ n: 3 });
+  });
+
+  it("keeps a row for every seat and booking, and one person only when the phone and the name both match", async () => {
+    // שירה booked a second evening in November; רחל, on the flight, shares שירה's phone.
+    board(CHALLAH).rows.push({ id: "303", name: "שירה כהן", group: "g_nov", created: "2026-09-05T08:00:00Z", updated: "2026-09-05T08:00:00Z", values: { phone_c: "0501112233", date_c: "2026-11-20", type_c: "שיעור תורה", city_c: "אשדוד" } });
+    board(FLIGHT).rows.push({ id: "203", name: "רחל כהן", group: "g_trip", created: "2026-07-03T08:00:00Z", updated: "2026-07-03T08:00:00Z", values: { phone_f: "0501112233", status_f: "נסגר" } });
+    await copyFromMonday(deps(), "schedule");
+    expect((await members()).map((m) => [m.trip, m.first_name, m.event_on])).toEqual([
+      ["הפרשות חלה · נובמבר 2026", "שירה", "2026-11-10"],
+      ["הפרשות חלה · נובמבר 2026", "שירה", "2026-11-20"],
+      ["טיסה טו באב 26", "מרים", null],
+      ["טיסה טו באב 26", "רחל", null],
+      ["טיסה טו באב 26", "שירה", null],
+    ]);
+    expect((await db.query("SELECT first_name, phone FROM customers ORDER BY first_name")).rows).toEqual([
+      { first_name: "מרים", phone: null },
+      { first_name: "רחל", phone: "972501112233" },
+      { first_name: "שירה", phone: "972501112233" },
+    ]);
+  });
+
+  it("keeps a row's customer when Monday renames her, and drops the notes of rows that are gone", async () => {
+    await copyFromMonday(deps(), "schedule");
+    const before = (await db.query<{ id: string }>("SELECT id FROM customers WHERE first_name = 'מרים'")).rows[0].id;
+    const miriam = board(FLIGHT).rows[1];
+    miriam.name = "מרים דוק-לוי";
+    miriam.updated = "2026-11-02T09:30:00Z";
+    board(CRM).rows.splice(0, 1);
+    clock = new Date("2026-11-02T10:00:00Z");
+    await copyFromMonday(deps(), "schedule");
+    expect((await db.query("SELECT id, first_name, last_name FROM customers WHERE id = $1", [before])).rows).toEqual([{ id: before, first_name: "מרים", last_name: "דוק-לוי" }]);
+    // Row 101 left the board: its notes go. The note on row 555 (not on the board) was never kept.
+    expect((await db.query("SELECT count(*)::int AS n FROM monday_notes")).rows[0]).toEqual({ n: 0 });
+  });
+
+  it("reads every row's notes once a day: edits and deletions in Monday come over", async () => {
+    await copyFromMonday(deps(), "schedule");
+    const notes = board(CRM).notes;
+    notes[0].text_body = "שלחתי לה את המסלול המעודכן";
+    notes.splice(1, 1);
+    clock = new Date("2026-11-03T05:00:00Z");
+    await copyFromMonday(deps(), "schedule");
+    expect(monday.calls.slice(9).filter((call) => call.endsWith("notes"))).toEqual(["row-notes", "row-notes"]);
+    expect((await db.query("SELECT id, body FROM monday_notes ORDER BY id")).rows).toEqual([{ id: "n2", body: "שלחתי לה את המסלול המעודכן" }]);
   });
 
   it("keeps a customer who left Monday when the dashboard has a note on her", async () => {
