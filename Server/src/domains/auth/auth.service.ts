@@ -270,7 +270,18 @@ export async function finishGoogleSignIn(
   if (!input.state || !sameText(input.state, step.state)) throw googleFailed("state mismatch");
   if (!input.code) throw googleFailed("no code from Google");
   const identity = await deps.google.exchange({ code: input.code, codeVerifier: step.verifier, nonce: step.nonce });
+  return continueAfterGoogle(deps, identity, { remember: step.remember, returnTo: step.returnTo }, device, now);
+}
 
+/** Whichever way Google answered: is the person registered, and is a code needed? */
+async function continueAfterGoogle(
+  deps: AuthDeps,
+  identity: GoogleIdentity,
+  options: { remember: boolean; returnTo: string },
+  device: DeviceContext,
+  now: Date,
+): Promise<GoogleOutcome> {
+  const { remember, returnTo } = options;
   const user = await registeredUser(deps, identity, now);
   if (isLocked(user, now)) throw tooManyAttempts();
 
@@ -278,12 +289,43 @@ export async function finishGoogleSignIn(
   const twoStep = rows[0]?.two_step_required ?? true;
   const trusted = twoStep && device.deviceToken !== null && (await isTrustedDevice(deps.db, device.deviceToken, user.id, now));
   if (!twoStep || trusted) {
-    return deps.db.transaction((tx) =>
-      startSession(tx, user, { remember: step.remember, trust: twoStep && step.remember, device, returnTo: step.returnTo }, now),
-    );
+    return deps.db.transaction((tx) => startSession(tx, user, { remember, trust: twoStep && remember, device, returnTo }, now));
   }
-  const challengeToken = await sendFirstCode(deps, user, { remember: step.remember, returnTo: step.returnTo }, now);
-  return { step: "code-sent", challengeToken, returnTo: step.returnTo };
+  const challengeToken = await sendFirstCode(deps, user, { remember, returnTo }, now);
+  return { step: "code-sent", challengeToken, returnTo };
+}
+
+const GOOGLE_BUTTON_CONTEXT = "google-button";
+/** How long Google's button stays usable after the sign-in screen asked for its nonce. */
+export const GOOGLE_BUTTON_MINUTES = 30;
+
+/**
+ * Google's own button needs a nonce before it's clicked: Google puts it in the ID token, and
+ * the sealed cookie returned with it proves the token was asked for on this browser, now.
+ */
+export function startGoogleButton(deps: Pick<AuthDeps, "secretKey" | "now">): { nonce: string; googleNonce: string } {
+  const nonce = newToken();
+  const sealed = sealSecret(Buffer.from(JSON.stringify({ nonce, startedAt: deps.now().getTime() })), deps.secretKey, GOOGLE_BUTTON_CONTEXT);
+  return { nonce, googleNonce: sealed };
+}
+
+/** The ID token Google's button handed the dashboard. */
+export async function finishGoogleButton(
+  deps: AuthDeps,
+  input: { googleNonce: string | null; credential: string; remember: boolean; returnTo: string },
+  device: DeviceContext,
+): Promise<GoogleOutcome> {
+  const now = deps.now();
+  if (!input.googleNonce) throw googleFailed("no sign-in in progress on this browser");
+  let step: { nonce: string; startedAt: number };
+  try {
+    step = JSON.parse(openSecret(input.googleNonce, deps.secretKey, GOOGLE_BUTTON_CONTEXT).toString("utf8")) as { nonce: string; startedAt: number };
+  } catch {
+    throw googleFailed("unreadable sign-in step");
+  }
+  if (now.getTime() - step.startedAt > GOOGLE_BUTTON_MINUTES * 60_000) throw googleFailed("the sign-in screen was open too long");
+  const identity = await deps.google.verifyCredential({ credential: input.credential, nonce: step.nonce });
+  return continueAfterGoogle(deps, identity, { remember: input.remember, returnTo: safeReturnTo(input.returnTo) }, device, now);
 }
 
 function newCode(): string {

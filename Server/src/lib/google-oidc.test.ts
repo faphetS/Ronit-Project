@@ -1,3 +1,4 @@
+import { generateKeyPairSync, sign } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { googleSignIn, pkceChallenge, readIdToken } from "./google-oidc.js";
 
@@ -91,5 +92,43 @@ describe("googleSignIn", () => {
     const exchange = () => google.exchange({ code: "c", codeVerifier: "v", nonce: "nonce-1" });
     await expect(exchange()).rejects.toMatchObject({ code: "GOOGLE_FAILED", message: expect.stringContaining("invalid_grant") });
     await expect(exchange()).rejects.toMatchObject({ code: "GOOGLE_FAILED" });
+  });
+});
+
+describe("verifyCredential (Google's button)", () => {
+  // Stands in for Google: its own key pair, published as Google publishes its keys.
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const JWKS = { keys: [{ ...publicKey.export({ format: "jwk" }), kid: "google-1", alg: "RS256", use: "sig" }] };
+
+  function signed(claims: Record<string, unknown>, header: Record<string, unknown> = { alg: "RS256", kid: "google-1" }): string {
+    const part = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+    const body = `${part(header)}.${part(claims)}`;
+    return `${body}.${sign("sha256", Buffer.from(body), privateKey).toString("base64url")}`;
+  }
+
+  function keysFetch() {
+    return vi.fn<typeof globalThis.fetch>().mockImplementation(async () => new Response(JSON.stringify(JWKS), { status: 200, headers: { "Cache-Control": "public, max-age=3600" } }));
+  }
+
+  it("accepts a token Google signed, and keeps the keys for as long as Google allows", async () => {
+    const fetch = keysFetch();
+    const google = googleSignIn(CONFIG, { fetch, now: () => NOW });
+    await expect(google.verifyCredential({ credential: signed(GOOD), nonce: "nonce-1" })).resolves.toEqual({ sub: "1234567890", email: "ronit@gmail.com", name: "רונית ברש" });
+    await google.verifyCredential({ credential: signed(GOOD), nonce: "nonce-1" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls[0][0]).toBe("https://www.googleapis.com/oauth2/v3/certs");
+  });
+
+  it("refuses a changed token, another signature scheme, an unknown key or a replayed nonce", async () => {
+    const google = googleSignIn(CONFIG, { fetch: keysFetch(), now: () => NOW });
+    const check = (credential: string) => google.verifyCredential({ credential, nonce: "nonce-1" });
+
+    const [h, , s] = signed(GOOD).split(".");
+    const tampered = `${h}.${Buffer.from(JSON.stringify({ ...GOOD, email: "attacker@gmail.com" })).toString("base64url")}.${s}`;
+    await expect(check(tampered)).rejects.toMatchObject({ code: "GOOGLE_FAILED", message: expect.stringContaining("signature") });
+    await expect(check(signed(GOOD, { alg: "none", kid: "google-1" }))).rejects.toMatchObject({ message: expect.stringContaining("unexpected token signature") });
+    await expect(check(signed(GOOD, { alg: "RS256", kid: "rotated-away" }))).rejects.toMatchObject({ message: expect.stringContaining("unknown signing key") });
+    await expect(google.verifyCredential({ credential: signed(GOOD), nonce: "another-nonce" })).rejects.toMatchObject({ message: expect.stringContaining("nonce") });
+    await expect(check("not.a-token")).rejects.toMatchObject({ code: "GOOGLE_FAILED" });
   });
 });

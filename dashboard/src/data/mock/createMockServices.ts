@@ -9,6 +9,7 @@ import {
   type LeadFilters,
   type ServiceName,
   type Services,
+  type GoogleCredentialResult,
   type GoogleStart,
   type SignedIn,
 } from "../services";
@@ -134,6 +135,13 @@ export function createMockServices(options: MockOptions = {}): Services {
       },
       startGoogle: ({ returnTo }) =>
         respond("session", (): GoogleStart => {
+          awaitingCode = true;
+          pendingReturnTo = returnTo;
+          return { step: "code-required" };
+        }),
+      googleNonce: () => respond("session", () => "demo-nonce"),
+      googleCredential: (_credential, { returnTo }) =>
+        respond("session", (): GoogleCredentialResult => {
           awaitingCode = true;
           pendingReturnTo = returnTo;
           return { step: "code-required" };

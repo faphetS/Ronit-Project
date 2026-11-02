@@ -60,6 +60,25 @@ describe("createHttpSessionService", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("passes Google's button answer to the server, with where to land", async () => {
+    const { session, fetch } = setup(
+      json(200, { status: "ok", nonce: "n-1" }),
+      json(200, { status: "ok", step: "code-required" }),
+      json(200, { status: "ok", step: "signed-in", session: SESSION, user: USER, returnTo: "/groups" }),
+      json(403, { status: "error", code: "NOT_REGISTERED" }),
+    );
+    await expect(session.googleNonce()).resolves.toBe("n-1");
+    expect(fetch.mock.calls[0][0]).toBe("https://api.example.com/api/auth/google/nonce");
+    await expect(session.googleCredential("id-token", { remember: true, returnTo: "/groups" })).resolves.toEqual({ step: "code-required" });
+    expect(JSON.parse(fetch.mock.calls[1][1]?.body as string)).toEqual({ credential: "id-token", remember: true, returnTo: "/groups" });
+    await expect(session.googleCredential("id-token", { remember: true, returnTo: "/groups" })).resolves.toEqual({
+      step: "signed-in",
+      signedIn: { session: SESSION, user: USER },
+      returnTo: "/groups",
+    });
+    await expect(session.googleCredential("id-token", { remember: false, returnTo: "/" })).rejects.toEqual(new SignInError("not-registered"));
+  });
+
   it("reads the waiting code, and signs in with it", async () => {
     const { session, fetch } = setup(
       json(200, { status: "ok", email: "r***@gmail.com" }),

@@ -73,6 +73,19 @@ export function useStartGoogle() {
   return useMutation({ mutationFn: (options: { remember: boolean; returnTo: string }) => session.startGoogle(options) });
 }
 
+/** The answer from Google's own button. Signing in on a remembered device puts the session straight into the cache. */
+export function useGoogleCredential() {
+  const { session } = useServices();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ credential, remember, returnTo }: { credential: string; remember: boolean; returnTo: string }) =>
+      session.googleCredential(credential, { remember, returnTo }),
+    onSuccess: (result) => {
+      if (result.step === "signed-in") client.setQueryData(queryKeys.session, result.signedIn);
+    },
+  });
+}
+
 /** The code waiting after Google, read fresh each time the code step opens. */
 export function usePendingCode(enabled: boolean) {
   const { session } = useServices();

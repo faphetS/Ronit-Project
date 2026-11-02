@@ -1,6 +1,16 @@
 import express, { type NextFunction, type Request, type Response, type Router } from "express";
 import { validate } from "../../middleware/validate.js";
-import { getCode, getGoogle, getGoogleCallback, getSession, postResendCode, postSignOut, postVerifyCode } from "./auth.controller.js";
+import {
+  getCode,
+  getGoogle,
+  getGoogleCallback,
+  getGoogleNonce,
+  getSession,
+  postGoogleCredential,
+  postResendCode,
+  postSignOut,
+  postVerifyCode,
+} from "./auth.controller.js";
 import {
   authDepsFromEnv,
   requireDashboardOrigin,
@@ -9,7 +19,7 @@ import {
   withAuthDeps,
   type AuthDepsResolver,
 } from "./auth.middleware.js";
-import { VerifyCodeSchema } from "./auth.validator.js";
+import { GoogleCredentialSchema, VerifyCodeSchema } from "./auth.validator.js";
 
 function noStore(_req: Request, res: Response, next: NextFunction): void {
   res.set("Cache-Control", "no-store");
@@ -22,7 +32,10 @@ export function createAuthRouter(resolveDeps: AuthDepsResolver, options: { signI
   const limiter = signInLimiter(options.signInLimit);
 
   router.use(noStore, withAuthDeps(resolveDeps), requireDashboardOrigin);
-  // Browser navigations: to Google and back.
+  // Google's own button: a nonce first, then the ID token it hands back.
+  router.get("/google/nonce", getGoogleNonce);
+  router.post("/google/credential", limiter, validate({ body: GoogleCredentialSchema }), postGoogleCredential);
+  // The fallback, as browser navigations: to Google and back.
   router.get("/google", getGoogle);
   router.get("/google/callback", getGoogleCallback);
   // The emailed code.

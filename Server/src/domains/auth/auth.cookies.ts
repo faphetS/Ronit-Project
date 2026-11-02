@@ -1,5 +1,5 @@
 import type { CookieOptions, Request, Response } from "express";
-import { CODE_MINUTES, GOOGLE_STEP_MINUTES, REMEMBERED_SESSION_DAYS } from "./auth.service.js";
+import { CODE_MINUTES, GOOGLE_BUTTON_MINUTES, GOOGLE_STEP_MINUTES, REMEMBERED_SESSION_DAYS } from "./auth.service.js";
 
 /**
  * The sign-in cookies. HttpOnly (page scripts can't read them), Secure, and the __Host- prefix
@@ -10,6 +10,7 @@ export const SESSION_COOKIE = "__Host-oh_session";
 export const CHALLENGE_COOKIE = "__Host-oh_challenge";
 export const DEVICE_COOKIE = "__Host-oh_device";
 export const GOOGLE_COOKIE = "__Host-oh_google";
+export const GOOGLE_NONCE_COOKIE = "__Host-oh_gnonce";
 
 const DAY_MS = 24 * 3_600_000;
 const DEVICE_DAYS = 365;
@@ -31,6 +32,11 @@ export function setDeviceCookie(res: Response, token: string): void {
 /** Lax, not Strict: it has to come back on Google's redirect, a navigation from another site. */
 export function setGoogleCookie(res: Response, sealedStep: string): void {
   res.cookie(GOOGLE_COOKIE, sealedStep, { ...BASE, sameSite: "lax", maxAge: GOOGLE_STEP_MINUTES * 60_000 });
+}
+
+/** The nonce behind Google's button. Strict: it only ever travels with the dashboard's own requests. */
+export function setGoogleNonceCookie(res: Response, sealedNonce: string): void {
+  res.cookie(GOOGLE_NONCE_COOKIE, sealedNonce, { ...BASE, maxAge: GOOGLE_BUTTON_MINUTES * 60_000 });
 }
 
 export function clearAuthCookie(res: Response, name: string): void {

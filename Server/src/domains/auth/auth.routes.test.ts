@@ -8,7 +8,7 @@ vi.mock("../../config/logger.js", () => ({
 }));
 
 import { createTestDb, TEST_DB_TIMEOUT_MS, type TestDb } from "../../db/test-db.js";
-import { globalErrorHandler } from "../../lib/errors.js";
+import { AppError, globalErrorHandler } from "../../lib/errors.js";
 import type { GoogleIdentity } from "../../lib/google-oidc.js";
 import type { MailMessage } from "../../lib/mailer.js";
 import { createAuthRouter } from "./auth.routes.js";
@@ -28,6 +28,10 @@ const deps = (): AuthDeps => ({
   google: {
     authorizeUrl: ({ state, nonce, codeChallenge }) => `https://accounts.example/auth?state=${state}&nonce=${nonce}&code_challenge=${codeChallenge}`,
     exchange: async () => identity,
+    verifyCredential: async ({ credential }) => {
+      if (credential === "forged") throw new AppError(502, "Google sign-in failed: bad token signature", "GOOGLE_FAILED");
+      return identity;
+    },
   },
   mailer: {
     async send(message) {
@@ -141,6 +145,40 @@ describe("/api/auth", () => {
     expect(jar.has("__Host-oh_device")).toBe(true);
     // The old cookie, replayed, is dead on the server too.
     expect((await request(app).get("/api/auth/session").set("Cookie", beforeSignOut).expect(401)).body.code).toBe("UNAUTHENTICATED");
+  });
+
+  it("takes Google's button through the emailed code", async () => {
+    const app = testApp();
+    const jar = new Jar();
+    const nonce = await request(app).get("/api/auth/google/nonce").expect(200);
+    jar.take(nonce);
+    expect(nonce.body).toEqual({ status: "ok", nonce: expect.stringMatching(/^[\w-]{43}$/) });
+    expect(jar.raw.get("__Host-oh_gnonce")).toMatch(/; Max-Age=1800; .*HttpOnly; Secure; SameSite=Strict$/);
+
+    const answered = await request(app)
+      .post("/api/auth/google/credential")
+      .set("Origin", DASHBOARD)
+      .set("Cookie", jar.header())
+      .send({ credential: "id-token", remember: true, returnTo: "/customers" })
+      .expect(200);
+    jar.take(answered);
+    expect(answered.body).toEqual({ status: "ok", step: "code-required" });
+    expect(jar.has("__Host-oh_gnonce")).toBe(false);
+    expect(jar.has("__Host-oh_challenge")).toBe(true);
+
+    const code = /\d{6}/.exec(mail[0].subject)?.[0];
+    const verified = await request(app).post("/api/auth/verify").set("Origin", DASHBOARD).set("Cookie", jar.header()).send({ code }).expect(200);
+    expect(verified.body).toMatchObject({ step: "signed-in", returnTo: "/customers" });
+  });
+
+  it("answers the button's refusals as JSON", async () => {
+    const app = testApp();
+    const jar = new Jar().take(await request(app).get("/api/auth/google/nonce").expect(200));
+    const post = (body: Record<string, unknown>) => request(app).post("/api/auth/google/credential").set("Origin", DASHBOARD).set("Cookie", jar.header()).send(body);
+    expect((await post({ credential: "forged" }).expect(502)).body.code).toBe("GOOGLE_FAILED");
+    identity = { sub: "stranger", email: "stranger@example.com", name: null };
+    expect((await post({ credential: "id-token" }).expect(403)).body.code).toBe("NOT_REGISTERED");
+    expect((await request(app).post("/api/auth/google/credential").send({ credential: "id-token" }).expect(403)).body.code).toBe("ORIGIN_NOT_ALLOWED");
   });
 
   it("lands straight on the page on a remembered device", async () => {

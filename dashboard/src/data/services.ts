@@ -77,6 +77,9 @@ export type BirthdaySettingsPatch = Partial<Pick<BirthdaySettings, "enabled" | "
 /** Where "Continue with Google" leads: Google itself (through the API), or, on the demo data, straight to the code. */
 export type GoogleStart = { redirectTo: string } | { step: "code-required" };
 
+/** What Google's own button led to: signed in on a remembered device, or the emailed code is next. */
+export type GoogleCredentialResult = { step: "signed-in"; signedIn: SignedIn; returnTo: string } | { step: "code-required" };
+
 /** The code waiting after Google: where it was emailed, partly hidden (r***@gmail.com). */
 export interface PendingCode {
   email: string;
@@ -104,8 +107,12 @@ export class SignInError extends Error {
 
 export interface SessionService {
   current(): Promise<SignedIn | null>;
-  /** Starts "Continue with Google". `returnTo` is the page to land on afterwards. */
+  /** Starts "Continue with Google" by redirect: the fallback when Google's own button can't load. */
   startGoogle(options: { remember: boolean; returnTo: string }): Promise<GoogleStart>;
+  /** For Google's own button: the one-time value Google puts in its answer, checked by the server. */
+  googleNonce(): Promise<string>;
+  /** The answer (an ID token) Google's own button hands over. `returnTo` is the page to land on. */
+  googleCredential(credential: string, options: { remember: boolean; returnTo: string }): Promise<GoogleCredentialResult>;
   /** The emailed code waiting after Google, or null when there's none. */
   pendingCode(): Promise<PendingCode | null>;
   resendCode(): Promise<void>;

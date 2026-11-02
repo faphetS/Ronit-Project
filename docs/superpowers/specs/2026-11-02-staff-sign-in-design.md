@@ -19,7 +19,7 @@ This is step 1 of 2:
 | Question | Choice | Why |
 |---|---|---|
 | Who can get in | Only emails the office registered. No sign-up page | A small team, and passport data |
-| First step | "Continue with Google": OpenID Connect, authorization code with PKCE, run from the server | No passwords to forget, reset, guess or leak. Chosen in chat |
+| First step | Google's own button (Google Identity Services): "Continue as …" with the account's name, and Google's account picker in a pop-up. Its ID token is checked against Google's signing keys. The server-run redirect flow (authorization code with PKCE) is the fallback when the button can't load | No passwords to forget, reset, guess or leak. Google only, and Google's own button, both chosen in chat |
 | Second step | A 6-digit code by email, on a device that isn't remembered | Chosen in chat. Its limits are in section 11 |
 | Sending email | SMTP: Gmail with an app password for now. Resend, from `no-reply@` on Ronit's domain, once its DNS records can be added | Resend can't send to other people until its DNS records are on the domain. Switching providers is only a change of settings |
 | How the browser stays signed in | An `HttpOnly` cookie on the dashboard's own host, with server-side sessions. Vercel passes `/api/auth` on to the server (`dashboard/vercel.json`; the dashboard API joins it in step 2), so the browser only ever talks to the dashboard | Page scripts can't read it, and a session can be ended from the server. It works on any dashboard address |
@@ -30,25 +30,40 @@ This is step 1 of 2:
 ```
 office registers name + email + role ──► invite email: "sign in at app.ronitbarash.site with Google"
 
-"Continue with Google"
+Google's button: "Continue as …"
+  GET  /api/auth/google/nonce        a nonce for the button, sealed into a cookie
+  (Google's pop-up: pick the account) ─► an ID token
+  POST /api/auth/google/credential   the ID token
+     ├─ not registered ──────► 403 NOT_REGISTERED
+     ├─ device remembered ───► signed in
+     └─ otherwise ───────────► code emailed, the code step
+
+Fallback, when the button can't load: "Continue with Google" by redirect
   GET /api/auth/google?remember=1&returnTo=/customers ─► Google (pick the account)
   GET /api/auth/google/callback
      ├─ not registered ──────► /login?error=not-registered
      ├─ device remembered ───► the page (signed in)
      └─ otherwise ───────────► code emailed ─► /login?step=code
-                                  GET  /api/auth/code         where it went (r***@gmail.com)
-                                  POST /api/auth/code/resend  a new code, a minute later
-                                  POST /api/auth/verify       the code ─► signed in
+
+The code
+  GET  /api/auth/code         where it went (r***@gmail.com)
+  POST /api/auth/code/resend  a new code, a minute later
+  POST /api/auth/verify       the code ─► signed in
 
 GET  /api/auth/session   the signed-in user, or 401
 POST /api/auth/sign-out
 ```
 
 **Google**
-- The server sends the browser to Google with a random state, nonce and PKCE challenge. They're sealed into a 10-minute cookie that has to come back with Google's answer, so an answer meant for another browser doesn't fit.
-- The ID token comes straight from Google's token endpoint over TLS. Its issuer, audience, expiry, nonce and verified email are checked.
+- **Google's button.**
+  - Before the button shows, the server hands out a random nonce, sealed into a 30-minute cookie. Google puts the nonce inside the ID token, so a token meant for another browser, or a replayed one, doesn't fit.
+  - The ID token reaches the server through the browser. So its RS256 signature is checked against Google's published keys, which are cached as long as Google allows. Then its issuer, audience, expiry, nonce and verified email are checked.
+  - The button needs the dashboard's address under "Authorized JavaScript origins" on the OAuth client.
+- **The fallback, by redirect.**
+  - The server sends the browser to Google with a random state, nonce and PKCE challenge. They're sealed into a 10-minute cookie that has to come back with Google's answer.
+  - That ID token comes straight from Google's token endpoint over TLS, so its claims are checked the same way.
 - The first sign-in links the Google account (its `sub`) to the registered email. After that only that Google account gets in, even if the person's Google email changes, or someone else later opens a Google account under the same address.
-- "Remember me" and the page to land on travel inside the sealed cookie. The landing page must be a path inside the dashboard.
+- "Remember me" and the page to land on travel inside the sealed cookie (redirect), or with the ID token (button). The landing page must be a path inside the dashboard.
 
 **The code**
 - 6 random digits, emailed to the registered address, with the code in the subject, so the phone's notification shows it.
@@ -76,7 +91,8 @@ All are `HttpOnly; Secure; Path=/`, and the `__Host-` prefix pins them to the da
 
 | Cookie | Holds | SameSite | Lifetime |
 |---|---|---|---|
-| `__Host-oh_google` | the sealed Google step | Lax, so it comes back on Google's redirect | 10 minutes |
+| `__Host-oh_gnonce` | the sealed nonce behind Google's button | Strict | 30 minutes |
+| `__Host-oh_google` | the sealed Google step (redirect fallback) | Lax, so it comes back on Google's redirect | 10 minutes |
 | `__Host-oh_challenge` | the step waiting for the code | Strict | 30 minutes |
 | `__Host-oh_session` | the session | Strict | browser session, or 30 days with "remember me" |
 | `__Host-oh_device` | the device ID | Strict | 1 year |
@@ -128,7 +144,7 @@ docker exec root-crm-1 node dist/scripts/staff-user.js disable --email <email>
 
 ## 7. The dashboard
 
-- **The sign-in card:** "Continue with Google", in Google's button style, and "remember me". The code step shows where the code went, the code field, "send again" and "back". `?error=` from the callback is put in words.
+- **The sign-in card:** Google's own button and "remember me". The button needs `VITE_GOOGLE_CLIENT_ID`. Without it (the demo, tests), or when Google's script can't load, our own button in Google's style is used instead, and it goes by redirect. The code step shows where the code went, the code field, "send again" and "back". `?error=` from the callback is put in words.
 - **`SessionService`:**
   - `startGoogle` returns where to send the browser;
   - `pendingCode`, `resendCode` and `verifyCode` handle the code;
@@ -151,6 +167,7 @@ docker exec root-crm-1 node dist/scripts/staff-user.js disable --email <email>
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `MAIL_FROM` | Server | Gmail for now: `smtp.gmail.com`, `465`, the address, its app password, and `אור הצדיק <the address>`. Resend later: `smtp.resend.com`, `465`, `resend`, the API key |
 | `VITE_API_URL` | Dashboard | empty (calls `/api` on the dashboard's own address) |
 | `VITE_HTTP_SERVICES` | Dashboard | `session` |
+| `VITE_GOOGLE_CLIENT_ID` | Dashboard | the OAuth client's ID (public), for Google's own button |
 
 Sign-in answers 503 `SIGN_IN_UNAVAILABLE` until the server has `DATABASE_URL` and all of the server settings above. Nothing else in the server changes.
 
@@ -160,13 +177,15 @@ Sign-in answers 503 `SIGN_IN_UNAVAILABLE` until the server has `DATABASE_URL` an
 
 1. **Google Cloud,** under a Google account the business keeps:
    - set up the Google Auth Platform: app name "Or HaTzadik", audience External, then **Publish app**;
-   - create a client of type Web application, with the redirect URIs `https://or-hatzadik-dashboard.vercel.app/api/auth/google/callback` and `https://app.ronitbarash.site/api/auth/google/callback`.
+   - create a client of type Web application;
+   - give it the authorized JavaScript origins `https://or-hatzadik-dashboard.vercel.app`, `https://app.ronitbarash.site` and `http://localhost:5180`;
+   - give it the redirect URIs `https://or-hatzadik-dashboard.vercel.app/api/auth/google/callback` and `https://app.ronitbarash.site/api/auth/google/callback`.
 2. **Gmail for the codes:** in the same account, turn on 2-Step Verification and create an app password.
 3. **VPS:**
    - back up `Server/.env`;
    - add the server settings from section 8;
    - `git pull`, then `docker compose up -d --build crm`. Migration 002 applies at startup.
-4. **Vercel:** set `VITE_HTTP_SERVICES=session` for production, then deploy. `dashboard/vercel.json` already passes `/api/auth` to the server.
+4. **Vercel:** set `VITE_HTTP_SERVICES=session` and `VITE_GOOGLE_CLIENT_ID` for production, then deploy. `dashboard/vercel.json` already passes `/api/auth` to the server.
 5. **Ronit's account:** `staff-user.js invite … --role admin --passport-access`. She gets the email and signs in with Google.
 
 **Later, with the domain**
@@ -179,6 +198,7 @@ Sign-in answers 503 `SIGN_IN_UNAVAILABLE` until the server has `DATABASE_URL` an
 - **Unit tests:**
   - the PKCE example from RFC 7636;
   - the ID-token checks (issuer, audience, expiry, nonce, verified email);
+  - the button's signature check, with a test key pair standing in for Google's: tampering, `alg: none` and unknown keys are refused, and keys are cached;
   - the code exchange against a fake `fetch`;
   - the emails (code in the subject, escaping);
   - the AES-GCM box, including tampering.

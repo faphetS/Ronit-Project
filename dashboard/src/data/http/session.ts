@@ -1,14 +1,17 @@
-import { SignInError, type PendingCode, type SessionService, type SignedIn, type SignInErrorCode } from "../services";
+import { SignInError, type GoogleCredentialResult, type PendingCode, type SessionService, type SignedIn, type SignInErrorCode } from "../services";
 import type { Session, StaffUser } from "../types";
 import { ApiError, type ApiClient } from "./client";
 
 /**
- * Sign-in against /api/auth: "Continue with Google" is a browser navigation through the API,
- * then the emailed code. The API keeps the session in an HttpOnly cookie, so no token passes
+ * Sign-in against /api/auth: Google's own button hands over an ID token for the server to check
+ * (or, as a fallback, "Continue with Google" is a browser navigation through the API), then the
+ * emailed code. The API keeps the session in an HttpOnly cookie, so no session token passes
  * through here.
  */
 
 const ERRORS: Record<string, SignInErrorCode> = {
+  NOT_REGISTERED: "not-registered",
+  GOOGLE_FAILED: "google-failed",
   TOO_MANY_ATTEMPTS: "too-many-attempts",
   RATE_LIMITED: "too-many-attempts",
   INVALID_CODE: "invalid-code",
@@ -38,6 +41,19 @@ export function createHttpSessionService(api: ApiClient): SessionService {
     async startGoogle({ remember, returnTo }) {
       const query = new URLSearchParams({ remember: remember ? "1" : "0", returnTo });
       return { redirectTo: api.url(`/api/auth/google?${query}`) };
+    },
+
+    async googleNonce() {
+      return (await api.get<{ nonce: string }>("/api/auth/google/nonce")).nonce;
+    },
+
+    async googleCredential(credential, { remember, returnTo }) {
+      type Body = ({ step: "signed-in"; returnTo: string } & SignedIn) | { step: "code-required" };
+      const body = await api.post<Body>("/api/auth/google/credential", { credential, remember, returnTo }).catch(translate);
+      if (body.step === "signed-in") {
+        return { step: "signed-in", signedIn: { session: body.session, user: body.user }, returnTo: body.returnTo } satisfies GoogleCredentialResult;
+      }
+      return { step: "code-required" };
     },
 
     async pendingCode() {

@@ -17,6 +17,15 @@ export const GoogleCallbackQuerySchema = z.object({
   error: z.string().max(200).optional(),
 });
 
+/** The ID token from Google's button, with the screen's choices. */
+export const GoogleCredentialSchema = z.object({
+  credential: z.string().min(1).max(4096),
+  remember: z.boolean().default(false),
+  returnTo: z.string().max(300).default("/"),
+});
+
+export type GoogleCredentialBody = z.infer<typeof GoogleCredentialSchema>;
+
 export const VerifyCodeSchema = z.object({
   // People type "123 456" when they copy it with a space.
   code: z

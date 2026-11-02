@@ -231,7 +231,7 @@ Status of each integration. When a new decision is made, update this section and
 ### Staff sign-in (the dashboard)
 - **Decision (2026-11-02):**
   - Staff accounts live in `staff_users` and are registered by the office. There's no sign-up and no passwords.
-  - Sign-in is "Continue with Google" (OIDC code flow with PKCE, from the server). Only a registered email gets in, and the first sign-in links that Google account.
+  - Sign-in is Google's own button (Google Identity Services: "Continue as …", Google's pop-up picker), and the server checks the ID token against Google's signing keys. A server-run OIDC code flow with PKCE is the fallback. Only a registered email gets in, and the first sign-in links that Google account.
   - On a device that isn't remembered, a 6-digit code is emailed over SMTP. "Remember me" skips it for 30 days.
   - Sessions are server-side, with an HttpOnly cookie. They end after 30 minutes without requests while the `auto_sign_out` switch is on.
   - The browser never calls this server directly. The dashboard's Vercel host passes `/api/auth/*` on to `api.ronitbarash.site` (`dashboard/vercel.json`); the dashboard API's routes join it in step 2, so the cookies are first-party on the dashboard's host. That's `or-hatzadik-dashboard.vercel.app` for now and `app.ronitbarash.site` once the DNS can be changed.

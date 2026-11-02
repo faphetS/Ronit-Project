@@ -5,26 +5,30 @@ import {
   CHALLENGE_COOKIE,
   DEVICE_COOKIE,
   GOOGLE_COOKIE,
+  GOOGLE_NONCE_COOKIE,
   SESSION_COOKIE,
   clearAuthCookie,
   readCookie,
   setChallengeCookie,
   setDeviceCookie,
   setGoogleCookie,
+  setGoogleNonceCookie,
   setSessionCookie,
 } from "./auth.cookies.js";
 import { authDeps } from "./auth.middleware.js";
 import {
+  finishGoogleButton,
   finishGoogleSignIn,
   pendingCode,
   resendCode,
   signOut,
+  startGoogleButton,
   startGoogleSignIn,
   verifyCode,
   type DeviceContext,
   type SignedInOutcome,
 } from "./auth.service.js";
-import { GoogleCallbackQuerySchema, GoogleStartQuerySchema, type VerifyCodeBody } from "./auth.validator.js";
+import { GoogleCallbackQuerySchema, GoogleStartQuerySchema, type GoogleCredentialBody, type VerifyCodeBody } from "./auth.validator.js";
 
 function deviceOf(req: Pick<Request, "cookies" | "ip" | "get">): DeviceContext {
   return { deviceToken: readCookie(req, DEVICE_COOKIE), ip: req.ip ?? null, userAgent: req.get("user-agent") ?? null };
@@ -77,6 +81,30 @@ export async function getGoogleCallback(req: Request, res: Response): Promise<vo
     if (!known) logger.warn({ err, requestId: req.id }, "Google sign-in failed");
     res.redirect(302, `${dashboard}/login?error=${known ?? "google-failed"}`);
   }
+}
+
+/** Before Google's button is shown: the nonce it carries, and its sealed copy in a cookie. */
+export function getGoogleNonce(_req: Request, res: Response): void {
+  const { nonce, googleNonce } = startGoogleButton(authDeps(res));
+  setGoogleNonceCookie(res, googleNonce);
+  res.json({ status: "ok", nonce });
+}
+
+/** The ID token from Google's button: signed in, or the emailed code is next. */
+export async function postGoogleCredential(req: Request<unknown, unknown, GoogleCredentialBody>, res: Response): Promise<void> {
+  const outcome = await finishGoogleButton(
+    authDeps(res),
+    { googleNonce: readCookie(req, GOOGLE_NONCE_COOKIE), ...req.body },
+    deviceOf(req),
+  );
+  clearAuthCookie(res, GOOGLE_NONCE_COOKIE);
+  if (outcome.step === "signed-in") {
+    setSignedInCookies(res, outcome);
+    res.json({ status: "ok", step: "signed-in", ...outcome.signedIn, returnTo: outcome.returnTo });
+    return;
+  }
+  setChallengeCookie(res, outcome.challengeToken);
+  res.json({ status: "ok", step: "code-required" });
 }
 
 /** Where the waiting code was sent, partly hidden. */

@@ -10,12 +10,14 @@ import type { GoogleIdentity, GoogleSignIn } from "../../lib/google-oidc.js";
 import type { MailMessage, Mailer } from "../../lib/mailer.js";
 import {
   authenticate,
+  finishGoogleButton,
   finishGoogleSignIn,
   maskEmail,
   pendingCode,
   resendCode,
   safeReturnTo,
   signOut,
+  startGoogleButton,
   startGoogleSignIn,
   verifyCode,
   type AuthDeps,
@@ -38,12 +40,23 @@ const mailer: Mailer = {
   },
 };
 
-/** Google as the tests need it: the code "refused" fails, anything else signs in as `identity`. */
+/** The nonces Google's button was checked against, newest last. */
+let buttonNonces: string[];
+
+/**
+ * Google as the tests need it: the code "refused" and the credential "forged" fail; anything
+ * else signs in as `identity`.
+ */
 function fakeGoogle(identity: GoogleIdentity): GoogleSignIn {
   return {
     authorizeUrl: ({ state, nonce, codeChallenge }) => `https://accounts.example/auth?state=${state}&nonce=${nonce}&challenge=${codeChallenge}`,
     async exchange({ code }) {
       if (code === "refused") throw new AppError(502, "Google sign-in failed: invalid_grant", "GOOGLE_FAILED");
+      return identity;
+    },
+    async verifyCredential({ credential, nonce }) {
+      if (credential === "forged") throw new AppError(502, "Google sign-in failed: bad token signature", "GOOGLE_FAILED");
+      buttonNonces.push(nonce);
       return identity;
     },
   };
@@ -82,6 +95,15 @@ async function signedIn(options: { remember?: boolean; device?: string | null } 
   return verifyCode(deps(), { challengeToken: outcome.challengeToken, code: lastCode() }, browser(options.device ?? null));
 }
 
+/** A sealed cookie value with one bit of its ciphertext flipped. */
+function tamper(sealed: string): string {
+  const parts = sealed.split(".");
+  const body = Buffer.from(parts[3], "base64url");
+  body[0] ^= 1;
+  parts[3] = body.toString("base64url");
+  return parts.join(".");
+}
+
 async function auditActions(): Promise<string[]> {
   const { rows } = await db.query<{ action: string }>("SELECT action FROM audit_log ORDER BY at, action");
   return rows.map((row) => row.action);
@@ -98,6 +120,7 @@ beforeEach(async () => {
   clock = new Date("2026-11-02T10:00:00Z");
   mail = [];
   mailFails = false;
+  buttonNonces = [];
 });
 
 describe("Google sign-in", () => {
@@ -140,7 +163,7 @@ describe("Google sign-in", () => {
       finishGoogleSignIn(d, { googleStep: start.googleStep, state, code: "code-1", error: null, ...input }, browser());
     await expect(finish({ state: "forged" })).rejects.toMatchObject({ code: "GOOGLE_FAILED" });
     await expect(finish({ googleStep: null })).rejects.toMatchObject({ code: "GOOGLE_FAILED" });
-    await expect(finish({ googleStep: `${start.googleStep}x` })).rejects.toMatchObject({ code: "GOOGLE_FAILED" });
+    await expect(finish({ googleStep: tamper(start.googleStep) })).rejects.toMatchObject({ code: "GOOGLE_FAILED" });
     await expect(finish({ code: "refused" })).rejects.toMatchObject({ code: "GOOGLE_FAILED" });
     await expect(finish({ error: "access_denied", code: null })).rejects.toMatchObject({ code: "GOOGLE_CANCELLED" });
     tick(10 * 60 + 1);
@@ -167,6 +190,40 @@ describe("Google sign-in", () => {
       expect(safeReturnTo(bad)).toBe("/");
     }
     expect(maskEmail("ronit@gmail.com")).toBe("r***@gmail.com");
+  });
+});
+
+describe("Google's button", () => {
+  it("checks the token against this browser's nonce, then emails the code", async () => {
+    await register();
+    const { nonce, googleNonce } = startGoogleButton(deps());
+    const outcome = await finishGoogleButton(deps(), { googleNonce, credential: "id-token", remember: true, returnTo: "/groups" }, browser());
+    expect(buttonNonces).toEqual([nonce]);
+    expect(outcome).toMatchObject({ step: "code-sent", returnTo: "/groups" });
+    if (outcome.step !== "code-sent") return;
+    const signedIn = await verifyCode(deps(), { challengeToken: outcome.challengeToken, code: lastCode() }, browser());
+    expect(signedIn).toMatchObject({ step: "signed-in", remember: true, returnTo: "/groups" });
+  });
+
+  it("refuses an answer without this browser's nonce, a forged one, or after 30 minutes", async () => {
+    await register();
+    const { googleNonce } = startGoogleButton(deps());
+    const finish = (input: Partial<Parameters<typeof finishGoogleButton>[1]>) =>
+      finishGoogleButton(deps(), { googleNonce, credential: "id-token", remember: false, returnTo: "/", ...input }, browser());
+    await expect(finish({ googleNonce: null })).rejects.toMatchObject({ code: "GOOGLE_FAILED" });
+    await expect(finish({ googleNonce: tamper(googleNonce) })).rejects.toMatchObject({ code: "GOOGLE_FAILED" });
+    await expect(finish({ credential: "forged" })).rejects.toMatchObject({ code: "GOOGLE_FAILED" });
+    tick(30 * 60 + 1);
+    await expect(finish({})).rejects.toMatchObject({ code: "GOOGLE_FAILED" });
+  });
+
+  it("turns away an unregistered account, and lands only inside the dashboard", async () => {
+    const { googleNonce } = startGoogleButton(deps());
+    await expect(finishGoogleButton(deps(), { googleNonce, credential: "id-token", remember: false, returnTo: "/" }, browser())).rejects.toMatchObject({ code: "NOT_REGISTERED" });
+    await register();
+    await db.query("UPDATE security_settings SET two_step_required = false");
+    const outcome = await finishGoogleButton(deps(), { googleNonce, credential: "id-token", remember: false, returnTo: "https://evil.example" }, browser());
+    expect(outcome).toMatchObject({ step: "signed-in", returnTo: "/" });
   });
 });
 
