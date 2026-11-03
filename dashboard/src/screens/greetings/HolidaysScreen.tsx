@@ -2,7 +2,7 @@ import { motion } from "motion/react";
 import { PhoneTopBar } from "../../app/phone/PhoneTopBar";
 import { useShell } from "../../app/useShell";
 import { useCopy, useLocale } from "../../content/locale";
-import { useAudiences, useCampaignHistory, useCurrentCampaign } from "../../data/queries";
+import { useAudiences, useCampaignHistory, useCan, useCreateCampaign, useCurrentCampaign } from "../../data/queries";
 import { cardVariants } from "../../motion/variants";
 import { Button } from "../../ui/Button";
 import { Headline } from "../../ui/Headline";
@@ -10,10 +10,11 @@ import { ScreenFrame } from "../../ui/ScreenFrame";
 import { EmptyState, ErrorState } from "../../ui/states";
 import { Steps } from "../../ui/Steps";
 import { Surface } from "../../ui/Surface";
+import { useToast } from "../../ui/toast-context";
 import { CampaignCards, CampaignSkeletons } from "./CampaignCards";
 import { CampaignHistory } from "./CampaignHistory";
 import { GreetingsSwitch } from "./GreetingsSwitch";
-import { KEEP_LINE, SPAN, hebrewYearLabel, stageSteps } from "./greetings-model";
+import { KEEP_LINE, SPAN, errorCode, hebrewYearLabel, stageSteps } from "./greetings-model";
 import { useScrollToHash } from "./hooks";
 import { LastCampaignCard } from "./LastCampaignCard";
 
@@ -26,10 +27,25 @@ export function HolidaysScreen() {
   const current = useCurrentCampaign();
   const audiences = useAudiences();
   const history = useCampaignHistory();
+  const create = useCreateCampaign();
+  const canChange = useCan("greetings", "full");
+  const toast = useToast();
   // #history and #send land once everything above them has its final height.
   useScrollToHash(!current.isPending && !audiences.isPending && !history.isPending);
 
   const campaign = current.data;
+  // One greeting at a time: a new one opens for the next holiday once the last has gone out.
+  const canCreate = canChange && campaign === null;
+  const startNew = () =>
+    create.mutate(undefined, {
+      onSuccess: (opened) => toast.show({ message: copy.create.done(holidayNames[opened.holiday]) }),
+      onError: (error) => toast.show({ message: errorCode(error) === "no-holiday-ahead" ? copy.create.none : copy.create.failed, tone: "warning" }),
+    });
+  const newButton = (
+    <Button variant="outline" size="sm" icon="plus" disabled={!canCreate || create.isPending} onClick={startNew}>
+      {copy.newGreeting}
+    </Button>
+  );
   const soft = campaign
     ? copy.campaignName(holidayNames[campaign.holiday], hebrewYearLabel(campaign.hebrewYear, locale))
     : campaign === null
@@ -51,10 +67,7 @@ export function HolidaysScreen() {
                 <Steps steps={stageSteps(campaign, copy.stages)} label={copy.stagesLabel} pill />
               </div>
             ) : null}
-            {/* Starting a new greeting is not a service yet. */}
-            <Button variant="outline" size="sm" icon="plus" disabled>
-              {copy.newGreeting}
-            </Button>
+            {newButton}
           </motion.div>
         </div>
       )}
@@ -68,7 +81,7 @@ export function HolidaysScreen() {
         ) : null}
         {campaign === null ? (
           <Surface variant="glass" compact={phone} aria-label={copy.next.label} className={SPAN.full}>
-            <EmptyState message={copy.noCampaign} />
+            <EmptyState message={copy.noCampaign} action={phone && canCreate ? newButton : undefined} />
           </Surface>
         ) : null}
         {campaign ? <CampaignCards key={campaign.id} campaign={campaign} phone={phone} /> : null}

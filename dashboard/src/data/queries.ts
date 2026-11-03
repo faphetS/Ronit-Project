@@ -45,6 +45,7 @@ export const queryKeys = {
   overview: ["overview", "stats"] as const,
   activity: ["overview", "activity"] as const,
   campaign: ["greetings", "current"] as const,
+  whatsapp: ["greetings", "whatsapp"] as const,
   campaignHistory: ["greetings", "history"] as const,
   audiences: ["greetings", "audiences"] as const,
   birthdaySettings: ["birthdays", "settings"] as const,
@@ -256,10 +257,45 @@ export function useActivity() {
 
 // ---- Holiday greetings ----
 
-/** The next greeting that has not gone out, or null. */
+/** While WhatsApp reviews the text, ask again every minute: Meta usually answers within minutes. */
+const REVIEW_POLL_MS = 60_000;
+
+/** The next greeting that has not gone out, or null. Followed every minute while WhatsApp reviews it. */
 export function useCurrentCampaign() {
   const { greetings } = useServices();
-  return useQuery({ queryKey: queryKeys.campaign, queryFn: () => greetings.current() });
+  return useQuery({
+    queryKey: queryKeys.campaign,
+    queryFn: () => greetings.current(),
+    refetchInterval: (query) => (query.state.data?.status === "in-review" ? REVIEW_POLL_MS : false),
+  });
+}
+
+/** Whether WhatsApp is connected, and whether greetings go out. */
+export function useWhatsAppStatus() {
+  const { greetings } = useServices();
+  return useQuery({ queryKey: queryKeys.whatsapp, queryFn: () => greetings.whatsapp() });
+}
+
+/** Starts the next holiday's greeting; the screen opens on it. */
+export function useCreateCampaign() {
+  const { greetings } = useServices();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => greetings.create(),
+    onSuccess: (campaign) => client.setQueryData(queryKeys.campaign, campaign),
+    onSettled: () => greetingQueries(client),
+  });
+}
+
+/** Sends the text to WhatsApp for review. */
+export function useSubmitCampaign() {
+  const { greetings } = useServices();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => greetings.submit(id),
+    onSuccess: (campaign) => client.setQueryData(queryKeys.campaign, campaign),
+    onSettled: () => greetingQueries(client),
+  });
 }
 
 /** Every greeting, newest first, the current one included. */
@@ -346,9 +382,14 @@ export function useSendCampaignTest() {
 
 // ---- Birthdays ----
 
+/** The birthday settings. Followed every minute while WhatsApp reviews a new text. */
 export function useBirthdaySettings() {
   const { birthdays } = useServices();
-  return useQuery({ queryKey: queryKeys.birthdaySettings, queryFn: () => birthdays.settings() });
+  return useQuery({
+    queryKey: queryKeys.birthdaySettings,
+    queryFn: () => birthdays.settings(),
+    refetchInterval: (query) => (query.state.data?.templateReview?.status === "PENDING" ? REVIEW_POLL_MS : false),
+  });
 }
 
 /** Today, the coming week, recent sends and the count for the year. */

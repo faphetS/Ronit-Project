@@ -42,6 +42,7 @@ export const INTAKE_TONE: Record<IntakeResult, StatusTone> = {
 
 export const CAMPAIGN_TONE: Record<CampaignStatus, StatusTone> = {
   draft: "neutral",
+  "in-review": "talking",
   "awaiting-approval": "new",
   scheduled: "registered",
   sending: "talking",

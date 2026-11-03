@@ -16,6 +16,7 @@ export const RONIT: UserAccount = {
   email: "ronit@example.com",
   lastSignInAt: "2026-10-28T06:12:00.000Z",
   twoStep: "active",
+  whatsappPhone: "",
 };
 
 const STATS: OverviewStats = {
@@ -160,6 +161,9 @@ export function createTestServices({ failing = [], signedIn = false }: TestServi
     },
     greetings: {
       current: async () => null,
+      create: () => Promise.reject(new NotFoundError("Campaign", "next")),
+      submit: missing("Campaign"),
+      whatsapp: async () => ({ connected: false, sending: false }),
       history: async () => [],
       audiences: async () => [{ id: "all", kind: "all", name: null, shortName: null, groupIds: [], recipients: 0 }],
       update: missing("Campaign"),
@@ -175,6 +179,8 @@ export function createTestServices({ failing = [], signedIn = false }: TestServi
         shabbatRule: "after-shabbat",
         template: "",
         templateUpdatedAt: "2026-10-01T08:00:00.000Z",
+        approvedTemplate: null,
+        templateReview: null,
       }),
       overview: async () => ({ today: [], upcoming: [], recent: [], sentThisYear: 0 }),
       updateSettings: async (patch) => ({
@@ -185,11 +191,13 @@ export function createTestServices({ failing = [], signedIn = false }: TestServi
         shabbatRule: patch.shabbatRule ?? "after-shabbat",
         template: patch.template ?? "",
         templateUpdatedAt: "2026-10-28T13:30:00.000Z",
+        approvedTemplate: null,
+        templateReview: null,
       }),
     },
     users: {
       list: async () => ({ users: [RONIT], invites: [] }),
-      updateProfile: async ({ name }) => ({ ...RONIT, name }),
+      updateProfile: async ({ name, whatsappPhone }) => ({ ...RONIT, name, whatsappPhone: whatsappPhone ?? RONIT.whatsappPhone }),
       permissions: async () => PERMISSIONS,
       changePermission: async ({ role, area, access }) =>
         PERMISSIONS.map((row) => (row.area === area && !row.fixed.includes(role) ? { ...row, access: { ...row.access, [role]: access } } : row)),

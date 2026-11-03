@@ -260,7 +260,25 @@ export interface CustomerMessage {
 export const CAMPAIGN_STAGES = ["write", "review", "approve", "track"] as const;
 export type CampaignStage = (typeof CAMPAIGN_STAGES)[number];
 
-export type CampaignStatus = "draft" | "awaiting-approval" | "scheduled" | "sending" | "completed";
+/** "in-review": the text is with WhatsApp (Meta reviews every greeting template) before Ronit approves it. */
+export type CampaignStatus = "draft" | "in-review" | "awaiting-approval" | "scheduled" | "sending" | "completed";
+
+/** Meta's verdict on a greeting's text, as Zernio passes it on. Only APPROVED can be sent. */
+export type TemplateStatus = "PENDING" | "APPROVED" | "REJECTED" | "PAUSED" | "DISABLED" | "IN_APPEAL" | "PENDING_DELETION";
+
+export interface TemplateReview {
+  status: TemplateStatus;
+  /** Meta's reason, when it refused the text. */
+  reason: string | null;
+}
+
+/** How the WhatsApp connection (Zernio) stands. */
+export interface WhatsAppStatus {
+  /** Greetings can go for WhatsApp's review, and tests go out. */
+  connected: boolean;
+  /** Approved greetings actually go out to customers. */
+  sending: boolean;
+}
 
 export interface SendRate {
   messages: number;
@@ -325,6 +343,8 @@ export interface HolidayCampaign {
   approvedByUserId: string | null;
   /** The last "send a test to me". */
   lastTest: { at: string; toUserId: string } | null;
+  /** The text's WhatsApp template, once it went for review. */
+  template: TemplateReview | null;
   /** Null until sending starts. */
   stats: CampaignStats | null;
 }
@@ -345,6 +365,10 @@ export interface BirthdaySettings {
   /** The greeting, with tokens from MESSAGE_TOKENS. */
   template: string;
   templateUpdatedAt: string;
+  /** The text WhatsApp approved, which is what goes out. Null until one is approved. */
+  approvedTemplate: string | null;
+  /** A newer text in WhatsApp's review, or refused there. */
+  templateReview: TemplateReview | null;
 }
 
 /** One person's birthday and its greeting. */
@@ -383,6 +407,8 @@ export interface UserAccount extends StaffUser {
   /** Null until the first sign-in. */
   lastSignInAt: string | null;
   twoStep: TwoStepStatus;
+  /** Their own WhatsApp number for test greetings ("050…"), on their own account only; "" when not set. */
+  whatsappPhone: string;
 }
 
 /** Someone invited who has not signed in yet. */
