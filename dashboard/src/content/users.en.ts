@@ -31,6 +31,8 @@ export const usersCopy: Widen<typeof he> = {
     action: "Remove",
     cancelInvite: "Cancel the invite",
     title: (name) => `Remove ${name}?`,
+    inviteTitle: (email) => `Cancel the invite to ${email}?`,
+    inviteBody: "This email won't be able to sign in. You can invite it again any time.",
     body: "They won't be able to sign in any more, and any open sessions end. You can invite them again any time.",
     confirm: "Remove",
     done: "Removed",

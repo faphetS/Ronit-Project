@@ -35,6 +35,9 @@ export const usersCopy = {
     action: "הסרה",
     cancelInvite: "ביטול ההזמנה",
     title: (name: string) => `להסיר את ${name}?`,
+    /** A pending invite: "לבטל את ההזמנה של dana@gmail.com?". */
+    inviteTitle: (email: string) => `לבטל את ההזמנה של ${email}?`,
+    inviteBody: "אי אפשר יהיה להיכנס עם המייל הזה. אפשר להזמין אותו שוב בכל זמן.",
     body: "לא תהיה יותר כניסה למערכת, וכל החיבורים הפתוחים ייסגרו. אפשר להזמין שוב בכל זמן.",
     confirm: "הסרה",
     done: "ההסרה בוצעה",
