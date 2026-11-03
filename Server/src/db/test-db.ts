@@ -6,6 +6,7 @@
 import { PGlite, types } from "@electric-sql/pglite";
 import type { Db, Queryable } from "../config/pg.js";
 import { migrate } from "./migrate.js";
+import { ROLE_PERMISSIONS_SEED } from "./migrations/004_role_permissions.js";
 
 type PgliteLike = Pick<PGlite, "query" | "exec">;
 
@@ -26,7 +27,7 @@ export const TEST_DB_TIMEOUT_MS = 60_000;
 
 export interface TestDb extends Db {
   close(): Promise<void>;
-  /** Empties every CRM table (keeps the birthday_settings and security_settings rows, reset to their defaults). */
+  /** Empties every CRM table (keeps the birthday_settings, security_settings and role_permissions rows, reset to their defaults). */
   reset(): Promise<void>;
 }
 
@@ -41,8 +42,9 @@ export async function createTestDb(): Promise<TestDb> {
       await pglite.exec(`
         TRUNCATE audit_log, messages, campaigns, passport_intakes, group_members, groups,
           passports, customer_notes, customers, staff_sign_in_challenges, staff_devices, staff_sessions,
-          security_settings, monday_copy_runs, staff_users, leads, monday_notes, monday_boards;
+          security_settings, monday_copy_runs, staff_users, leads, monday_notes, monday_boards, role_permissions;
         INSERT INTO security_settings DEFAULT VALUES;
+        ${ROLE_PERMISSIONS_SEED}
         UPDATE birthday_settings SET enabled = false, send_time = '09:00',
           shabbat_rule = 'after-shabbat', template = '';
       `);

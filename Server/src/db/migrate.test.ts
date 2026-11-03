@@ -35,6 +35,7 @@ describe("migrate", () => {
       "monday_notes",
       "passport_intakes",
       "passports",
+      "role_permissions",
       "schema_migrations",
       "security_settings",
       "staff_devices",
