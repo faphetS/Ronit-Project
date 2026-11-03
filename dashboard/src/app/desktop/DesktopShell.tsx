@@ -32,7 +32,7 @@ export function DesktopShell({ sections }: { sections?: readonly ReelSection[] }
                 pageKey={desktopPageKey}
                 sectionOf={railIndexFor}
                 sections={sections}
-                className="no-scrollbar absolute inset-0 overflow-y-auto px-3 pt-2 pb-9"
+                className="no-scrollbar absolute inset-x-0 h-full overflow-y-auto px-3 pt-2 pb-9"
               />
             </main>
           </div>

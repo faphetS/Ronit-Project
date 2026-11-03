@@ -278,6 +278,7 @@ Motion is a first-class requirement: it should feel like macOS.
 - 60fps on desktop, and on a mid-range phone profile (Chrome DevTools with 4× CPU throttling). No task over 50ms during a transition.
 - Never animate `backdrop-filter`, shadows or layout properties.
 - At most three glass layers in view on phones.
+- The desktop reel moves one layer that the browser animates by itself, so work in the page can't make it stutter. Pages leaving or passing by keep their own address and don't redraw for the next one; passing pages draw only the table rows that fit on screen; the pages passed are cleared once the browser is idle after the stop.
 - The customers table pages at 25 rows. Every other list is short enough to show in full.
 
 The canvas prototype already uses the same curves in CSS, so it doubles as the motion reference.
