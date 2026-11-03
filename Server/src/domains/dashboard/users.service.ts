@@ -1,7 +1,7 @@
 import type { Queryable } from "../../config/pg.js";
 import { AppError, NotFoundError, ValidationError } from "../../lib/errors.js";
 import { recordAudit, type AuthDeps, type Role, type SignedInDto } from "../auth/auth.service.js";
-import { disableStaffById, inviteStaff } from "../auth/staff-accounts.service.js";
+import { disableStaffIn, inviteStaff } from "../auth/staff-accounts.service.js";
 import { isValidMsisdn, toMsisdn } from "../whatsapp/whatsapp.gateway.js";
 import { localPhone } from "./dashboard.format.js";
 import { isFixed, permissionTable, type AccessLevel, type PermissionArea, type PermissionRowDto } from "./dashboard.access.js";
@@ -332,6 +332,7 @@ export async function changeAccess(deps: Pick<AuthDeps, "db" | "now">, viewer: S
   const now = deps.now();
   const passportAccess = input.role !== "sales" && input.passportAccess;
   await deps.db.transaction(async (tx) => {
+    await lockAdmins(tx);
     const { rows } = await tx.query<{ role: Role; passport_access: boolean }>(
       "SELECT role, passport_access FROM staff_users WHERE id = $1 AND disabled_at IS NULL FOR UPDATE",
       [userId],
@@ -357,15 +358,27 @@ export async function changeAccess(deps: Pick<AuthDeps, "db" | "now">, viewer: S
   return directory(deps.db, viewer, true);
 }
 
+/**
+ * Locks every open admin account, always in the same order, before the last-admin check: two admins
+ * demoting or removing each other at once then take turns, and the second sees the first's change.
+ */
+async function lockAdmins(tx: Queryable): Promise<void> {
+  await tx.query("SELECT id FROM staff_users WHERE role = 'admin' AND disabled_at IS NULL ORDER BY id FOR UPDATE");
+}
+
 /** Closes someone's account and signs them out everywhere. Not yourself, and never the last admin. */
 export async function removeUser(deps: Pick<AuthDeps, "db" | "now">, viewer: SignedInDto, userId: string): Promise<void> {
   if (userId === viewer.user.id) throw new AppError(400, "You can't remove your own account", "CANNOT_REMOVE_SELF");
-  const { rows } = await deps.db.query<{ role: Role; admins: number }>(
-    `SELECT u.role, (SELECT count(*)::int FROM staff_users WHERE role = 'admin' AND disabled_at IS NULL) AS admins
-     FROM staff_users u WHERE u.id = $1 AND u.disabled_at IS NULL`,
-    [userId],
-  );
-  if (!rows[0]) throw new NotFoundError("Staff user");
-  if (rows[0].role === "admin" && rows[0].admins <= 1) throw new AppError(400, "The last admin can't be removed", "LAST_ADMIN");
-  await disableStaffById(deps, userId, viewer.user.id);
+  const now = deps.now();
+  await deps.db.transaction(async (tx) => {
+    await lockAdmins(tx);
+    const { rows } = await tx.query<{ role: Role; admins: number }>(
+      `SELECT u.role, (SELECT count(*)::int FROM staff_users WHERE role = 'admin' AND disabled_at IS NULL) AS admins
+       FROM staff_users u WHERE u.id = $1 AND u.disabled_at IS NULL FOR UPDATE OF u`,
+      [userId],
+    );
+    if (!rows[0]) throw new NotFoundError("Staff user");
+    if (rows[0].role === "admin" && rows[0].admins <= 1) throw new AppError(400, "The last admin can't be removed", "LAST_ADMIN");
+    await disableStaffIn(tx, userId, viewer.user.id, now);
+  });
 }

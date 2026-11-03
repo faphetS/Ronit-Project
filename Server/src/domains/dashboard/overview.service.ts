@@ -83,16 +83,26 @@ export type ActivityDto = { id: string; at: string } & (
 const ACTIVITY_DAYS = 14;
 const ACTIVITY_SHOWN = 20;
 
-/** New leads, people joining a trip or event, passports and the latest copy, from the last two weeks, newest first. */
-export async function recentActivity(db: Queryable, now: Date): Promise<ActivityDto[]> {
+/** Which areas' lines the person may see: names of leads, of customers on trips, of people sending passports. */
+export interface ActivityAccess {
+  leads: boolean;
+  customers: boolean;
+  passports: boolean;
+}
+
+/**
+ * New leads, people joining a trip or event, passports and the latest copy, from the last two weeks, newest first.
+ * Only the lines of areas the person's role opens: the role table can close any of them.
+ */
+export async function recentActivity(db: Queryable, now: Date, access: ActivityAccess): Promise<ActivityDto[]> {
   const since = new Date(now.getTime() - ACTIVITY_DAYS * 86_400_000);
   const items: ActivityDto[] = [];
 
   const leads = await db.query<{ id: string; created_at: Date; name: string; source: LeadSource; service: Service | null }>(
     `SELECT id, created_at, name, source, service FROM leads
-     WHERE removed_at IS NULL AND NOT archived AND created_at >= $1 AND created_at <= $2
+     WHERE $3 AND removed_at IS NULL AND NOT archived AND created_at >= $1 AND created_at <= $2
      ORDER BY created_at DESC LIMIT ${ACTIVITY_SHOWN}`,
-    [since, now],
+    [since, now, access.leads],
   );
   for (const lead of leads.rows) {
     items.push({ id: `lead-${lead.id}`, at: lead.created_at.toISOString(), kind: "lead", name: lead.name, source: lead.source, service: lead.service });
@@ -101,9 +111,9 @@ export async function recentActivity(db: Queryable, now: Date): Promise<Activity
   const joined = await db.query<{ id: string; added_at: Date; name: string; group_name: string }>(
     `SELECT m.id, m.added_at, c.first_name || ' ' || c.last_name AS name, COALESCE(g.short_name, g.name) AS group_name
      FROM group_members m JOIN customers c ON c.id = m.customer_id JOIN groups g ON g.id = m.group_id
-     WHERE g.removed_at IS NULL AND m.added_at >= $1 AND m.added_at <= $2
+     WHERE $3 AND g.removed_at IS NULL AND m.added_at >= $1 AND m.added_at <= $2
      ORDER BY m.added_at DESC LIMIT ${ACTIVITY_SHOWN}`,
-    [since, now],
+    [since, now, access.customers],
   );
   for (const row of joined.rows) {
     items.push({ id: `joined-${row.id}`, at: row.added_at.toISOString(), kind: "registration", name: row.name.trim(), group: row.group_name });
@@ -112,9 +122,9 @@ export async function recentActivity(db: Queryable, now: Date): Promise<Activity
   const passports = await db.query<{ id: string; received_at: Date; status: string; name: string | null }>(
     `SELECT i.id, i.received_at, i.status, COALESCE(c.first_name || ' ' || c.last_name, i.sender_name) AS name
      FROM passport_intakes i LEFT JOIN customers c ON c.id = i.customer_id
-     WHERE i.received_at >= $1 AND i.received_at <= $2 AND i.status IN ('matched', 'new-card', 'needs-review')
+     WHERE $3 AND i.received_at >= $1 AND i.received_at <= $2 AND i.status IN ('matched', 'new-card', 'needs-review')
      ORDER BY i.received_at DESC LIMIT ${ACTIVITY_SHOWN}`,
-    [since, now],
+    [since, now, access.passports],
   );
   for (const row of passports.rows) {
     items.push({ id: `passport-${row.id}`, at: row.received_at.toISOString(), kind: "passport", name: (row.name ?? "").trim(), result: row.status as IntakeResult });
