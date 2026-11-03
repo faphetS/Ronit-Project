@@ -253,7 +253,7 @@ Motion is a first-class requirement: it should feel like macOS.
 - **Page change:**
   - Pages are wrapped in `AnimatePresence`, keyed by route.
   - The new page fades in and rises 12px on the `surface` spring.
-  - Its cards stagger by 40ms, on first mount only.
+  - Its cards stagger by 40ms, on the visit's first page only. The pages opened after it already have their data, so they rise in with their content in place.
   - The old page fades out in 120ms, without moving.
 - **Phone push:**
   - The new screen enters from the left (`x: -100% → 0`, forward in RTL).
@@ -269,7 +269,7 @@ Motion is a first-class requirement: it should feel like macOS.
 - **Feedback:**
   - Buttons, chips and tabs press to scale 0.96 on the `ui` spring.
   - Link cards lift 3px on hover.
-- **Data:**
+- **Data** (on the visit's first page; later pages show it in place):
   - Weekly bars grow from the baseline, staggered by 30ms.
   - Meters fill from the inline-start side.
   - Hero numbers count up once, the first time they come into view.

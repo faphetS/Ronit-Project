@@ -23,6 +23,7 @@ function sectionQueries({ overview, leads, customers, groups, greetings, birthda
   const groupList = { queryKey: queryKeys.groups, queryFn: () => groups.list() };
   const intakes = { queryKey: queryKeys.intakes, queryFn: () => customers.intakes() };
   const campaign = { queryKey: queryKeys.campaign, queryFn: () => greetings.current() };
+  const whatsapp = { queryKey: queryKeys.whatsapp, queryFn: () => greetings.whatsapp() };
   const birthdayOverview = { queryKey: queryKeys.birthdays, queryFn: () => birthdays.overview() };
   const importRun = { queryKey: queryKeys.importRun, queryFn: () => imports.latest() };
   const firstCustomers = { filter: filterFromParam(null), page: 1, pageSize: PAGE_SIZE };
@@ -38,10 +39,11 @@ function sectionQueries({ overview, leads, customers, groups, greetings, birthda
     groups: [groupList],
     holidays: [
       campaign,
+      whatsapp,
       { queryKey: queryKeys.campaignHistory, queryFn: () => greetings.history() },
       { queryKey: queryKeys.audiences, queryFn: () => greetings.audiences() },
     ],
-    birthdays: [birthdayOverview, { queryKey: queryKeys.birthdaySettings, queryFn: () => birthdays.settings() }],
+    birthdays: [birthdayOverview, { queryKey: queryKeys.birthdaySettings, queryFn: () => birthdays.settings() }, whatsapp],
     settings: [
       { queryKey: queryKeys.users, queryFn: () => users.list() },
       { queryKey: queryKeys.permissions, queryFn: () => users.permissions() },

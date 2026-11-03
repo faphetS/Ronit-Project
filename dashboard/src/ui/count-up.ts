@@ -1,15 +1,18 @@
 import { animate, useMotionValue, useReducedMotion, useTransform, type MotionValue } from "motion/react";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { formatNumber } from "../lib/format";
+import { useEntrance } from "../motion/entrance";
 import { springs } from "../motion/springs";
 
 /**
- * A number as text that counts up from zero once, the first time its element comes into view (spec section 8).
- * Later changes show at once. Without IntersectionObserver (as in tests) or with Reduce Motion it never counts.
+ * A number as text that counts up from zero once, the first time its element comes into view (spec section 8), on the
+ * visit's first page. Later changes, and later pages, show it at once. Without IntersectionObserver (as in tests) or
+ * with Reduce Motion it never counts.
  */
 export function useCountUp(value: number, ref: RefObject<Element | null>): MotionValue<string> {
   const reduceMotion = useReducedMotion();
-  const [startsAtZero] = useState(() => !reduceMotion && typeof IntersectionObserver !== "undefined");
+  const entrance = useEntrance();
+  const [startsAtZero] = useState(() => entrance && !reduceMotion && typeof IntersectionObserver !== "undefined");
   const counted = useRef(!startsAtZero);
   const current = useMotionValue(startsAtZero ? 0 : value);
 
