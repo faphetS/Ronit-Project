@@ -7,7 +7,9 @@ import { queueBirthdayGreetings } from "./birthdays.service.js";
 import { greetingsChannelFromEnv } from "./greetings.channels.js";
 import { completeFinishedCampaigns, queueDueCampaigns } from "./holidays.service.js";
 import { failInterruptedSends } from "./outbox.repository.js";
-import { sendDueMessages, type SenderDeps } from "./outbox.sender.js";
+import { needsTemplates, sendDueMessages, type SenderDeps } from "./outbox.sender.js";
+import { refreshWaitingTemplates } from "./whatsapp-templates.js";
+import { zernioFromEnv } from "./zernio.client.js";
 
 /**
  * One minute's work: queue holiday greetings whose time has come, fail sends a dead run
@@ -24,6 +26,7 @@ export async function runGreetingsTick(deps: SenderDeps): Promise<void> {
 }
 
 export function startGreetingsCrons(db: Db): void {
+  startTemplateChecks(db);
   if (!env.GREETINGS_ENABLED) {
     logger.info("Greetings off (GREETINGS_ENABLED=false)");
     return;
@@ -40,7 +43,7 @@ export function startGreetingsCrons(db: Db): void {
 
   scheduleExclusive("* * * * *", "greetings tick", () => runGreetingsTick(deps));
   scheduleExclusive("5 * * * *", "birthday greetings", async () => {
-    const queued = await queueBirthdayGreetings(db, new Date());
+    const queued = await queueBirthdayGreetings(db, new Date(), { templates: needsTemplates(deps.channel) });
     if (queued > 0) logger.info({ queued }, "Birthday greetings queued");
   });
 
@@ -48,4 +51,20 @@ export function startGreetingsCrons(db: Db): void {
     { channel: deps.channel.name },
     "Greetings crons scheduled (every minute: holiday queue + outbox; hourly at :05: birthdays) Asia/Jerusalem",
   );
+}
+
+/**
+ * Meta's verdicts on greetings in review, every 5 minutes, whenever Zernio is connected: Ronit
+ * prepares and approves greetings before sending is switched on. The webhook usually says first.
+ */
+function startTemplateChecks(db: Db): void {
+  const zernio = zernioFromEnv();
+  if (!zernio) {
+    logger.info("WhatsApp templates off (ZERNIO_API_KEY or ZERNIO_WHATSAPP_ACCOUNT_ID not set)");
+    return;
+  }
+  scheduleExclusive("*/5 * * * *", "WhatsApp templates", async () => {
+    const changed = await refreshWaitingTemplates({ db, zernio, now: () => new Date() });
+    if (changed > 0) logger.info({ changed }, "WhatsApp template verdicts");
+  });
 }

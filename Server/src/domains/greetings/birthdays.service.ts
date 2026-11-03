@@ -1,12 +1,18 @@
 import type { Db } from "../../config/pg.js";
 import { addDays, birthdayIn, birthdaySlot, israelDay, type ShabbatRule } from "../../lib/israel-time.js";
-import { fillMessage } from "./greetings.tokens.js";
+import { fillMessage, type MessageToken } from "./greetings.tokens.js";
+import { templateParams } from "./whatsapp-templates.js";
 
 interface BirthdaySettingsRow {
   enabled: boolean;
   send_time: string;
   shabbat_rule: ShabbatRule;
   template: string;
+  /** The approved WhatsApp template in use: its name, language, placeholders and the text it was made from. */
+  template_name: string | null;
+  template_language: string | null;
+  template_tokens: MessageToken[] | null;
+  template_text: string | null;
 }
 
 interface BirthdayCustomerRow {
@@ -14,6 +20,14 @@ interface BirthdayCustomerRow {
   first_name: string;
   phone: string;
   birth_date: string;
+}
+
+export interface BirthdayQueueOptions {
+  /**
+   * WhatsApp's own API: greetings go out as the approved birthday template, its text and not a
+   * newer one still in review, and none are queued while no template is approved.
+   */
+  templates: boolean;
 }
 
 /**
@@ -25,12 +39,18 @@ interface BirthdayCustomerRow {
  * day has passed (a Friday send missed while the server was down) is skipped rather than
  * sent on Shabbat. Returns how many it queued.
  */
-export async function queueBirthdayGreetings(db: Db, now: Date): Promise<number> {
+export async function queueBirthdayGreetings(db: Db, now: Date, options: BirthdayQueueOptions = { templates: false }): Promise<number> {
   const { rows: settingsRows } = await db.query<BirthdaySettingsRow>(
-    "SELECT enabled, send_time::text AS send_time, shabbat_rule, template FROM birthday_settings",
+    `SELECT b.enabled, b.send_time::text AS send_time, b.shabbat_rule, b.template,
+       t.name AS template_name, t.language AS template_language, t.tokens AS template_tokens, t.source_text AS template_text
+     FROM birthday_settings b LEFT JOIN whatsapp_templates t ON t.name = b.template_name AND t.status = 'APPROVED'`,
   );
   const settings = settingsRows[0];
-  if (!settings?.enabled || !settings.template.trim()) return 0;
+  if (!settings?.enabled) return 0;
+  const template = options.templates ? settings.template_name : null;
+  if (options.templates && !template) return 0;
+  const text = options.templates ? (settings.template_text ?? "") : settings.template;
+  if (!text.trim()) return 0;
 
   const slotSettings = { sendTime: settings.send_time.slice(0, 5), shabbatRule: settings.shabbat_rule };
   const today = israelDay(now);
@@ -53,13 +73,27 @@ export async function queueBirthdayGreetings(db: Db, now: Date): Promise<number>
       const sendAt = slot < now ? now : slot;
 
       const age = year - Number(customer.birth_date.slice(0, 4));
-      const body = fillMessage(settings.template, { firstName: customer.first_name, age });
+      const values = { firstName: customer.first_name, age };
+      const body = fillMessage(text, values);
+      const params = template ? templateParams(settings.template_tokens ?? [], values) : null;
+      const missing = template !== null && params === null;
       const { rows } = await db.query(
-        `INSERT INTO messages (kind, dedup_key, customer_id, to_phone, body, send_at)
-         VALUES ('birthday', $1, $2, $3, $4, $5)
+        `INSERT INTO messages (kind, dedup_key, customer_id, to_phone, body, send_at, template_name, template_language, template_params, status, failure)
+         VALUES ('birthday', $1, $2, $3, $4, $5, $6, $7, $8::text::jsonb, $9, $10)
          ON CONFLICT (dedup_key) DO NOTHING
          RETURNING id`,
-        [`birthday:${customer.id}:${year}`, customer.id, customer.phone, body, sendAt],
+        [
+          `birthday:${customer.id}:${year}`,
+          customer.id,
+          customer.phone,
+          body,
+          sendAt,
+          template,
+          template ? settings.template_language : null,
+          params ? JSON.stringify(params) : null,
+          missing ? "skipped" : "queued",
+          missing ? "missing-value" : null,
+        ],
       );
       queued += rows.length;
     }

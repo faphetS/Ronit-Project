@@ -7,7 +7,11 @@ import { validate } from "../../middleware/validate.js";
 import { hashToken } from "../../lib/tokens.js";
 import { SESSION_COOKIE, readCookie } from "../auth/auth.cookies.js";
 import { authDeps, authDepsFromEnv, requireDashboardOrigin, requireStaff, withAuthDeps, type AuthDepsResolver } from "../auth/auth.middleware.js";
+import { needsTemplates } from "../greetings/outbox.sender.js";
+import { greetingsChannelFromEnv } from "../greetings/greetings.channels.js";
+import { zernioFromEnv, type ZernioClient } from "../greetings/zernio.client.js";
 import { copyDepsFromEnv } from "../monday-copy/monday-copy.cron.js";
+import { isAllowed } from "../whatsapp/uman-welcome.service.js";
 import { startManualCopy, type CopyDeps } from "../monday-copy/monday-copy.service.js";
 import {
   addCustomerNote,
@@ -25,6 +29,7 @@ import { idParam, sendData } from "./dashboard.format.js";
 import {
   AccessSchema,
   BirthdaySettingsSchema,
+  CampaignPatchSchema,
   CustomerListQuerySchema,
   InviteSchema,
   LeadListQuerySchema,
@@ -34,7 +39,21 @@ import {
   ProfileSchema,
   SecuritySchema,
 } from "./dashboard.validator.js";
-import { audiences, birthdaySettings, birthdaysOverview, campaignHistory, currentCampaign, updateBirthdaySettings } from "./greetings.service.js";
+import {
+  approveCampaign,
+  audiences,
+  birthdaySettings,
+  birthdaysOverview,
+  campaignHistory,
+  createCampaign,
+  currentCampaign,
+  sendCampaignTest,
+  submitCampaign,
+  updateBirthdaySettings,
+  updateCampaign,
+  type GreetingsDeps,
+  type WhatsAppStatusDto,
+} from "./greetings.service.js";
 import { getGroup, groupParticipants, listGroups } from "./groups.service.js";
 import { mondayCopyStatus } from "./imports.service.js";
 import { getLead, leadCounts, listLeads } from "./leads.service.js";
@@ -82,7 +101,16 @@ export interface DashboardOptions {
   copy?: { enabled: boolean; deps: (db: Db) => CopyDeps };
   /** Requests per minute per session. */
   requestsPerMinute?: number;
+  /** WhatsApp for greetings: Zernio (null while it isn't connected), and whether greetings go out. Tests pass a fake. */
+  whatsapp?: { zernio: () => ZernioClient | null; sending: () => boolean; isAllowed: (msisdn: string) => boolean; language: string };
 }
+
+const whatsappFromEnv: NonNullable<DashboardOptions["whatsapp"]> = {
+  zernio: zernioFromEnv,
+  sending: () => env.GREETINGS_ENABLED && env.GREETINGS_CHANNEL === "zernio" && needsTemplates(greetingsChannelFromEnv()),
+  isAllowed,
+  language: env.ZERNIO_TEMPLATE_LANGUAGE,
+};
 
 /**
  * /api/dashboard: everything the dashboard's screens read and change, for signed-in staff, by
@@ -90,6 +118,7 @@ export interface DashboardOptions {
  */
 export function createDashboardRouter(resolveDeps: AuthDepsResolver, options: DashboardOptions = {}): Router {
   const copy = options.copy ?? { enabled: env.MONDAY_COPY_ENABLED, deps: copyDepsFromEnv };
+  const whatsapp = options.whatsapp ?? whatsappFromEnv;
   const router = express.Router();
   router.use(
     noStore,
@@ -103,6 +132,13 @@ export function createDashboardRouter(resolveDeps: AuthDepsResolver, options: Da
   const db = (res: Response) => authDeps(res).db;
   const now = (res: Response) => authDeps(res).now();
   const viewer = (req: Request): Viewer => ({ userId: staffOf(req).user.id, passports: can(req, "passports", "view") });
+  const greetings = (res: Response): GreetingsDeps => ({
+    db: db(res),
+    zernio: whatsapp.zernio(),
+    language: whatsapp.language,
+    isAllowed: whatsapp.isAllowed,
+    now: () => now(res),
+  });
 
   // ---- Leads (read-only: edited in Monday until the switch-over) ----
   router.get("/leads", requireAccess("leads", "view"), async (req, res) => {
@@ -170,11 +206,31 @@ export function createDashboardRouter(resolveDeps: AuthDepsResolver, options: Da
   router.get("/greetings/audiences", requireAccess("greetings", "view"), async (_req, res) => {
     sendData(res, await audiences(db(res), now(res)));
   });
+  router.get("/greetings/whatsapp", requireAccess("greetings", "view"), (_req, res) => {
+    const status: WhatsAppStatusDto = { connected: whatsapp.zernio() !== null, sending: whatsapp.sending() };
+    sendData(res, status);
+  });
+  // A greeting for the next holiday, then its text and audience, WhatsApp's review, Ronit's approval and a test.
+  router.post("/greetings", requireAccess("greetings", "full"), async (req, res) => {
+    sendData(res, await createCampaign(greetings(res), staffOf(req)), 201);
+  });
+  router.post("/greetings/:id", requireAccess("greetings", "full"), validate({ body: CampaignPatchSchema }), async (req, res) => {
+    sendData(res, await updateCampaign(greetings(res), staffOf(req), idParam(req.params.id, "Campaign"), req.body));
+  });
+  router.post("/greetings/:id/submit", requireAccess("greetings", "full"), async (req, res) => {
+    sendData(res, await submitCampaign(greetings(res), staffOf(req), idParam(req.params.id, "Campaign")));
+  });
+  router.post("/greetings/:id/approve", requireAccess("greetings", "full"), async (req, res) => {
+    sendData(res, await approveCampaign(greetings(res), staffOf(req), idParam(req.params.id, "Campaign")));
+  });
+  router.post("/greetings/:id/test", requireAccess("greetings", "full"), async (req, res) => {
+    sendData(res, await sendCampaignTest(greetings(res), staffOf(req), idParam(req.params.id, "Campaign")));
+  });
   router.get("/birthdays/settings", requireAccess("greetings", "view"), async (_req, res) => {
     sendData(res, await birthdaySettings(db(res)));
   });
   router.post("/birthdays/settings", requireAccess("greetings", "full"), validate({ body: BirthdaySettingsSchema }), async (req, res) => {
-    sendData(res, await updateBirthdaySettings(db(res), req.body, now(res)));
+    sendData(res, await updateBirthdaySettings(greetings(res), staffOf(req), req.body));
   });
   router.get("/birthdays/overview", requireAccess("greetings", "view"), async (_req, res) => {
     sendData(res, await birthdaysOverview(db(res), now(res)));

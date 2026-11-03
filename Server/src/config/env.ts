@@ -422,12 +422,26 @@ const envSchema = z.object({
   // Birthday + holiday greetings: queueing and sending. Off by default.
   GREETINGS_ENABLED: z.string().default("false").transform((v) => v === "true"),
   // How greetings leave. "dry-run" sends nothing (messages are logged and marked skipped,
-  // so use it on test data only); "gateway" sends text through ronit-send, and only to
-  // numbers RONIT_WA_ALLOWED_NUMBERS opens, like the Uman flows.
-  GREETINGS_CHANNEL: z.enum(["dry-run", "gateway"]).default("dry-run"),
+  // so use it on test data only); "gateway" sends text through ronit-send; "zernio" sends
+  // Meta-approved templates through Zernio (needs the ZERNIO_* settings below). Real sends
+  // only reach numbers RONIT_WA_ALLOWED_NUMBERS opens, like the Uman flows.
+  GREETINGS_CHANNEL: z.enum(["dry-run", "gateway", "zernio"]).default("dry-run"),
   // Sends per minute at most, and the pause between them (anti-ban pacing).
   GREETINGS_MAX_PER_RUN: z.coerce.number().int().min(1).default(10),
   GREETINGS_PACING_MS: z.coerce.number().int().min(0).default(3000),
+
+  // --- Zernio (zernio.com): WhatsApp's own API, for holiday and birthday greetings ---
+  // The API key (Zernio dashboard → API keys) and the id of the connected WhatsApp account
+  // (GET /v1/accounts). With both set, greetings can go to WhatsApp for review and test sends
+  // work; the greetings themselves go out only with GREETINGS_ENABLED and GREETINGS_CHANNEL=zernio.
+  ZERNIO_API_KEY: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
+  ZERNIO_WHATSAPP_ACCOUNT_ID: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
+  // The secret the webhook was registered with (POST /v1/webhooks/settings), for
+  // /api/zernio/webhook: Meta's verdicts on templates, and delivered / read / failed receipts.
+  ZERNIO_WEBHOOK_SECRET: z.preprocess((v) => (v === "" ? undefined : v), z.string().optional()),
+  // The templates' language as Meta knows it.
+  ZERNIO_TEMPLATE_LANGUAGE: z.string().default("he"),
+  ZERNIO_API_URL: z.string().url().default("https://zernio.com/api/v1"),
 
   // --- The dashboard's copy of Monday (leads, trips, customers) ---
   // Copies Monday into the CRM database every 2 hours from 07:00 to 23:00 Israel time, and

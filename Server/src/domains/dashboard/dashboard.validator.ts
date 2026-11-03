@@ -36,7 +36,11 @@ export const BirthdaySettingsSchema = z
   })
   .strict();
 
-export const ProfileSchema = z.object({ name: z.string().trim().min(1).max(80) }).strict();
+export const ProfileSchema = z.object({ name: z.string().trim().min(1).max(80), whatsappPhone: z.string().max(20).optional() }).strict();
+
+export const CampaignPatchSchema = z
+  .object({ message: z.string().max(4096).optional(), audienceId: z.union([z.literal("all"), z.string().uuid()]).optional() })
+  .strict();
 
 export const SecuritySchema = z.object({ setting: z.enum(SECURITY_SWITCHES), enabled: z.boolean() });
 

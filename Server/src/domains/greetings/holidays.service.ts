@@ -1,5 +1,6 @@
 import type { Db, Queryable } from "../../config/pg.js";
-import { fillMessage } from "./greetings.tokens.js";
+import { fillMessage, type MessageToken } from "./greetings.tokens.js";
+import { templateParams } from "./whatsapp-templates.js";
 
 interface CampaignRow {
   id: string;
@@ -8,6 +9,10 @@ interface CampaignRow {
   audience_group_ids: string[];
   rate_messages: number;
   rate_every_minutes: number;
+  /** The approved WhatsApp template it goes out as; null on a text channel. */
+  template_name: string | null;
+  template_language: string | null;
+  template_tokens: MessageToken[] | null;
 }
 
 interface RecipientRow {
@@ -35,8 +40,10 @@ export async function queueDueCampaigns(db: Db, now: Date): Promise<number> {
 async function queueCampaign(tx: Queryable, campaignId: string, now: Date): Promise<number> {
   // Re-read under a row lock: another run may have queued it in the meantime.
   const { rows: campaigns } = await tx.query<CampaignRow>(
-    `SELECT id, message, audience_kind, audience_group_ids, rate_messages, rate_every_minutes
-     FROM campaigns WHERE id = $1 AND status = 'scheduled' FOR UPDATE`,
+    `SELECT c.id, c.message, c.audience_kind, c.audience_group_ids, c.rate_messages, c.rate_every_minutes,
+       t.name AS template_name, t.language AS template_language, t.tokens AS template_tokens
+     FROM campaigns c LEFT JOIN whatsapp_templates t ON t.name = c.template_name
+     WHERE c.id = $1 AND c.status = 'scheduled' FOR UPDATE OF c`,
     [campaignId],
   );
   const campaign = campaigns[0];
@@ -61,13 +68,29 @@ async function queueCampaign(tx: Queryable, campaignId: string, now: Date): Prom
   for (const [index, recipient] of recipients.entries()) {
     const batch = Math.floor(index / campaign.rate_messages);
     const sendAt = new Date(now.getTime() + batch * campaign.rate_every_minutes * 60_000);
-    const body = fillMessage(campaign.message, { firstName: recipient.first_name, groupName: recipient.group_name ?? "" });
+    const values = { firstName: recipient.first_name, groupName: recipient.group_name ?? "" };
+    const body = fillMessage(campaign.message, values);
+    // A template needs every value: someone without one (no first name) is skipped, not sent a gap.
+    const params = campaign.template_name ? templateParams(campaign.template_tokens ?? [], values) : null;
+    const missing = campaign.template_name !== null && params === null;
     const { rows } = await tx.query(
-      `INSERT INTO messages (kind, dedup_key, customer_id, campaign_id, to_phone, body, send_at)
-       VALUES ('holiday', $1, $2, $3, $4, $5, $6)
+      `INSERT INTO messages (kind, dedup_key, customer_id, campaign_id, to_phone, body, send_at, template_name, template_language, template_params, status, failure)
+       VALUES ('holiday', $1, $2, $3, $4, $5, $6, $7, $8, $9::text::jsonb, $10, $11)
        ON CONFLICT (dedup_key) DO NOTHING
        RETURNING id`,
-      [`holiday:${campaign.id}:${recipient.id}`, recipient.id, campaign.id, recipient.phone, body, sendAt],
+      [
+        `holiday:${campaign.id}:${recipient.id}`,
+        recipient.id,
+        campaign.id,
+        recipient.phone,
+        body,
+        sendAt,
+        campaign.template_name,
+        campaign.template_language,
+        params ? JSON.stringify(params) : null,
+        missing ? "skipped" : "queued",
+        missing ? "missing-value" : null,
+      ],
     );
     queued += rows.length;
   }
