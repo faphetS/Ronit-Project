@@ -20,15 +20,17 @@ import {
   revealPassport,
   type Viewer,
 } from "./customers.service.js";
-import { can, requireAccess, staffOf } from "./dashboard.access.js";
+import { can, loadAccess, requireAccess, staffOf } from "./dashboard.access.js";
 import { idParam, sendData } from "./dashboard.format.js";
 import {
+  AccessSchema,
   BirthdaySettingsSchema,
   CustomerListQuerySchema,
   InviteSchema,
   LeadListQuerySchema,
   NoteSchema,
   PassportViewSchema,
+  PermissionChangeSchema,
   ProfileSchema,
   SecuritySchema,
 } from "./dashboard.validator.js";
@@ -37,7 +39,18 @@ import { getGroup, groupParticipants, listGroups } from "./groups.service.js";
 import { mondayCopyStatus } from "./imports.service.js";
 import { getLead, leadCounts, listLeads } from "./leads.service.js";
 import { overviewStats, recentActivity } from "./overview.service.js";
-import { auditLog, directory, invite, permissions, removeUser, securitySettings, updateProfile, updateSecurity } from "./users.service.js";
+import {
+  auditLog,
+  changeAccess,
+  changePermission,
+  directory,
+  invite,
+  permissions,
+  removeUser,
+  securitySettings,
+  updateProfile,
+  updateSecurity,
+} from "./users.service.js";
 
 function noStore(_req: Request, res: Response, next: NextFunction): void {
   res.set("Cache-Control", "no-store");
@@ -47,6 +60,10 @@ function noStore(_req: Request, res: Response, next: NextFunction): void {
 /**
  * Requests per minute for one signed-in session (a screen makes 8 to 15). Keyed by the session, not
  * the address: everyone reaches the server through Vercel's. Without a session, by address.
+ *
+ * Not also per address: staff share Vercel's few addresses, so a flood of signed-out requests sent
+ * through the dashboard's own address would fill them and lock every staff member out. Requests
+ * without a session are already counted per address here, apart from staff.
  */
 export const DASHBOARD_REQUESTS_PER_MINUTE = 600;
 
@@ -78,14 +95,18 @@ export interface DashboardOptions {
 export function createDashboardRouter(resolveDeps: AuthDepsResolver, options: DashboardOptions = {}): Router {
   const copy = options.copy ?? { enabled: env.MONDAY_COPY_ENABLED, deps: copyDepsFromEnv };
   const router = express.Router();
-  router.use(noStore, dashboardLimiter(options.requestsPerMinute ?? DASHBOARD_REQUESTS_PER_MINUTE), withAuthDeps(resolveDeps), requireDashboardOrigin, requireStaff);
+  router.use(
+    noStore,
+    dashboardLimiter(options.requestsPerMinute ?? DASHBOARD_REQUESTS_PER_MINUTE),
+    withAuthDeps(resolveDeps),
+    requireDashboardOrigin,
+    requireStaff,
+    loadAccess,
+  );
 
   const db = (res: Response) => authDeps(res).db;
   const now = (res: Response) => authDeps(res).now();
-  const viewer = (req: Request): Viewer => {
-    const staff = staffOf(req);
-    return { userId: staff.user.id, passports: can(staff, "passports", "view") };
-  };
+  const viewer = (req: Request): Viewer => ({ userId: staffOf(req).user.id, passports: can(req, "passports", "view") });
 
   // ---- Leads (read-only: edited in Monday until the switch-over) ----
   router.get("/leads", requireAccess("leads", "view"), async (req, res) => {
@@ -139,8 +160,9 @@ export function createDashboardRouter(resolveDeps: AuthDepsResolver, options: Da
   router.get("/overview/stats", async (_req, res) => {
     sendData(res, await overviewStats(db(res), now(res)));
   });
-  router.get("/overview/activity", async (_req, res) => {
-    sendData(res, await recentActivity(db(res), now(res)));
+  router.get("/overview/activity", async (req, res) => {
+    const access = { leads: can(req, "leads", "view"), customers: can(req, "customers", "view"), passports: can(req, "passports", "view") };
+    sendData(res, await recentActivity(db(res), now(res), access));
   });
 
   // ---- Greetings and birthdays ----
@@ -166,13 +188,16 @@ export function createDashboardRouter(resolveDeps: AuthDepsResolver, options: Da
   // ---- Users and access ----
   // Everyone reads the team (for "who did it" lines), the permission table and the switches.
   router.get("/users", async (req, res) => {
-    sendData(res, await directory(db(res), staffOf(req)));
+    sendData(res, await directory(db(res), staffOf(req), can(req, "users", "full")));
   });
   router.post("/users/me", validate({ body: ProfileSchema }), async (req, res) => {
     sendData(res, await updateProfile(db(res), staffOf(req), req.body, now(res)));
   });
-  router.get("/users/permissions", (_req, res) => {
-    sendData(res, permissions());
+  router.get("/users/permissions", async (_req, res) => {
+    sendData(res, await permissions(db(res)));
+  });
+  router.post("/users/permissions", requireAccess("users", "full"), validate({ body: PermissionChangeSchema }), async (req, res) => {
+    sendData(res, await changePermission(db(res), staffOf(req), req.body, now(res)));
   });
   router.get("/users/security", async (_req, res) => {
     sendData(res, await securitySettings(db(res)));
@@ -185,6 +210,9 @@ export function createDashboardRouter(resolveDeps: AuthDepsResolver, options: Da
   });
   router.post("/users/invites", requireAccess("users", "full"), validate({ body: InviteSchema }), async (req, res) => {
     sendData(res, await invite(authDeps(res), staffOf(req), req.body), 201);
+  });
+  router.post("/users/:id/access", requireAccess("users", "full"), validate({ body: AccessSchema }), async (req, res) => {
+    sendData(res, await changeAccess(authDeps(res), staffOf(req), idParam(req.params.id, "Staff user"), req.body));
   });
   router.post("/users/:id/remove", requireAccess("users", "full"), async (req, res) => {
     await removeUser(authDeps(res), staffOf(req), idParam(req.params.id, "Staff user"));

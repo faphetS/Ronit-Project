@@ -43,8 +43,9 @@ export function firstName(name: string): string {
   return name.trim().split(/\s+/)[0];
 }
 
-/** One line per action, naming the customer, greeting, person or setting it touched. */
-export function auditTitle(entry: AuditEntry, copy: UsersCopy["audit"], holidayNames: Copy["holidayNames"]): string {
+/** One line per action, naming the customer, greeting, person, permission or setting it touched. */
+export function auditTitle(entry: AuditEntry, usersCopy: UsersCopy, holidayNames: Copy["holidayNames"]): string {
+  const { audit: copy, roles, permissions } = usersCopy;
   switch (entry.action) {
     case "passport-view":
       return copy.passportView(entry.customerName);
@@ -66,6 +67,10 @@ export function auditTitle(entry: AuditEntry, copy: UsersCopy["audit"], holidayN
       return copy.staffInvited(entry.userName);
     case "staff-removed":
       return copy.staffRemoved(entry.userName);
+    case "staff-access-changed":
+      return copy.staffAccessChanged(entry.userName, roles[entry.role], entry.passportAccess);
+    case "permission-change":
+      return copy.permissionChange(roles[entry.role], permissions.areas[entry.area], permissions.access[entry.access]);
     case "security-change":
       return copy.securityChange(copy.settings[entry.setting], entry.enabled);
     case "monday-copy":

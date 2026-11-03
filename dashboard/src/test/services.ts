@@ -1,5 +1,5 @@
 import { NotFoundError, SignInError, type ServiceName, type Services } from "../data/services";
-import type { Customer, MondayCopy, OverviewStats, PassportIntake, Session, StaffUser, UserAccount } from "../data/types";
+import type { Customer, MondayCopy, OverviewStats, PassportIntake, PermissionMatrix, Session, StaffUser, UserAccount } from "../data/types";
 
 /**
  * For tests only: services that answer at once from a few fixed records, in place of Ronit's API. Sign-in works like
@@ -77,6 +77,16 @@ const COPY: MondayCopy = {
   boards: [],
   totals: { itemsFound: 0, leads: 0, archivedLeads: 0, withoutPhone: 0, customers: 0, groups: 0, duplicatesMerged: 0, notes: 0 },
 };
+
+/** The server's starting role table. */
+const PERMISSIONS: PermissionMatrix = [
+  { area: "leads", access: { admin: "full", office: "full", sales: "full" }, fixed: ["admin"] },
+  { area: "customers", access: { admin: "full", office: "full", sales: "view" }, fixed: ["admin"] },
+  { area: "passports", access: { admin: "full", office: "full", sales: "none" }, fixed: ["admin", "sales"] },
+  { area: "greetings", access: { admin: "full", office: "full", sales: "none" }, fixed: ["admin"] },
+  { area: "import", access: { admin: "full", office: "none", sales: "none" }, fixed: ["admin"] },
+  { area: "users", access: { admin: "full", office: "none", sales: "none" }, fixed: ["admin", "office", "sales"] },
+];
 
 export interface TestServicesOptions {
   /** Services whose every call fails, to show error states. */
@@ -180,7 +190,10 @@ export function createTestServices({ failing = [], signedIn = false }: TestServi
     users: {
       list: async () => ({ users: [RONIT], invites: [] }),
       updateProfile: async ({ name }) => ({ ...RONIT, name }),
-      permissions: async () => [],
+      permissions: async () => PERMISSIONS,
+      changePermission: async ({ role, area, access }) =>
+        PERMISSIONS.map((row) => (row.area === area && !row.fixed.includes(role) ? { ...row, access: { ...row.access, [role]: access } } : row)),
+      changeAccess: async (userId, input) => ({ users: [userId === RONIT.id ? { ...RONIT, passportAccess: input.passportAccess } : RONIT], invites: [] }),
       security: async () => ({ twoStepRequired: true, maskPassportNumbers: true, autoSignOut: true, passportAccessLog: true, autoSignOutMinutes: 30 }),
       updateSecurity: async (key, enabled) => ({
         twoStepRequired: true,

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useCopy, useLocale } from "../../content/locale";
-import { useBirthdays, usePassportIntakes } from "../../data/queries";
+import { useBirthdays, useMaySee, usePassportIntakes } from "../../data/queries";
 import { today } from "../../lib/clock";
 import { cx } from "../../lib/cx";
 import { formatDayMonth, formatWeekday } from "../../lib/format";
@@ -17,20 +17,24 @@ const LAYOUT = {
   phone: { orb: { size: 180, end: 90, top: 38 }, stripBasis: "50%", minHeight: "min-h-[262px]" },
 } as const;
 
-/** The orb card for today: the date, the Hebrew date, today's birthday greetings, and new passports. */
+/** The orb card for today: the date, the Hebrew date, today's birthday greetings, and new passports, each for those who may see them. */
 export function OverviewTodayCard({ phone, className }: { phone: boolean; className?: string }) {
   const { overview: copy } = useCopy();
   const { locale } = useLocale();
   const birthdays = useBirthdays();
   const intakes = usePassportIntakes();
+  const seesBirthdays = useMaySee("greetings");
+  const seesPassports = useMaySee("passports");
   const layout = LAYOUT[phone ? "phone" : "desktop"];
   const day = today();
-  const lines = birthdays.data ? birthdayLines(birthdays.data.today, copy) : null;
+  const lines = seesBirthdays && birthdays.data ? birthdayLines(birthdays.data.today, copy) : null;
   const passportsToday = intakes.data ? intakes.data.filter((intake) => isToday(intake.receivedAt)).length : null;
   const sideText = cx("text-mute", phone ? "text-caption" : "text-small");
 
   let passports: ReactNode;
-  if (passportsToday !== null) {
+  if (!seesPassports) {
+    passports = null;
+  } else if (passportsToday !== null) {
     if (phone) {
       const [first, second] = copy.passportsTodayLines(passportsToday);
       passports = (
@@ -76,7 +80,7 @@ export function OverviewTodayCard({ phone, className }: { phone: boolean; classN
           </p>
           <p className={cx("text-mute-2", phone ? "mt-1.5 text-caption" : "mt-2 text-small")}>{formatHebrewDate(day, locale)}</p>
           <span className="flex-1" />
-          {lines ? (
+          {!seesBirthdays ? null : lines ? (
             <>
               <p className={cx("font-medium text-ink", phone && "text-small")}>{lines.title}</p>
               {lines.detail ? <p className={cx("text-mute-2", phone ? "text-caption" : "text-small")}>{lines.detail}</p> : null}
@@ -91,9 +95,11 @@ export function OverviewTodayCard({ phone, className }: { phone: boolean; classN
       side={
         <>
           {passports}
-          <GooButton to="/greetings/birthdays" size="sm">
-            {copy.birthdaysLink}
-          </GooButton>
+          {seesBirthdays ? (
+            <GooButton to="/greetings/birthdays" size="sm">
+              {copy.birthdaysLink}
+            </GooButton>
+          ) : null}
         </>
       }
     />

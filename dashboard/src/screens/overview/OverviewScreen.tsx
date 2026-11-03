@@ -1,7 +1,7 @@
 import { PhoneTopBar } from "../../app/phone/PhoneTopBar";
 import { useShell } from "../../app/useShell";
 import { useCopy } from "../../content/locale";
-import { useOverview } from "../../data/queries";
+import { useMaySee, useOverview } from "../../data/queries";
 import { Headline } from "../../ui/Headline";
 import { ScreenFrame } from "../../ui/ScreenFrame";
 import { ActivityCard } from "./ActivityCard";
@@ -17,11 +17,16 @@ import { WeekCard } from "./WeekCard";
  * The overview, as on the Main and Mobile-Home boards. Desktop: the greeting with three key numbers over a bento
  * grid (5/4/3, 8/4, 4/8 columns from xl; two columns between lg and xl, packed densely so no card stands alone).
  * Phones: stacked cards with the groups as a sideways carousel; no key numbers, leads table or passports, as designed.
+ * Cards from areas the role table closes to the person are left out.
  */
 export function OverviewScreen() {
   const { overview: copy } = useCopy();
   const phone = useShell() === "phone";
   const stats = useOverview();
+  const greetings = useMaySee("greetings");
+  const customers = useMaySee("customers");
+  const leads = useMaySee("leads");
+  const passports = useMaySee("passports");
 
   if (phone) {
     return (
@@ -30,8 +35,8 @@ export function OverviewScreen() {
         <Headline title={copy.title} soft={copy.softPhone} size="display-2" className="mx-0.5 mt-1.5 mb-1" />
         <OverviewTodayCard phone />
         <WeekCard phone />
-        <GreetingCard phone />
-        <GroupsCarousel />
+        {greetings ? <GreetingCard phone /> : null}
+        {customers ? <GroupsCarousel /> : null}
         <ActivityCard phone />
       </ScreenFrame>
     );
@@ -46,10 +51,10 @@ export function OverviewScreen() {
       <div className="grid grid-cols-12 grid-flow-dense gap-5">
         <WeekCard phone={false} className="col-span-7 xl:col-span-5" />
         <OverviewTodayCard phone={false} className="col-span-5 xl:col-span-4" />
-        <GreetingCard phone={false} className="col-span-5 xl:col-span-3" />
-        <RecentLeadsCard className="col-span-12 xl:col-span-8" />
-        <GroupsCard className="col-span-7 xl:col-span-4" />
-        <PassportsCard className="col-span-5 xl:col-span-4" />
+        {greetings ? <GreetingCard phone={false} className="col-span-5 xl:col-span-3" /> : null}
+        {leads ? <RecentLeadsCard className="col-span-12 xl:col-span-8" /> : null}
+        {customers ? <GroupsCard className="col-span-7 xl:col-span-4" /> : null}
+        {passports ? <PassportsCard className="col-span-5 xl:col-span-4" /> : null}
         <ActivityCard phone={false} className="col-span-7 xl:col-span-8" />
       </div>
     </ScreenFrame>

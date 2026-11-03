@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ACCESS_LEVELS, PERMISSION_AREAS, ROLES } from "./dashboard.access.js";
 import { SECURITY_SWITCHES } from "./users.service.js";
 
 // Query strings are parsed in the handlers: Express 5 makes req.query read-only.
@@ -42,6 +43,10 @@ export const SecuritySchema = z.object({ setting: z.enum(SECURITY_SWITCHES), ena
 export const InviteSchema = z.object({
   email: z.string().trim().email().max(200),
   name: z.string().trim().min(1).max(80),
-  role: z.enum(["admin", "office", "sales"]),
+  role: z.enum(ROLES),
   passportAccess: z.boolean().default(false),
 });
+
+export const AccessSchema = z.object({ role: z.enum(ROLES), passportAccess: z.boolean() }).strict();
+
+export const PermissionChangeSchema = z.object({ role: z.enum(ROLES), area: z.enum(PERMISSION_AREAS), access: z.enum(ACCESS_LEVELS) }).strict();

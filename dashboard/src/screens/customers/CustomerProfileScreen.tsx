@@ -2,7 +2,7 @@ import { useParams } from "react-router";
 import { PhoneTopBar } from "../../app/phone/PhoneTopBar";
 import { useShell } from "../../app/useShell";
 import { useCopy } from "../../content/locale";
-import { useCustomer, useGroups, usePassportIntakes, useSession } from "../../data/queries";
+import { useCan, useCustomer, useGroups, usePassportIntakes } from "../../data/queries";
 import { NotFoundError } from "../../data/services";
 import { Button } from "../../ui/Button";
 import { ScreenFrame } from "../../ui/ScreenFrame";
@@ -22,9 +22,8 @@ export function CustomerProfileScreen() {
   const customer = useCustomer(customerId);
   const groups = useGroups();
   const intakes = usePassportIntakes();
-  const session = useSession();
   const data = customer.data;
-  const canView = session.data?.user.passportAccess ?? false;
+  const canView = useCan("passports", "view");
   // The groups line: their names, "ללא קבוצה", "…" while groups load, or nothing if they failed.
   const groupLabel = !data
     ? ""

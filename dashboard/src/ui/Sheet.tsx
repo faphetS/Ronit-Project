@@ -126,7 +126,7 @@ export function Sheet({ open, onClose, title, description, children, actions, in
               if (info.offset.y > height * DRAG_CLOSE_SHARE || info.velocity.y > DRAG_CLOSE_SPEED) onClose();
             }}
             className={cx(
-              "surface-card relative flex max-h-full w-full flex-col overflow-y-auto",
+              "surface-card relative flex max-h-full w-full flex-col overflow-x-hidden overflow-y-auto",
               phone ? "rounded-card-phone px-5 pt-2 pb-5" : "max-w-[460px] rounded-card p-7",
             )}
           >
@@ -137,14 +137,15 @@ export function Sheet({ open, onClose, title, description, children, actions, in
                 </div>
               ) : null}
               <div className="flex items-start justify-between gap-3">
-                <h2 id={titleId} className="text-[26px] leading-tight font-light text-ink lg:text-display-3">
+                {/* A long email or name breaks onto the next line instead of widening the sheet. */}
+                <h2 id={titleId} className="min-w-0 text-[26px] leading-tight font-light text-ink [overflow-wrap:anywhere] lg:text-display-3">
                   {title}
                 </h2>
                 {hideClose ? null : <IconButton icon="close" label={uiCopy.close} onClick={onClose} tone="paper" size={phone ? "md" : "sm"} />}
               </div>
             </div>
             {description ? (
-              <div id={descriptionId} className="mt-3 text-body text-mute">
+              <div id={descriptionId} className="mt-3 text-body text-mute [overflow-wrap:anywhere]">
                 {description}
               </div>
             ) : null}

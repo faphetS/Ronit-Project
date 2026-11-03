@@ -403,13 +403,19 @@ export interface UserDirectory {
 export type PermissionArea = "leads" | "customers" | "passports" | "greetings" | "import" | "users";
 export type AccessLevel = "full" | "view" | "none";
 
+/** What a role may do in one area. Admins change it on the users screen, except the fixed cells. */
 export interface PermissionRow {
   area: PermissionArea;
   access: Record<Role, AccessLevel>;
+  /** The roles whose cell can't change: admins (always full), sales on passports, and everyone on users. */
+  fixed: Role[];
 }
 
 /** Rows in display order. */
 export type PermissionMatrix = PermissionRow[];
+
+/** The signed-in person's level in each area. */
+export type StaffAccess = Record<PermissionArea, AccessLevel>;
 
 /** The security switches, in display order. */
 export const SECURITY_SWITCHES = ["twoStepRequired", "maskPassportNumbers", "autoSignOut", "passportAccessLog"] as const;
@@ -437,6 +443,10 @@ export type AuditEntry = AuditBase &
     /** A sign-in from a new device; an account locked after wrong codes; a copy from Monday asked for now. */
     | { action: "new-device-sign-in" | "sign-in-locked" | "monday-copy" }
     | { action: "staff-invited" | "staff-removed"; userId: string; userName: string }
+    /** Someone's role or passport access changed: what they have now. */
+    | { action: "staff-access-changed"; userId: string; userName: string; role: Role; passportAccess: boolean }
+    /** A cell of the role table changed: what the role has now in that area. */
+    | { action: "permission-change"; role: Role; area: PermissionArea; access: AccessLevel }
     /** A Google account that isn't registered tried to sign in. */
     | { action: "sign-in-refused"; email: string }
   );

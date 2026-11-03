@@ -1,5 +1,21 @@
 import { daysBetween } from "../lib/clock";
-import type { Audience, Customer, Lead, SendRate } from "./types";
+import type { AccessLevel, Audience, Customer, Lead, PermissionMatrix, SendRate, StaffAccess, StaffUser } from "./types";
+
+/**
+ * The signed-in person's level in each area, as the server enforces it: their role's row in the role table, and
+ * passports only with their own passport access.
+ */
+export function accessFor(matrix: PermissionMatrix, user: Pick<StaffUser, "role" | "passportAccess">): StaffAccess {
+  const access = Object.fromEntries(matrix.map((row) => [row.area, row.access[user.role]])) as StaffAccess;
+  if (!user.passportAccess) access.passports = "none";
+  return access;
+}
+
+const RANK: Record<AccessLevel, number> = { none: 0, view: 1, full: 2 };
+
+export function atLeast(level: AccessLevel, needed: "view" | "full"): boolean {
+  return RANK[level] >= RANK[needed];
+}
 
 /** Passports that expire within this many days (about six months) are flagged. */
 export const EXPIRING_WITHIN_DAYS = 183;

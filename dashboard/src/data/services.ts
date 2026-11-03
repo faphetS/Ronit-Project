@@ -1,4 +1,5 @@
 import type {
+  AccessLevel,
   Activity,
   AudienceOption,
   AuditEntry,
@@ -18,6 +19,7 @@ import type {
   OverviewStats,
   PassportAccessEntry,
   PassportIntake,
+  PermissionArea,
   PermissionMatrix,
   Role,
   SecuritySettings,
@@ -195,13 +197,24 @@ export interface ProfilePatch {
   name: string;
 }
 
-/** Someone to give an account: they sign in with the Google account of this email. */
-export interface InviteInput {
-  email: string;
-  name: string;
+/** A person's role and their own passport access. */
+export interface AccessInput {
   role: Role;
   /** Never for sales. */
   passportAccess: boolean;
+}
+
+/** Someone to give an account: they sign in with the Google account of this email. */
+export interface InviteInput extends AccessInput {
+  email: string;
+  name: string;
+}
+
+/** One cell of the role table: what `role` may now do in `area`. */
+export interface PermissionChange {
+  role: Role;
+  area: PermissionArea;
+  access: AccessLevel;
 }
 
 export interface UsersService {
@@ -209,6 +222,10 @@ export interface UsersService {
   /** Changes the signed-in user's own name. */
   updateProfile(patch: ProfilePatch): Promise<UserAccount>;
   permissions(): Promise<PermissionMatrix>;
+  /** Changes what a role may do in one area; answers with the whole table. */
+  changePermission(change: PermissionChange): Promise<PermissionMatrix>;
+  /** Changes someone's role and passport access, or a pending invite's; answers with the team as it now stands. */
+  changeAccess(userId: string, input: AccessInput): Promise<UserDirectory>;
   security(): Promise<SecuritySettings>;
   updateSecurity(key: SecuritySwitch, enabled: boolean): Promise<SecuritySettings>;
   /** Sensitive actions, newest first. */

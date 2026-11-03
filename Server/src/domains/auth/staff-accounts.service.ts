@@ -99,13 +99,16 @@ export async function disableStaff(deps: AccountDeps, email: string, byUserId: s
 
 export async function disableStaffById(deps: Pick<AccountDeps, "db" | "now">, userId: string, byUserId: string | null = null): Promise<void> {
   const now = deps.now();
-  await deps.db.transaction(async (tx) => {
-    const { rows } = await tx.query("UPDATE staff_users SET disabled_at = $2, updated_at = $2 WHERE id = $1 AND disabled_at IS NULL RETURNING id", [
-      userId,
-      now,
-    ]);
-    if (rows.length === 0) throw new NotFoundError("Staff user");
-    await signOutEverywhere(tx, userId, now);
-    await recordAudit(tx, now, "staff-disabled", byUserId, { userId });
-  });
+  await deps.db.transaction((tx) => disableStaffIn(tx, userId, byUserId, now));
+}
+
+/** disableStaffById inside a transaction the caller holds, for checks that must hold until it commits. */
+export async function disableStaffIn(tx: Queryable, userId: string, byUserId: string | null, now: Date): Promise<void> {
+  const { rows } = await tx.query("UPDATE staff_users SET disabled_at = $2, updated_at = $2 WHERE id = $1 AND disabled_at IS NULL RETURNING id", [
+    userId,
+    now,
+  ]);
+  if (rows.length === 0) throw new NotFoundError("Staff user");
+  await signOutEverywhere(tx, userId, now);
+  await recordAudit(tx, now, "staff-disabled", byUserId, { userId });
 }

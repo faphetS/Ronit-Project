@@ -128,6 +128,12 @@ describe("the request limit", () => {
     expect((await request(limited).get(`${API}/leads/counts`).set("Cookie", ronit.cookie).expect(429)).body.code).toBe("RATE_LIMITED");
     await request(limited).get(`${API}/leads/counts`).set("Cookie", shira.cookie).expect(200);
   });
+
+  it("never lets signed-out requests use up the staff's allowance", async () => {
+    const limited = app({ copy: { enabled: true, deps: copyDeps }, requestsPerMinute: 3 });
+    for (let i = 0; i < 4; i += 1) await request(limited).get(`${API}/leads/counts`);
+    await request(limited).get(`${API}/leads/counts`).set("Cookie", ronit.cookie).expect(200);
+  });
 });
 
 describe("leads", () => {
@@ -237,6 +243,11 @@ describe("overview", () => {
     expect(stats.weeklyLeads.at(-1)).toEqual({ weekStart: "2026-11-01", count: 0 });
     const activity = (await get(moran, "/overview/activity").expect(200)).body.data;
     expect(activity.map((item: { kind: string }) => item.kind)).toEqual(["import", "lead", "lead"]);
+
+    // Closing leads to a role takes the leads' names out of its feed too.
+    await post(ronit, "/users/permissions", { role: "sales", area: "leads", access: "none" }).expect(200);
+    const closed = (await get(moran, "/overview/activity").expect(200)).body.data;
+    expect(closed.map((item: { kind: string }) => item.kind)).toEqual(["import"]);
   });
 });
 
@@ -301,6 +312,69 @@ describe("users and access", () => {
     expect(settings).toMatchObject({ autoSignOut: false, twoStepRequired: true, autoSignOutMinutes: 30 });
     expect((await get(ronit, "/users/audit").expect(200)).body.data[0]).toMatchObject({ action: "security-change", setting: "autoSignOut", enabled: false });
     expect((await get(moran, "/users/permissions").expect(200)).body.data).toHaveLength(6);
+  });
+
+  it("lets admins change someone's role and passport access, from their next request", async () => {
+    await get(shira, "/greetings/current").expect(200);
+    const team = (await post(ronit, `/users/${shira.id}/access`, { role: "sales", passportAccess: true }).expect(200)).body.data;
+    // Sales never get passport access.
+    expect(team.users.find((u: { id: string }) => u.id === shira.id)).toMatchObject({ role: "sales", passportAccess: false });
+    expect((await get(shira, "/greetings/current").expect(403)).body.code).toBe("NO_ACCESS");
+    expect((await get(shira, "/customers/intakes").expect(403)).body.code).toBe("NO_ACCESS");
+
+    // A pending invite too; and only admins change anyone's access.
+    const { rows } = await db.query<{ id: string }>("INSERT INTO staff_users (email, name, role) VALUES ('tal@example.com', 'טל', 'sales') RETURNING id");
+    const invites = (await post(ronit, `/users/${rows[0].id}/access`, { role: "office", passportAccess: true }).expect(200)).body.data.invites;
+    expect(invites).toEqual([expect.objectContaining({ email: "tal@example.com", role: "office", passportAccess: true })]);
+    expect((await post(shira, `/users/${moran.id}/access`, { role: "admin", passportAccess: true }).expect(403)).body.code).toBe("NO_ACCESS");
+
+    // Your own role stays; your own passport access can change.
+    expect((await post(ronit, `/users/${ronit.id}/access`, { role: "office", passportAccess: true }).expect(400)).body.code).toBe("CANNOT_CHANGE_OWN_ROLE");
+    await post(ronit, `/users/${ronit.id}/access`, { role: "admin", passportAccess: false }).expect(200);
+    await get(ronit, "/customers/intakes").expect(403);
+
+    await post(ronit, "/users/00000000-0000-4000-8000-000000000000/access", { role: "office", passportAccess: false }).expect(404);
+    await post(ronit, `/users/${moran.id}/access`, { role: "owner", passportAccess: false }).expect(400);
+    const log = (await get(ronit, "/users/audit").expect(200)).body.data;
+    expect(log.find((entry: { action: string; userName?: string }) => entry.action === "staff-access-changed" && entry.userName === "shira")).toMatchObject({
+      byUserId: ronit.id,
+      role: "sales",
+      passportAccess: false,
+    });
+  });
+
+  it("lets admins change what a role may do, except the fixed cells", async () => {
+    const table = (await get(shira, "/users/permissions").expect(200)).body.data;
+    expect(table.find((row: { area: string }) => row.area === "passports")).toEqual({
+      area: "passports",
+      access: { admin: "full", office: "full", sales: "none" },
+      fixed: ["admin", "sales"],
+    });
+    expect(table.find((row: { area: string }) => row.area === "users").fixed).toEqual(["admin", "office", "sales"]);
+
+    const changed = (await post(ronit, "/users/permissions", { role: "office", area: "greetings", access: "none" }).expect(200)).body.data;
+    expect(changed.find((row: { area: string }) => row.area === "greetings").access).toEqual({ admin: "full", office: "none", sales: "none" });
+    expect((await get(shira, "/greetings/current").expect(403)).body.code).toBe("NO_ACCESS");
+
+    // A minute later, so the log lists the two changes in order.
+    clock = new Date(clock.getTime() + 60_000);
+    await post(ronit, "/users/permissions", { role: "sales", area: "greetings", access: "view" }).expect(200);
+    await get(moran, "/greetings/current").expect(200);
+    expect((await post(moran, "/birthdays/settings", { sendTime: "10:00" }).expect(403)).body.code).toBe("NO_ACCESS");
+
+    for (const fixed of [
+      { role: "admin", area: "leads", access: "none" },
+      { role: "sales", area: "passports", access: "view" },
+      { role: "office", area: "users", access: "full" },
+    ]) {
+      expect((await post(ronit, "/users/permissions", fixed).expect(400)).body.code).toBe("PERMISSION_FIXED");
+    }
+    expect((await post(shira, "/users/permissions", { role: "sales", area: "leads", access: "none" }).expect(403)).body.code).toBe("NO_ACCESS");
+    const log = (await get(ronit, "/users/audit").expect(200)).body.data;
+    expect(log.slice(0, 2)).toEqual([
+      expect.objectContaining({ action: "permission-change", role: "sales", area: "greetings", access: "view", byUserId: ronit.id }),
+      expect.objectContaining({ action: "permission-change", role: "office", area: "greetings", access: "none" }),
+    ]);
   });
 });
 

@@ -3,13 +3,16 @@ import type { AuditEntry, CopyRun, MondayCopy, PermissionMatrix, SecuritySetting
 import { dashboardApi, segment } from "./api";
 import type { ApiClient } from "./client";
 
-/** The team, invites, the security switches and the log. Admins get emails and invites; everyone gets names. */
+/** The team, invites, the role table, the security switches and the log. Admins get emails and invites; everyone gets names. */
 export function createHttpUsersService(api: ApiClient): UsersService {
   const http = dashboardApi(api);
   return {
     list: () => http.get<UserDirectory>("/users"),
     updateProfile: ({ name }) => http.post<UserAccount>("/users/me", { name }),
     permissions: () => http.get<PermissionMatrix>("/users/permissions"),
+    changePermission: (change) => http.post<PermissionMatrix>("/users/permissions", change),
+    changeAccess: (userId, { role, passportAccess }) =>
+      http.post<UserDirectory>(`/users/${segment(userId)}/access`, { role, passportAccess }, "User", userId),
     security: () => http.get<SecuritySettings>("/users/security"),
     updateSecurity: (setting, enabled) => http.post<SecuritySettings>("/users/security", { setting, enabled }),
     audit: () => http.get<AuditEntry[]>("/users/audit"),

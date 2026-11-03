@@ -1,8 +1,8 @@
 import type { Queryable } from "../../config/pg.js";
 import { AppError, NotFoundError, ValidationError } from "../../lib/errors.js";
 import { recordAudit, type AuthDeps, type Role, type SignedInDto } from "../auth/auth.service.js";
-import { disableStaffById, inviteStaff } from "../auth/staff-accounts.service.js";
-import { PERMISSIONS, can } from "./dashboard.access.js";
+import { disableStaffIn, inviteStaff } from "../auth/staff-accounts.service.js";
+import { isFixed, permissionTable, type AccessLevel, type PermissionArea, type PermissionRowDto } from "./dashboard.access.js";
 
 /** The users screen: the team, invites, the security switches and the log of sensitive actions. */
 
@@ -76,9 +76,8 @@ function toInvite(row: StaffRow): UserInviteDto {
   };
 }
 
-/** Everyone with an open account. Admins also get emails and the pending invites. */
-export async function directory(db: Queryable, viewer: SignedInDto): Promise<UserDirectoryDto> {
-  const admin = can(viewer, "users", "full");
+/** Everyone with an open account. Admins (`admin`: full access to users) also get emails and the pending invites. */
+export async function directory(db: Queryable, viewer: SignedInDto, admin: boolean): Promise<UserDirectoryDto> {
   const { rows } = await db.query<StaffRow>(`${STAFF_SELECT} WHERE u.disabled_at IS NULL ORDER BY u.created_at, u.name`);
   return {
     users: rows.filter((row) => row.linked).map((row) => toAccount(row, admin || row.id === viewer.user.id)),
@@ -100,8 +99,30 @@ export async function updateProfile(db: Queryable, viewer: SignedInDto, patch: {
   return account(db, viewer.user.id, true);
 }
 
-export function permissions() {
-  return PERMISSIONS;
+// ---- The role table ----
+
+export function permissions(db: Queryable): Promise<PermissionRowDto[]> {
+  return permissionTable(db);
+}
+
+export interface PermissionChange {
+  role: Role;
+  area: PermissionArea;
+  access: AccessLevel;
+}
+
+/** Changes what a role may do in one area, and logs it when it actually changed. The fixed cells stay. */
+export async function changePermission(db: Queryable, viewer: SignedInDto, change: PermissionChange, now: Date): Promise<PermissionRowDto[]> {
+  if (isFixed(change.role, change.area)) throw new AppError(400, "This permission can't be changed", "PERMISSION_FIXED");
+  const { rows } = await db.query(
+    `INSERT INTO role_permissions (role, area, access, updated_at, updated_by) VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (role, area) DO UPDATE SET access = EXCLUDED.access, updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by
+     WHERE role_permissions.access IS DISTINCT FROM EXCLUDED.access
+     RETURNING role`,
+    [change.role, change.area, change.access, now, viewer.user.id],
+  );
+  if (rows.length > 0) await recordAudit(db, now, "permission-change", viewer.user.id, { ...change });
+  return permissionTable(db);
 }
 
 // ---- Security switches ----
@@ -168,6 +189,8 @@ export type AuditEntryDto = AuditBase &
     | { action: "security-change"; setting: SecuritySwitch; enabled: boolean }
     | { action: "new-device-sign-in" | "sign-in-locked" | "monday-copy" }
     | { action: "staff-invited" | "staff-removed"; userId: string; userName: string }
+    | { action: "staff-access-changed"; userId: string; userName: string; role: Role; passportAccess: boolean }
+    | { action: "permission-change"; role: Role; area: PermissionArea; access: AccessLevel }
     | { action: "sign-in-refused"; email: string }
   );
 
@@ -183,6 +206,8 @@ const LOGGED = [
   "monday-copy",
   "staff-invited",
   "staff-disabled",
+  "staff-access-changed",
+  "permission-change",
 ];
 
 /** Newest first. */
@@ -230,6 +255,19 @@ export async function auditLog(db: Queryable): Promise<AuditEntryDto[]> {
       case "staff-invited":
       case "staff-disabled":
         return [{ ...base, action: row.action === "staff-invited" ? "staff-invited" : "staff-removed", userId: String(detail("userId") ?? ""), userName: row.target_name ?? "" }];
+      case "staff-access-changed":
+        return [
+          {
+            ...base,
+            action: "staff-access-changed",
+            userId: String(detail("userId") ?? ""),
+            userName: row.target_name ?? "",
+            role: detail("role") as Role,
+            passportAccess: detail("passportAccess") === true,
+          },
+        ];
+      case "permission-change":
+        return [{ ...base, action: "permission-change", role: detail("role") as Role, area: detail("area") as PermissionArea, access: detail("access") as AccessLevel }];
       case "sign-in-refused":
         return [{ ...base, action: "sign-in-refused", email: String(detail("email") ?? "") }];
       default:
@@ -258,15 +296,67 @@ export async function invite(deps: AuthDeps, viewer: SignedInDto, input: InviteI
   return { invite: toInvite(rows[0]), emailed };
 }
 
+export interface AccessInput {
+  role: Role;
+  passportAccess: boolean;
+}
+
+/**
+ * Changes someone's role and passport access, or a pending invite's. It applies from their next
+ * request. Your own role is changed by another admin, the last admin stays an admin, and sales
+ * never get passport access. Answers with the team as it now stands.
+ */
+export async function changeAccess(deps: Pick<AuthDeps, "db" | "now">, viewer: SignedInDto, userId: string, input: AccessInput): Promise<UserDirectoryDto> {
+  const now = deps.now();
+  const passportAccess = input.role !== "sales" && input.passportAccess;
+  await deps.db.transaction(async (tx) => {
+    await lockAdmins(tx);
+    const { rows } = await tx.query<{ role: Role; passport_access: boolean }>(
+      "SELECT role, passport_access FROM staff_users WHERE id = $1 AND disabled_at IS NULL FOR UPDATE",
+      [userId],
+    );
+    const before = rows[0];
+    if (!before) throw new NotFoundError("Staff user");
+    if (before.role === input.role && before.passport_access === passportAccess) return;
+    if (userId === viewer.user.id && before.role !== input.role) {
+      throw new AppError(400, "Another admin changes your own role", "CANNOT_CHANGE_OWN_ROLE");
+    }
+    if (before.role === "admin" && input.role !== "admin") {
+      const { rows: admins } = await tx.query<{ n: number }>("SELECT count(*)::int AS n FROM staff_users WHERE role = 'admin' AND disabled_at IS NULL");
+      if (admins[0].n <= 1) throw new AppError(400, "The last admin stays an admin", "LAST_ADMIN");
+    }
+    await tx.query("UPDATE staff_users SET role = $2, passport_access = $3, updated_at = $4 WHERE id = $1", [userId, input.role, passportAccess, now]);
+    await recordAudit(tx, now, "staff-access-changed", viewer.user.id, {
+      userId,
+      role: input.role,
+      passportAccess,
+      before: { role: before.role, passportAccess: before.passport_access },
+    });
+  });
+  return directory(deps.db, viewer, true);
+}
+
+/**
+ * Locks every open admin account, always in the same order, before the last-admin check: two admins
+ * demoting or removing each other at once then take turns, and the second sees the first's change.
+ */
+async function lockAdmins(tx: Queryable): Promise<void> {
+  await tx.query("SELECT id FROM staff_users WHERE role = 'admin' AND disabled_at IS NULL ORDER BY id FOR UPDATE");
+}
+
 /** Closes someone's account and signs them out everywhere. Not yourself, and never the last admin. */
 export async function removeUser(deps: Pick<AuthDeps, "db" | "now">, viewer: SignedInDto, userId: string): Promise<void> {
   if (userId === viewer.user.id) throw new AppError(400, "You can't remove your own account", "CANNOT_REMOVE_SELF");
-  const { rows } = await deps.db.query<{ role: Role; admins: number }>(
-    `SELECT u.role, (SELECT count(*)::int FROM staff_users WHERE role = 'admin' AND disabled_at IS NULL) AS admins
-     FROM staff_users u WHERE u.id = $1 AND u.disabled_at IS NULL`,
-    [userId],
-  );
-  if (!rows[0]) throw new NotFoundError("Staff user");
-  if (rows[0].role === "admin" && rows[0].admins <= 1) throw new AppError(400, "The last admin can't be removed", "LAST_ADMIN");
-  await disableStaffById(deps, userId, viewer.user.id);
+  const now = deps.now();
+  await deps.db.transaction(async (tx) => {
+    await lockAdmins(tx);
+    const { rows } = await tx.query<{ role: Role; admins: number }>(
+      `SELECT u.role, (SELECT count(*)::int FROM staff_users WHERE role = 'admin' AND disabled_at IS NULL) AS admins
+       FROM staff_users u WHERE u.id = $1 AND u.disabled_at IS NULL FOR UPDATE OF u`,
+      [userId],
+    );
+    if (!rows[0]) throw new NotFoundError("Staff user");
+    if (rows[0].role === "admin" && rows[0].admins <= 1) throw new AppError(400, "The last admin can't be removed", "LAST_ADMIN");
+    await disableStaffIn(tx, userId, viewer.user.id, now);
+  });
 }

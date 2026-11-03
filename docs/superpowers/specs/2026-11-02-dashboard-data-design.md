@@ -118,7 +118,7 @@ Customers keep their existing table. Monday-born rows have `source = 'monday'` (
 
 Mounted at `/api/dashboard`, behind `noStore`, the sign-in dependencies, `requireDashboardOrigin` (state-changing requests come from the dashboard) and `requireStaff`. Writes are `POST`. Answers are `{ status: "ok", data }`; errors keep the server's `{ status: "error", code, message }`.
 
-**Access** is the dashboard's permission table, enforced here:
+**Access** is the dashboard's permission table, enforced here. It started as below; since 2026-11-03 admins change it on the users screen (`role_permissions`, migration 004), except the fixed cells: admins always have full access, sales never see passports, and only admins manage users.
 
 | Area | admin | office | sales |
 |---|---|---|---|
@@ -129,7 +129,7 @@ Mounted at `/api/dashboard`, behind `noStore`, the sign-in dependencies, `requir
 | Import (sync now) | full | none | none |
 | Users (directory details, invites, removing, security, the log) | full | none | none |
 
-Passports also need the user's own passport access. Everyone signed in can read the staff names (for "who did it" lines), the permission table, the latest copy's summary, and change their own name.
+Passports also need the user's own passport access. Everyone signed in can read the staff names (for "who did it" lines), the permission table, the latest copy's summary, and change their own name. Admins change a person's role and passport access, or a pending invite's, from the users table; nobody changes their own role.
 
 **Request limit:** every dashboard request reaches the server through Vercel, so all users share Vercel's address. The server's global `/api` limit (100 a minute per address) skips `/api/dashboard/`; the dashboard router limits 600 requests a minute per session instead.
 
@@ -141,7 +141,7 @@ Passports also need the user's own passport access. Everyone signed in can read 
 - `overview`: `GET /overview/stats`, `GET /overview/activity`
 - `greetings`: `GET /greetings/current`, `GET /greetings/history`, `GET /greetings/audiences`
 - `birthdays`: `GET /birthdays/settings`, `POST /birthdays/settings`, `GET /birthdays/overview`
-- `users`: `GET /users`, `POST /users/me`, `GET /users/permissions`, `GET /users/security`, `POST /users/security`, `GET /users/audit`, `POST /users/invites`, `POST /users/:id/remove`
+- `users`: `GET /users`, `POST /users/me`, `GET /users/permissions`, `POST /users/permissions`, `GET /users/security`, `POST /users/security`, `GET /users/audit`, `POST /users/invites`, `POST /users/:id/access`, `POST /users/:id/remove`
 - `imports`: `GET /imports/latest`, `POST /imports/run`
 
 **Passport numbers** leave the server masked while the "mask passport numbers" switch is on. Revealing one is `POST /customers/:id/passport-views`, which logs the view (when the access log is on) and returns the number.
