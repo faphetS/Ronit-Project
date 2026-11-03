@@ -252,9 +252,9 @@ Motion is a first-class requirement: it should feel like macOS.
 - **Which transition:** switching between top-level sections (menu items, tabs) uses the page change. Opening a lead, a customer, the account or the import on a phone uses the push.
 - **Page change:**
   - Pages are wrapped in `AnimatePresence`, keyed by route.
-  - The new page fades in and rises 12px on the `surface` spring.
-  - Its cards stagger by 40ms, on the visit's first page only. The pages opened after it already have their data, so they rise in with their content in place.
-  - The old page fades out in 120ms, without moving.
+  - The visit's first page fades in and rises 12px on the `surface` spring, and its cards stagger by 40ms.
+  - After that, the old and new pages slide together like a pager on the `surface` spring, so the panel is never blank. A section lower in the rail comes up from below and a higher one comes down from above; within a section, a new page comes from below and Back from above.
+  - Pages arrive with their content in place, as their data is loaded ahead. Each page scrolls on its own, so it arrives at its top.
 - **Phone push:**
   - The new screen enters from the left (`x: -100% → 0`, forward in RTL).
   - The screen underneath shifts right by 30% and dims slightly.

@@ -13,12 +13,20 @@ export const DESKTOP_NAV: Array<{ key: DesktopNavKey; to: string; end?: boolean;
 
 export type RailKey = DesktopNavKey | "settings";
 
+const RAIL_ORDER: readonly RailKey[] = [...DESKTOP_NAV.map((item) => item.key), "settings"];
+
 /** The rail item to mark: the section that owns the path, or settings for users and the import. */
 export function railKeyFor(pathname: string): RailKey | null {
   const section = DESKTOP_NAV.find((item) => (item.end ? pathname === item.to : pathname === item.to || pathname.startsWith(`${item.to}/`)));
   if (section) return section.key;
   if (pathname === "/users" || pathname === "/import") return "settings";
   return null;
+}
+
+/** A desktop page's place in the rail, top to bottom, or -1 off it: a page change slides the way the rail moved. */
+export function railIndexFor(pathname: string): number {
+  const key = railKeyFor(pathname);
+  return key ? RAIL_ORDER.indexOf(key) : -1;
 }
 
 export type PhoneTabKey = "home" | "leads" | "customers" | "groups" | "greetings";

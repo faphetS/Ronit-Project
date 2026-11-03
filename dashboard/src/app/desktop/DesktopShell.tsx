@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import { useLocation } from "react-router";
 import { AnimatedOutlet } from "../../motion/AnimatedOutlet";
-import { desktopPageKey, railKeyFor, type RailKey } from "../sections";
+import { desktopPageKey, railIndexFor, railKeyFor, type RailKey } from "../sections";
 import { useNavBadges } from "../useNavBadges";
 import { LiquidPanel } from "./LiquidPanel";
 import { Rail } from "./Rail";
@@ -24,8 +24,9 @@ export function DesktopShell() {
         <div ref={panel} className="solid-ground relative z-10 my-3 me-3 flex min-w-0 flex-1 flex-col">
           <div className="mx-auto flex min-h-0 w-full max-w-[1440px] flex-1 flex-col ps-10 pe-7 pt-5">
             <TopBar notifications={badges.notifications} />
-            <main className="no-scrollbar -mx-3 min-h-0 flex-1 overflow-y-auto px-3 pt-2 pb-9">
-              <AnimatedOutlet pageKey={desktopPageKey} />
+            {/* Each page scrolls on its own inside the panel, so two can slide past each other on a page change. */}
+            <main className="relative -mx-3 min-h-0 flex-1 overflow-hidden">
+              <AnimatedOutlet pageKey={desktopPageKey} pageOrder={railIndexFor} className="no-scrollbar absolute inset-0 overflow-y-auto px-3 pt-2 pb-9" />
             </main>
           </div>
         </div>
