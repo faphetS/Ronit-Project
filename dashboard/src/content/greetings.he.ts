@@ -13,6 +13,7 @@ export const greetingsCopy = {
   /** A holiday greeting's status, as a tag. */
   campaignStatus: {
     draft: "טיוטה",
+    "in-review": "בבדיקת WhatsApp",
     "awaiting-approval": "ממתינה לאישור",
     scheduled: "מתוזמנת",
     sending: "בשליחה",
@@ -46,6 +47,33 @@ export const greetingsCopy = {
     newGreeting: "ברכה חדשה",
     audienceAll: "כל הלקוחות",
     noCampaign: "אין כרגע ברכה בהכנה",
+    /** "ברכה חדשה": the greeting for the next holiday that has none. */
+    create: {
+      done: (holiday: string) => `נפתחה ברכה ל${holiday}`,
+      none: "אין חג קרוב שעוד אין לו ברכה.",
+      failed: "הברכה לא נפתחה. נסי שוב.",
+    },
+    /** WhatsApp's review of the text: Meta approves every greeting before it can go to customers. */
+    review: {
+      submit: "שליחה לבדיקת WhatsApp",
+      submitPhone: "לבדיקת WhatsApp",
+      submitted: "הנוסח נשלח לבדיקה של WhatsApp. בדרך כלל התשובה מגיעה תוך דקות, לכל היותר תוך יום.",
+      waiting: "WhatsApp בודק את הנוסח. כשיאשר, אפשר לשלוח בדיקה אלייך ולאשר את השליחה.",
+      rejected: (reason: string | null) =>
+        reason ? `WhatsApp לא אישר את הנוסח (${reason}). אפשר לתקן ולשלוח שוב.` : "WhatsApp לא אישר את הנוסח. אפשר לתקן ולשלוח שוב.",
+      notConnected: "WhatsApp עוד לא מחובר למערכת. אפשר לכתוב ולשמור את הברכה, ולשלוח אותה לבדיקה כשהחיבור יופעל.",
+      notSending: "WhatsApp מחובר, אבל השליחה ללקוחות עדיין כבויה. ברכה שתאושר תצא כשהשליחה תופעל.",
+      failed: "השליחה לבדיקה לא הצליחה. אפשר לנסות שוב.",
+      changedMeanwhile: "הנוסח השתנה בזמן שנשלח לבדיקה. אפשר לשלוח אותו שוב.",
+      problems: {
+        "empty-message": "אי אפשר לשלוח לבדיקה ברכה ריקה.",
+        "too-long": "WhatsApp מקבל עד 1,024 תווים בברכה כזאת.",
+        "starts-with-placeholder": "WhatsApp לא מאשר ברכה שמתחילה בשדה כמו {שם פרטי}. כדאי לפתוח במילה, למשל \"שלום {שם פרטי}\".",
+        "ends-with-placeholder": "WhatsApp לא מאשר ברכה שמסתיימת בשדה. כדאי לסיים במילה או בסימן, למשל \"!\".",
+        "placeholder-not-allowed": "שדה שלא מתאים לברכה הזאת: את שם הקבוצה אפשר לשים רק בברכה לקבוצה אחת.",
+        "holiday-passed": "החג כבר עבר.",
+      } as Record<string, string>,
+    },
 
     /** The orb card. */
     next: {
@@ -56,6 +84,7 @@ export const greetingsCopy = {
       recipients: (count: string) => `${count} נמענים`,
       status: {
         draft: "טיוטה",
+        "in-review": "WhatsApp בודק את הנוסח",
         "awaiting-approval": "ממתינה לאישורך",
         scheduled: "אושרה לשליחה",
         sending: "נשלחת עכשיו",
@@ -72,7 +101,8 @@ export const greetingsCopy = {
       saved: (relative: string) => `נשמר ${relative}`,
       label: "ההודעה",
       tokens: { firstName: "שם פרטי", groupName: "שם הקבוצה" },
-      length: (characters: string, messages: number) => `${characters} תווים · ${messages === 1 ? "הודעה אחת" : `${messages} הודעות`}`,
+      /** WhatsApp takes a greeting template of up to 1,024 characters. */
+      length: (characters: string, limit: string) => `${characters} מתוך ${limit} תווים`,
       save: "שמירת טיוטה",
       savedToast: "הטיוטה נשמרה",
       savedBackToApproval: "הנוסח נשמר. הברכה חזרה לאישור שלך.",
@@ -119,6 +149,10 @@ export const greetingsCopy = {
       testConfirm: "שליחת בדיקה",
       testSent: "הבדיקה נשלחה לוואטסאפ שלך",
       testFailed: "הבדיקה לא נשלחה. אפשר לנסות שוב.",
+      testNoNumber: "כדי לקבל בדיקה, צריך להוסיף את מספר הוואטסאפ שלך בפרטים האישיים.",
+      testNotAllowed: "המספר שלך עוד לא פתוח לשליחות בוואטסאפ במערכת.",
+      testTooSoon: "בדיקה יצאה הרגע. אפשר לשלוח עוד אחת בעוד חצי דקה.",
+      testLimit: "היום כבר יצאו 10 בדיקות. אפשר לשלוח עוד מחר.",
     },
 
     last: {
@@ -213,6 +247,16 @@ export const greetingsCopy = {
       unchanged: "אין שינויים לשמור",
       empty: "אי אפשר לשמור תבנית ריקה",
       failed: "התבנית לא נשמרה. אפשר לנסות שוב.",
+      /** The text's WhatsApp review: the approved text keeps going out until a newer one is approved. */
+      review: {
+        pending: "הנוסח החדש ממתין לאישור WhatsApp. עד אז יוצא הנוסח שכבר אושר.",
+        pendingFirst: "הנוסח ממתין לאישור WhatsApp. הברכות יתחילו לצאת כשיאושר.",
+        rejected: (reason: string | null) =>
+          reason ? `WhatsApp לא אישר את הנוסח (${reason}). אפשר לתקן ולשמור שוב.` : "WhatsApp לא אישר את הנוסח. אפשר לתקן ולשמור שוב.",
+        approved: "הנוסח אושר בוואטסאפ.",
+        notConnected: "WhatsApp עוד לא מחובר. הנוסח יישלח לאישור כשהחיבור יופעל.",
+        submitted: "התבנית נשמרה ונשלחה לאישור WhatsApp",
+      },
     },
 
     preview: { title: "תצוגה מקדימה" },

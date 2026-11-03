@@ -29,6 +29,7 @@ import type {
   UserAccount,
   UserDirectory,
   UserInvite,
+  WhatsAppStatus,
 } from "./types";
 
 export type LeadStatusFilter = LeadStatus | "all";
@@ -174,6 +175,12 @@ export interface OverviewService {
 export interface GreetingsService {
   /** The next holiday greeting that has not gone out yet, or null. */
   current(): Promise<HolidayCampaign | null>;
+  /** Starts the greeting for the next holiday that has none, as an empty draft. */
+  create(): Promise<HolidayCampaign>;
+  /** Sends the text to WhatsApp for review; Ronit approves it once WhatsApp has. */
+  submit(id: string): Promise<HolidayCampaign>;
+  /** Whether WhatsApp is connected, and whether greetings go out. */
+  whatsapp(): Promise<WhatsAppStatus>;
   /** Every greeting, the current one included, newest first. */
   history(): Promise<HolidayCampaign[]>;
   /** Who a greeting can go to, with recipient counts. */
@@ -195,6 +202,8 @@ export interface BirthdaysService {
 /** The signed-in user's own name. The email is the Google account they sign in with, so it can't change here. */
 export interface ProfilePatch {
   name: string;
+  /** For test greetings; "" clears it. */
+  whatsappPhone?: string;
 }
 
 /** A person's role and their own passport access. */

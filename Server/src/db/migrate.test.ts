@@ -42,6 +42,8 @@ describe("migrate", () => {
       "staff_sessions",
       "staff_sign_in_challenges",
       "staff_users",
+      "whatsapp_templates",
+      "zernio_webhook_events",
     ]);
   });
 

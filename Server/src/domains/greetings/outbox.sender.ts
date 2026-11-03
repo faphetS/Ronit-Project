@@ -4,12 +4,26 @@ import { claimDueMessages, markFailed, markSent, markSkipped } from "./outbox.re
 
 export type SendResult = { ok: true; providerMessageId: string | null } | { ok: false; error: string };
 
-/** How a greeting leaves. The WhatsApp connection is still open, so this is the seam it plugs into. */
+/** A template Meta approved, with one value per {{n}}. */
+export interface TemplateMessage {
+  name: string;
+  language: string;
+  params: string[];
+}
+
+/** How a greeting leaves: as text (the gateway), or as an approved template (Zernio). */
 export interface WhatsAppChannel {
   name: string;
   /** A dry-run channel sends nothing: its messages are logged and marked skipped. */
   dryRun: boolean;
-  sendText(to: string, text: string): Promise<SendResult>;
+  /** Plain text. Missing on a channel that sends only templates. */
+  sendText?(to: string, text: string): Promise<SendResult>;
+  sendTemplate?(to: string, template: TemplateMessage): Promise<SendResult>;
+}
+
+/** WhatsApp's own API sends only approved templates: greetings are queued for it only once theirs is approved. */
+export function needsTemplates(channel: WhatsAppChannel): boolean {
+  return !channel.dryRun && !channel.sendText;
 }
 
 export interface SenderDeps {
@@ -67,7 +81,13 @@ export async function sendDueMessages(deps: SenderDeps): Promise<SendRunResult> 
 
     let outcome: SendResult;
     try {
-      outcome = await deps.channel.sendText(message.to_phone, message.body);
+      const { channel } = deps;
+      outcome =
+        message.template && channel.sendTemplate
+          ? await channel.sendTemplate(message.to_phone, message.template)
+          : channel.sendText
+            ? await channel.sendText(message.to_phone, message.body)
+            : { ok: false, error: "no-template" };
     } catch (err) {
       outcome = { ok: false, error: err instanceof Error ? err.message : String(err) };
     }

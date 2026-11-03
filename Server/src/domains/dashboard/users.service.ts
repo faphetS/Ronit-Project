@@ -2,6 +2,8 @@ import type { Queryable } from "../../config/pg.js";
 import { AppError, NotFoundError, ValidationError } from "../../lib/errors.js";
 import { recordAudit, type AuthDeps, type Role, type SignedInDto } from "../auth/auth.service.js";
 import { disableStaffIn, inviteStaff } from "../auth/staff-accounts.service.js";
+import { isValidMsisdn, toMsisdn } from "../whatsapp/whatsapp.gateway.js";
+import { localPhone } from "./dashboard.format.js";
 import { isFixed, permissionTable, type AccessLevel, type PermissionArea, type PermissionRowDto } from "./dashboard.access.js";
 
 /** The users screen: the team, invites, the security switches and the log of sensitive actions. */
@@ -17,6 +19,8 @@ export interface UserAccountDto {
   lastSignInAt: string | null;
   /** Active once they've signed in: every new device then needs the emailed code. */
   twoStep: "active" | "not-set";
+  /** Their own WhatsApp number, for test greetings ("050…"). Only on their own account; "" when not set. */
+  whatsappPhone: string;
 }
 
 export interface UserInviteDto {
@@ -44,15 +48,16 @@ interface StaffRow {
   last_sign_in_at: Date | null;
   created_at: Date;
   invited_by: string | null;
+  whatsapp_phone: string | null;
 }
 
 const STAFF_SELECT = `
-  SELECT u.id, u.email, u.name, u.role, u.passport_access, u.google_sub IS NOT NULL AS linked, u.last_sign_in_at, u.created_at,
+  SELECT u.id, u.email, u.name, u.role, u.passport_access, u.google_sub IS NOT NULL AS linked, u.last_sign_in_at, u.created_at, u.whatsapp_phone,
     (SELECT a.by_user_id FROM audit_log a WHERE a.action = 'staff-invited' AND a.details->>'userId' = u.id::text
      ORDER BY a.at DESC LIMIT 1) AS invited_by
   FROM staff_users u`;
 
-function toAccount(row: StaffRow, showEmail: boolean): UserAccountDto {
+function toAccount(row: StaffRow, showEmail: boolean, own = false): UserAccountDto {
   return {
     id: row.id,
     name: row.name,
@@ -62,6 +67,7 @@ function toAccount(row: StaffRow, showEmail: boolean): UserAccountDto {
     email: showEmail ? row.email : "",
     lastSignInAt: row.last_sign_in_at?.toISOString() ?? null,
     twoStep: row.last_sign_in_at ? "active" : "not-set",
+    whatsappPhone: own ? localPhone(row.whatsapp_phone) : "",
   };
 }
 
@@ -80,23 +86,43 @@ function toInvite(row: StaffRow): UserInviteDto {
 export async function directory(db: Queryable, viewer: SignedInDto, admin: boolean): Promise<UserDirectoryDto> {
   const { rows } = await db.query<StaffRow>(`${STAFF_SELECT} WHERE u.disabled_at IS NULL ORDER BY u.created_at, u.name`);
   return {
-    users: rows.filter((row) => row.linked).map((row) => toAccount(row, admin || row.id === viewer.user.id)),
+    users: rows.filter((row) => row.linked).map((row) => toAccount(row, admin || row.id === viewer.user.id, row.id === viewer.user.id)),
     invites: admin ? rows.filter((row) => !row.linked).map(toInvite) : [],
   };
 }
 
-async function account(db: Queryable, id: string, showEmail: boolean): Promise<UserAccountDto> {
+async function ownAccount(db: Queryable, id: string): Promise<UserAccountDto> {
   const { rows } = await db.query<StaffRow>(`${STAFF_SELECT} WHERE u.id = $1`, [id]);
   if (!rows[0]) throw new NotFoundError("Staff user");
-  return toAccount(rows[0], showEmail);
+  return toAccount(rows[0], true, true);
 }
 
-/** People change their own name. The email is the Google account they sign in with, so it stays. */
-export async function updateProfile(db: Queryable, viewer: SignedInDto, patch: { name: string }, now: Date): Promise<UserAccountDto> {
+/**
+ * People change their own name and WhatsApp number (for test greetings; "" clears it). The email
+ * is the Google account they sign in with, so it stays.
+ */
+export async function updateProfile(
+  db: Queryable,
+  viewer: SignedInDto,
+  patch: { name: string; whatsappPhone?: string },
+  now: Date,
+): Promise<UserAccountDto> {
   const name = patch.name.trim();
   if (!name) throw new ValidationError("A name is needed");
-  await db.query("UPDATE staff_users SET name = $2, updated_at = $3 WHERE id = $1", [viewer.user.id, name, now]);
-  return account(db, viewer.user.id, true);
+  let phone: string | null | undefined;
+  if (patch.whatsappPhone !== undefined) {
+    phone = patch.whatsappPhone.trim() ? toMsisdn(patch.whatsappPhone) : null;
+    if (phone !== null && !isValidMsisdn(phone)) throw new AppError(400, "That isn't a mobile number", "INVALID_PHONE");
+  }
+  const { rows } = await db.query<{ phone_changed: boolean }>(
+    `UPDATE staff_users u SET name = $2, whatsapp_phone = CASE WHEN $3 THEN $4 ELSE u.whatsapp_phone END, updated_at = $5
+     FROM staff_users before WHERE u.id = $1 AND before.id = u.id
+     RETURNING $3 AND before.whatsapp_phone IS DISTINCT FROM $4 AS phone_changed`,
+    [viewer.user.id, name, phone !== undefined, phone ?? null, now],
+  );
+  // Tests go to this number from Ronit's business number: every change is in the log.
+  if (rows[0]?.phone_changed) await recordAudit(db, now, "staff-phone-changed", viewer.user.id, { userId: viewer.user.id, phone: localPhone(phone ?? null) });
+  return ownAccount(db, viewer.user.id);
 }
 
 // ---- The role table ----
@@ -186,6 +212,10 @@ export type AuditEntryDto = AuditBase &
   (
     | { action: "passport-view" | "passport-photo-view"; customerId: string; customerName: string }
     | { action: "greeting-edit" | "greeting-approve"; campaignId: string; holiday: string }
+    /** A test greeting, and the number it went to. */
+    | { action: "greeting-test"; campaignId: string; holiday: string; to: string }
+    /** Someone set their WhatsApp number for tests ("" when they cleared it). */
+    | { action: "staff-phone-changed"; userId: string; userName: string; phone: string }
     | { action: "security-change"; setting: SecuritySwitch; enabled: boolean }
     | { action: "new-device-sign-in" | "sign-in-locked" | "monday-copy" }
     | { action: "staff-invited" | "staff-removed"; userId: string; userName: string }
@@ -199,6 +229,8 @@ const LOGGED = [
   "passport-photo-view",
   "greeting-edit",
   "greeting-approve",
+  "greeting-test",
+  "staff-phone-changed",
   "security-change",
   "new-device-sign-in",
   "sign-in-locked",
@@ -246,6 +278,12 @@ export async function auditLog(db: Queryable): Promise<AuditEntryDto[]> {
       case "greeting-edit":
       case "greeting-approve":
         return row.campaign_id ? [{ ...base, action: row.action, campaignId: row.campaign_id, holiday: row.holiday ?? "" }] : [];
+      case "greeting-test":
+        return row.campaign_id
+          ? [{ ...base, action: "greeting-test", campaignId: row.campaign_id, holiday: row.holiday ?? "", to: String(detail("to") ?? "") }]
+          : [];
+      case "staff-phone-changed":
+        return [{ ...base, action: "staff-phone-changed", userId: String(detail("userId") ?? ""), userName: row.target_name ?? "", phone: String(detail("phone") ?? "") }];
       case "security-change":
         return [{ ...base, action: "security-change", setting: detail("setting") as SecuritySwitch, enabled: detail("enabled") === true }];
       case "new-device-sign-in":

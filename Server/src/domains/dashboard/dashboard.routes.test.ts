@@ -13,6 +13,12 @@ import type { MailMessage } from "../../lib/mailer.js";
 import { hashToken, newToken } from "../../lib/tokens.js";
 import { SESSION_COOKIE } from "../auth/auth.cookies.js";
 import type { AuthDeps, Role } from "../auth/auth.service.js";
+import { createHmac } from "node:crypto";
+import { zernioChannel } from "../greetings/greetings.channels.js";
+import { runGreetingsTick } from "../greetings/greetings.cron.js";
+import { refreshWaitingTemplates } from "../greetings/whatsapp-templates.js";
+import type { TemplateDraft, TemplateSend, TemplateStatus, ZernioClient } from "../greetings/zernio.client.js";
+import { createZernioWebhookRouter } from "../greetings/zernio.webhook.js";
 import { ARCHIVE, CRM, fakeAccount, fakeMonday, type FakeMonday } from "../monday-copy/monday-copy.fake.js";
 import { copyFromMonday, type CopyDeps } from "../monday-copy/monday-copy.service.js";
 import { createDashboardRouter, type DashboardOptions } from "./dashboard.routes.js";
@@ -256,9 +262,10 @@ describe("greetings and birthdays", () => {
     expect((await get(shira, "/greetings/current").expect(200)).body.data).toBeNull();
     expect((await get(shira, "/greetings/history").expect(200)).body.data).toEqual([]);
     const options = (await get(shira, "/greetings/audiences").expect(200)).body.data;
+    // Recipients are the people WhatsApp can reach: the trip's crew member has no phone.
     expect(options.map((o: { kind: string; recipients: number }) => [o.kind, o.recipients])).toEqual([
-      ["all", 2],
-      ["groups", 2],
+      ["all", 1],
+      ["groups", 1],
       ["groups", 1],
     ]);
   });
@@ -401,5 +408,238 @@ describe("the copy from Monday", () => {
   it("is refused while the copy is switched off", async () => {
     const off = app({ copy: { enabled: false, deps: copyDeps } });
     expect((await post(ronit, "/imports/run", {}, off).expect(503)).body.code).toBe("COPY_OFF");
+  });
+});
+
+// ---- Greetings on WhatsApp, through a fake Zernio ----
+
+interface FakeZernio extends ZernioClient {
+  templates: Map<string, TemplateDraft & { status: TemplateStatus }>;
+  sent: TemplateSend[];
+}
+
+function fakeZernio(): FakeZernio {
+  const templates = new Map<string, TemplateDraft & { status: TemplateStatus }>();
+  const sent: TemplateSend[] = [];
+  return {
+    templates,
+    sent,
+    async createTemplate(template) {
+      templates.set(template.name, { ...template, status: "PENDING" });
+      return { status: "PENDING" };
+    },
+    async templateStatus(name) {
+      return templates.get(name)?.status ?? null;
+    },
+    async deleteTemplate(name) {
+      templates.delete(name);
+    },
+    async sendTemplate(message) {
+      sent.push(message);
+      return { messageId: `wamid.${sent.length}` };
+    },
+  };
+}
+
+const WEBHOOK_SECRET = "zernio-test-secret";
+
+describe("greetings on WhatsApp", () => {
+  let zernio: FakeZernio;
+  let connected: ZernioClient | null;
+  const wa = () =>
+    app({
+      copy: { enabled: true, deps: copyDeps },
+      whatsapp: { zernio: () => connected, sending: () => true, isAllowed: () => true, language: "he" },
+    });
+  const webhook = () => {
+    const server = express();
+    server.use(
+      "/api/zernio",
+      express.raw({ type: "application/json" }),
+      createZernioWebhookRouter({ db: async () => db, secret: () => WEBHOOK_SECRET, accountId: () => "acc-1", now: () => clock }),
+    );
+    return server;
+  };
+  const deliver = (event: object, secret = WEBHOOK_SECRET) => {
+    const body = JSON.stringify({ id: "evt-1", account: { accountId: "acc-1" }, ...event });
+    return request(webhook())
+      .post("/api/zernio/webhook")
+      .set("Content-Type", "application/json")
+      .set("X-Zernio-Signature", createHmac("sha256", secret).update(body).digest("hex"))
+      .send(body);
+  };
+  const approveAll = async () => {
+    for (const template of zernio.templates.values()) template.status = "APPROVED";
+    await refreshWaitingTemplates({ db, zernio, now: () => clock });
+  };
+
+  beforeEach(() => {
+    zernio = fakeZernio();
+    connected = zernio;
+  });
+
+  it("writes the next holiday's greeting, has WhatsApp review it, tests it, and sends it on the eve", async () => {
+    const server = wa();
+    const draft = (await post(ronit, "/greetings", {}, server).expect(201)).body.data;
+    // Hanukkah 5787 starts on Friday 4 December: noon, before Shabbat.
+    expect(draft).toMatchObject({
+      holiday: "hanukkah",
+      hebrewYear: 5787,
+      eve: "2026-12-04",
+      sendAt: "2026-12-04T10:00:00.000Z",
+      status: "draft",
+      stage: "write",
+      message: "",
+      template: null,
+    });
+    expect((await post(ronit, "/greetings", {}, server).expect(409)).body.code).toBe("CAMPAIGN_IN_PROGRESS");
+    const at = (path = "") => `/greetings/${draft.id}${path}`;
+
+    // What Meta would refuse is caught before it goes.
+    expect((await post(ronit, at("/submit"), {}, server).expect(400)).body.code).toBe("EMPTY_MESSAGE");
+    await post(ronit, at(), { message: "{שם פרטי}, חג שמח" }, server).expect(200);
+    expect((await post(ronit, at("/submit"), {}, server).expect(400)).body.code).toBe("STARTS_WITH_PLACEHOLDER");
+    await post(ronit, at(), { message: "חג שמח ל{שם הקבוצה}" }, server).expect(200);
+    expect((await post(ronit, at("/submit"), {}, server).expect(400)).body.code).toBe("PLACEHOLDER_NOT_ALLOWED");
+
+    // To the trip, with the person's name and the trip's.
+    const trip = (await get(shira, "/greetings/audiences").expect(200)).body.data.find((o: { kind: string }) => o.kind === "groups");
+    await post(ronit, at(), { message: "חג חנוכה שמח {שם פרטי}, מכל {שם הקבוצה}! רונית", audienceId: trip.id }, server).expect(200);
+    const inReview = (await post(ronit, at("/submit"), {}, server).expect(200)).body.data;
+    expect(inReview).toMatchObject({ status: "in-review", stage: "review", template: { status: "PENDING", reason: null } });
+    const [template] = [...zernio.templates.values()];
+    expect(template).toMatchObject({ language: "he", body: "חג חנוכה שמח {{1}}, מכל {{2}}! רונית", examples: ["שרה", "טיסה לאומן"] });
+    expect((await post(ronit, at("/approve"), {}, server).expect(409)).body.code).toBe("NOT_REVIEWED");
+
+    await approveAll();
+    expect((await get(shira, "/greetings/current").expect(200)).body.data).toMatchObject({
+      status: "awaiting-approval",
+      stage: "approve",
+      template: { status: "APPROVED" },
+    });
+
+    // A test to your own WhatsApp needs your number.
+    expect((await post(ronit, at("/test"), {}, server).expect(400)).body.code).toBe("NO_TEST_NUMBER");
+    const me = (await post(ronit, "/users/me", { name: "רונית ברש", whatsappPhone: "050-111-2233" }, server).expect(200)).body.data;
+    expect(me.whatsappPhone).toBe("0501112233");
+    expect((await post(ronit, at("/test"), {}, server).expect(200)).body.data.lastTest).toEqual({ at: clock.toISOString(), toUserId: ronit.id });
+    // The approved text with a sample name and the trip's: no customer's details, nothing the tester typed.
+    expect(zernio.sent).toEqual([{ to: "972501112233", name: template.name, language: "he", params: ["שרה", "טיסה טו באב 26"] }]);
+    // Each test is a paid message: not twice in a row.
+    expect((await post(ronit, at("/test"), {}, server).expect(429)).body.code).toBe("TEST_TOO_SOON");
+    expect(zernio.sent).toHaveLength(1);
+
+    expect((await post(ronit, at("/approve"), {}, server).expect(200)).body.data).toMatchObject({ status: "scheduled", stage: "track", approvedByUserId: ronit.id });
+
+    // On the eve it goes out as the approved template, and the receipts come back.
+    clock = new Date("2026-12-04T10:00:00Z");
+    await runGreetingsTick({ db, channel: zernioChannel(zernio), isAllowed: () => true, maxPerRun: 10, pacingMs: 0, now: () => clock, sleep: async () => {} });
+    expect(zernio.sent.at(-1)).toEqual({ to: "972501112233", name: template.name, language: "he", params: ["שירה", "טיסה טו באב 26"] });
+    await deliver({ event: "message.read", message: { platformMessageId: "wamid.2" } }).expect(200);
+    await runGreetingsTick({ db, channel: zernioChannel(zernio), isAllowed: () => true, maxPerRun: 10, pacingMs: 0, now: () => clock, sleep: async () => {} });
+    // A month on, the morning's sessions are long over.
+    const tal = await signedIn("tal", "office");
+    const sent = (await get(tal, "/greetings/history").expect(200)).body.data[0];
+    expect(sent).toMatchObject({ status: "completed", stats: { sent: 1, delivered: 1, read: 1, failed: 0 } });
+  });
+
+  it("never pairs a template with a text that changed while it went for review", async () => {
+    const server = wa();
+    const { id } = (await post(ronit, "/greetings", {}, server).expect(201)).body.data;
+    await post(ronit, `/greetings/${id}`, { message: "חג שמח {שם פרטי}!" }, server).expect(200);
+    // While Meta is asked, the text is edited (another tab, another person).
+    const create = zernio.createTemplate;
+    zernio.createTemplate = async (template) => {
+      await db.query("UPDATE campaigns SET message = 'חג אורים שמח {שם פרטי}!' WHERE id = $1", [id]);
+      return create(template);
+    };
+    expect((await post(ronit, `/greetings/${id}/submit`, {}, server).expect(409)).body.code).toBe("CHANGED_MEANWHILE");
+    expect((await get(shira, "/greetings/current").expect(200)).body.data).toMatchObject({ status: "draft", template: null });
+    expect(zernio.templates.size).toBe(0);
+  });
+
+  it("caps test sends at ten a day per person", async () => {
+    const server = wa();
+    const { id } = (await post(ronit, "/greetings", {}, server).expect(201)).body.data;
+    await post(ronit, `/greetings/${id}`, { message: "חג שמח {שם פרטי}!" }, server).expect(200);
+    expect((await post(ronit, `/greetings/${id}/test`, {}, server).expect(409)).body.code).toBe("WRONG_STAGE");
+    await post(ronit, `/greetings/${id}/submit`, {}, server).expect(200);
+    await approveAll();
+    await post(ronit, "/users/me", { name: "רונית", whatsappPhone: "0501112233" }, server).expect(200);
+    for (let i = 0; i < 10; i += 1) {
+      await post(ronit, `/greetings/${id}/test`, {}, server).expect(200);
+      clock = new Date(clock.getTime() + 31_000);
+    }
+    expect((await post(ronit, `/greetings/${id}/test`, {}, server).expect(429)).body.code).toBe("TEST_LIMIT");
+    expect(zernio.sent).toHaveLength(10);
+    // Every test shows in the log with the number it went to, and so does the number's change.
+    const log = (await get(ronit, "/users/audit").expect(200)).body.data;
+    expect(log[0]).toMatchObject({ action: "greeting-test", byUserId: ronit.id, holiday: "hanukkah", to: "0501112233" });
+    expect(log.find((entry: { action: string }) => entry.action === "staff-phone-changed")).toMatchObject({ userId: ronit.id, phone: "0501112233" });
+  });
+
+  it("sends a changed text back to writing, and a new audience back to Ronit's approval", async () => {
+    const server = wa();
+    const { id } = (await post(ronit, "/greetings", {}, server).expect(201)).body.data;
+    await post(ronit, `/greetings/${id}`, { message: "חג שמח {שם פרטי}!" }, server).expect(200);
+    await post(ronit, `/greetings/${id}/submit`, {}, server).expect(200);
+    await approveAll();
+    await post(ronit, `/greetings/${id}/approve`, {}, server).expect(200);
+
+    const trip = (await get(shira, "/greetings/audiences").expect(200)).body.data.find((o: { kind: string }) => o.kind === "groups");
+    const moved = (await post(ronit, `/greetings/${id}`, { audienceId: trip.id }, server).expect(200)).body.data;
+    expect(moved).toMatchObject({ status: "awaiting-approval", approvedAt: null });
+
+    const rewritten = (await post(ronit, `/greetings/${id}`, { message: "חג אורים שמח {שם פרטי}!" }, server).expect(200)).body.data;
+    expect(rewritten).toMatchObject({ status: "draft", template: null });
+    // The old text's template is gone at Meta too.
+    expect(zernio.templates.size).toBe(0);
+  });
+
+  it("takes Meta's verdicts from the signed webhook only", async () => {
+    const server = wa();
+    const { id } = (await post(ronit, "/greetings", {}, server).expect(201)).body.data;
+    await post(ronit, `/greetings/${id}`, { message: "חג שמח {שם פרטי}!" }, server).expect(200);
+    await post(ronit, `/greetings/${id}/submit`, {}, server).expect(200);
+    const [name] = zernio.templates.keys();
+    const rejected = { event: "whatsapp.template.status_updated", template: { name, status: "REJECTED", reason: "INVALID_FORMAT" } };
+
+    await deliver(rejected, "wrong-secret").expect(401);
+    expect((await get(shira, "/greetings/current").expect(200)).body.data.status).toBe("in-review");
+    await deliver(rejected).expect(200);
+    expect((await get(shira, "/greetings/current").expect(200)).body.data).toMatchObject({
+      status: "draft",
+      template: { status: "REJECTED", reason: "INVALID_FORMAT" },
+    });
+
+    // An event id is applied once: a replay under it changes nothing, and an event without one isn't taken.
+    await deliver({ ...rejected, template: { name, status: "APPROVED", reason: "NONE" } }).expect(200);
+    expect((await get(shira, "/greetings/current").expect(200)).body.data.template.status).toBe("REJECTED");
+    await deliver({ ...rejected, id: undefined }).expect(400);
+  });
+
+  it("is written but not sent for review while WhatsApp isn't connected", async () => {
+    connected = null;
+    const server = wa();
+    const { id } = (await post(ronit, "/greetings", {}, server).expect(201)).body.data;
+    await post(ronit, `/greetings/${id}`, { message: "חג שמח {שם פרטי}!" }, server).expect(200);
+    expect((await post(ronit, `/greetings/${id}/submit`, {}, server).expect(503)).body.code).toBe("WHATSAPP_NOT_CONNECTED");
+    const status = (await request(server).get(`${API}/greetings/whatsapp`).set("Cookie", shira.cookie).expect(200)).body.data;
+    expect(status).toEqual({ connected: false, sending: true });
+  });
+
+  it("sends a new birthday text for review, and keeps the approved one meanwhile", async () => {
+    const server = wa();
+    const text = "מזל טוב {שם פרטי}, בת {גיל} היום!";
+    const first = (await post(shira, "/birthdays/settings", { template: text }, server).expect(200)).body.data;
+    expect(first).toMatchObject({ approvedTemplate: null, templateReview: { status: "PENDING", reason: null } });
+    await approveAll();
+    expect((await get(shira, "/birthdays/settings").expect(200)).body.data).toMatchObject({ approvedTemplate: text, templateReview: null });
+
+    const second = (await post(shira, "/birthdays/settings", { template: "יום הולדת שמח {שם פרטי}!" }, server).expect(200)).body.data;
+    expect(second).toMatchObject({ template: "יום הולדת שמח {שם פרטי}!", approvedTemplate: text, templateReview: { status: "PENDING" } });
+    // Back to the approved text: the newer one isn't needed.
+    expect((await post(shira, "/birthdays/settings", { template: text }, server).expect(200)).body.data.templateReview).toBeNull();
+    expect((await post(shira, "/birthdays/settings", { template: "{שם פרטי} מזל טוב" }, server).expect(400)).body.code).toBe("STARTS_WITH_PLACEHOLDER");
   });
 });

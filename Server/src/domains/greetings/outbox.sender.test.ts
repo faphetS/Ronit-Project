@@ -12,7 +12,7 @@ import { sendDueMessages, type SenderDeps, type WhatsAppChannel } from "./outbox
 const NOW = new Date("2026-12-04T14:00:00Z");
 
 let db: TestDb;
-const sendText = vi.fn<WhatsAppChannel["sendText"]>();
+const sendText = vi.fn<NonNullable<WhatsAppChannel["sendText"]>>();
 const sleep = vi.fn<SenderDeps["sleep"]>();
 
 function deps(overrides: Partial<SenderDeps> = {}): SenderDeps {

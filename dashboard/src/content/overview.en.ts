@@ -61,6 +61,7 @@ export const overview: Widen<typeof he> = {
     when: (date, time) => `Holiday eve · ${date} · ${time}`,
     status: {
       draft: "Draft",
+      "in-review": "In WhatsApp review",
       "awaiting-approval": "Awaiting approval",
       scheduled: "Scheduled",
       sending: "Sending",

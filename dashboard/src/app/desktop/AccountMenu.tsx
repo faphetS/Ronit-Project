@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type Reac
 import { Link, useLocation, useNavigate } from "react-router";
 import { languageNames, LOCALES } from "../../content/copy";
 import { useCopy, useDirection, useLocale } from "../../content/locale";
+import { ApiError } from "../../data/http/client";
 import { useSecuritySettings, useSession, useSignOut, useUpdateProfile, useUpdateSecuritySwitch, useUsers } from "../../data/queries";
 import { cx } from "../../lib/cx";
 import { fadeOut, PRESS_SCALE, springs } from "../../motion/springs";
@@ -101,13 +102,16 @@ function LanguageToggle({ label }: { label: string }) {
   );
 }
 
-/** Your own name, saved with the joined button. The email is the Google account you sign in with, so it only shows. */
-function ProfileView({ name, email, onBack }: { name: string; email: string; onBack: () => void }) {
+/**
+ * Your own name and WhatsApp number (test greetings go to it), saved with the joined button. The email is the
+ * Google account you sign in with, so it only shows.
+ */
+function ProfileView({ name, email, phone, onBack }: { name: string; email: string; phone: string; onBack: () => void }) {
   const { nav } = useCopy();
   const copy = nav.accountMenu;
   const update = useUpdateProfile();
   const toast = useToast();
-  const [draft, setDraft] = useState({ name });
+  const [draft, setDraft] = useState({ name, phone });
   const fields = useRef<HTMLDivElement>(null);
   const valid = draft.name.trim().length > 0;
 
@@ -119,13 +123,14 @@ function ProfileView({ name, email, onBack }: { name: string; email: string; onB
     event.preventDefault();
     if (!valid) return;
     update.mutate(
-      { name: draft.name.trim() },
+      { name: draft.name.trim(), whatsappPhone: draft.phone.trim() },
       {
         onSuccess: () => {
           toast.show({ message: copy.saved });
           onBack();
         },
-        onError: () => toast.show({ message: copy.saveFailed, tone: "warning" }),
+        onError: (error) =>
+          toast.show({ message: error instanceof ApiError && error.code === "INVALID_PHONE" ? copy.phoneInvalid : copy.saveFailed, tone: "warning" }),
       },
     );
   };
@@ -143,6 +148,19 @@ function ProfileView({ name, email, onBack }: { name: string; email: string; onB
       </div>
       <div ref={fields} className="flex flex-col gap-2">
         <Field label={copy.name} icon="user" name="name" autoComplete="name" size="sm" value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} />
+        <Field
+          label={copy.phone}
+          icon="phone"
+          name="whatsapp"
+          type="tel"
+          inputMode="tel"
+          autoComplete="tel"
+          dir="ltr"
+          size="sm"
+          value={draft.phone}
+          onChange={(value) => setDraft({ ...draft, phone: value })}
+        />
+        <p className="px-2 text-caption text-mute">{copy.phoneNote}</p>
         <div className="px-2 pt-1">
           <p className="text-caption text-mute">{copy.email}</p>
           <p className="text-small text-ink" dir="ltr">
@@ -202,7 +220,8 @@ export function AccountMenu() {
   const user = session.data?.user;
   const name = user?.name ?? common.owner;
   const initial = user?.initial ?? common.owner.charAt(0);
-  const email = users.data?.users.find((member) => member.id === user?.id)?.email ?? "";
+  const me = users.data?.users.find((member) => member.id === user?.id);
+  const email = me?.email ?? "";
   const masked = security.data?.maskPassportNumbers;
   const shift = (view === "profile" ? 1 : -1) * (rtl ? -1 : 1);
 
@@ -310,7 +329,7 @@ export function AccountMenu() {
               <div ref={content}>
                 <AnimatePresence mode="wait" initial={false} custom={shift}>
                   <motion.div key={view} custom={shift} variants={SLIDE} initial="from" animate="at" exit="to">
-                    {view === "profile" ? <ProfileView name={name} email={email} onBack={() => setView("settings")} /> : settings}
+                    {view === "profile" ? <ProfileView name={name} email={email} phone={me?.whatsappPhone ?? ""} onBack={() => setView("settings")} /> : settings}
                   </motion.div>
                 </AnimatePresence>
               </div>

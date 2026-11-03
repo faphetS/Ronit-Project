@@ -7,7 +7,7 @@ interface FieldProps {
   label: string;
   icon: IconName;
   name: string;
-  type?: "text" | "email" | "password" | "search";
+  type?: "text" | "email" | "password" | "search" | "tel";
   placeholder?: string;
   autoComplete?: string;
   required?: boolean;
@@ -19,7 +19,7 @@ interface FieldProps {
   size?: "md" | "sm";
   /** Use on white cards instead of glass. */
   onPaper?: boolean;
-  inputMode?: "text" | "numeric" | "email";
+  inputMode?: "text" | "numeric" | "email" | "tel";
   maxLength?: number;
   autoFocus?: boolean;
   /** The direction of what's typed, e.g. "ltr" for a code in the Hebrew layout. */

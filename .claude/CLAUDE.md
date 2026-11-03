@@ -243,8 +243,17 @@ Status of each integration. When a new decision is made, update this section and
   - Vercel passes `/api/dashboard/*` on like `/api/auth/*`. The global `/api` limiter skips `/api/dashboard/` (all users share Vercel's address); the dashboard router limits 600 requests a minute per session instead.
   - Users screen: invites (`inviteStaff`, emailed) and removal (`disableStaffById`) record which admin did it; inviting a removed email opens the account again. Nobody removes themself or the last admin.
 - **Env:** `MONDAY_COPY_ENABLED` (default `false`; the schedule and "sync now" both need it), `MONDAY_BOARD_CRM_ARCHIVE_ID` (default `5094895163`), `MONDAY_ACCOUNT_SLUG` (default `ronit550418`, for "open in Monday" links).
-- **Not yet:** greetings are read-only (nothing drafts a holiday campaign yet); passport photos wait for the WhatsApp channel; the switch-over off Monday.
+- **Not yet:** passport photos wait for a WhatsApp channel that carries them; the switch-over off Monday.
 - **Design:** [docs/superpowers/specs/2026-11-02-dashboard-data-design.md](docs/superpowers/specs/2026-11-02-dashboard-data-design.md).
+
+### Greetings on WhatsApp: Zernio (built 2026-11-03, off until connected)
+
+- **Zernio** (zernio.com) is WhatsApp's own Cloud API behind one key. Outside the 24 hours after a customer wrote, a business may only send a template Meta approved, so every greeting text becomes one (`whatsapp_templates`, migration 005; [domains/greetings/whatsapp-templates.ts](Server/src/domains/greetings/whatsapp-templates.ts), client in [zernio.client.ts](Server/src/domains/greetings/zernio.client.ts)).
+- **Holidays:** `POST /api/dashboard/greetings` opens the next holiday without a greeting (noon on the eve; Friday noon when the eve is Shabbat). The text is written, sent for review (`/submit`, status `in-review`), tested to the person's own WhatsApp (`/test`, the number from `POST /users/me`) and approved (`/approve`). A new text goes back to `draft`; a new audience after approval goes back to `awaiting-approval`.
+- **Birthdays:** saving a new text sends it for review; the approved one (`birthday_settings.template_name`) keeps going out until the pending one is approved.
+- **Verdicts and receipts:** the signed webhook `POST /api/zernio/webhook` (raw body, HMAC-SHA256 with `ZERNIO_WEBHOOK_SECRET`; it skips the global `/api` limiter). Templates in review are also read back every 5 minutes. Meta's `131050` ("stopped marketing messages") opts the customer out.
+- **Env:** `ZERNIO_API_KEY` and `ZERNIO_WHATSAPP_ACCOUNT_ID` (review and tests), `ZERNIO_WEBHOOK_SECRET`, `ZERNIO_TEMPLATE_LANGUAGE` (default `he`). Sending to customers also needs `GREETINGS_ENABLED=true` and `GREETINGS_CHANNEL=zernio`; every real send still passes `RONIT_WA_ALLOWED_NUMBERS`.
+- **Design and the steps to connect:** [docs/superpowers/specs/2026-11-03-greetings-zernio-design.md](docs/superpowers/specs/2026-11-03-greetings-zernio-design.md).
 
 ### Staff sign-in (the dashboard)
 - **Decision (2026-11-02):**

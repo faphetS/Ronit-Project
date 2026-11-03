@@ -14,6 +14,7 @@ export const greetingsCopy: Widen<typeof he> = {
 
   campaignStatus: {
     draft: "Draft",
+    "in-review": "In WhatsApp review",
     "awaiting-approval": "Awaiting approval",
     scheduled: "Scheduled",
     sending: "Sending",
@@ -44,6 +45,31 @@ export const greetingsCopy: Widen<typeof he> = {
     newGreeting: "New greeting",
     audienceAll: "All customers",
     noCampaign: "No greeting is being prepared right now",
+    create: {
+      done: (holiday) => `A greeting for ${holiday} is open`,
+      none: "There's no holiday ahead without a greeting.",
+      failed: "The greeting wasn't opened. Please try again.",
+    },
+    review: {
+      submit: "Send for WhatsApp review",
+      submitPhone: "WhatsApp review",
+      submitted: "The text went to WhatsApp for review. The answer usually comes within minutes, at most a day.",
+      waiting: "WhatsApp is reviewing the text. Once it approves, you can send yourself a test and approve the send.",
+      rejected: (reason) =>
+        reason ? `WhatsApp didn't approve the text (${reason}). Fix it and send it again.` : "WhatsApp didn't approve the text. Fix it and send it again.",
+      notConnected: "WhatsApp isn't connected yet. You can write and save the greeting, and send it for review once it's connected.",
+      notSending: "WhatsApp is connected, but sending to customers is still off. An approved greeting goes out once it's on.",
+      failed: "It didn't go for review. Please try again.",
+      changedMeanwhile: "The text changed while it went for review. Send it again.",
+      problems: {
+        "empty-message": "An empty greeting can't go for review.",
+        "too-long": "WhatsApp takes up to 1,024 characters in a greeting like this.",
+        "starts-with-placeholder": "WhatsApp doesn't approve a greeting that starts with a field like {שם פרטי}. Start with a word, like \"שלום {שם פרטי}\".",
+        "ends-with-placeholder": "WhatsApp doesn't approve a greeting that ends with a field. End with a word or a sign, like \"!\".",
+        "placeholder-not-allowed": "A field that doesn't fit this greeting: the trip's name only goes in a greeting to one trip.",
+        "holiday-passed": "The holiday has passed.",
+      },
+    },
 
     next: {
       label: "Next holiday",
@@ -53,6 +79,7 @@ export const greetingsCopy: Widen<typeof he> = {
       recipients: (count) => `${count} recipients`,
       status: {
         draft: "Draft",
+        "in-review": "WhatsApp is reviewing it",
         "awaiting-approval": "Awaiting your approval",
         scheduled: "Approved to send",
         sending: "Sending now",
@@ -69,7 +96,7 @@ export const greetingsCopy: Widen<typeof he> = {
       saved: (relative) => `Saved ${lowerFirst(relative)}`,
       label: "Message",
       tokens: { firstName: "First name", groupName: "Group name" },
-      length: (characters, messages) => `${characters} characters · ${messages === 1 ? "one message" : `${messages} messages`}`,
+      length: (characters, limit) => `${characters} of ${limit} characters`,
       save: "Save draft",
       savedToast: "Draft saved",
       savedBackToApproval: "Text saved. The greeting is back waiting for your approval.",
@@ -116,6 +143,10 @@ export const greetingsCopy: Widen<typeof he> = {
       testConfirm: "Send test",
       testSent: "Test sent to your WhatsApp",
       testFailed: "The test wasn’t sent. Please try again.",
+      testNoNumber: "To get a test, add your WhatsApp number in your personal details.",
+      testNotAllowed: "Your number isn't open for WhatsApp sends on the system yet.",
+      testTooSoon: "A test just went out. You can send another in half a minute.",
+      testLimit: "Ten tests went out today. You can send more tomorrow.",
     },
 
     last: {
@@ -208,6 +239,14 @@ export const greetingsCopy: Widen<typeof he> = {
       unchanged: "No changes to save",
       empty: "The template can’t be empty",
       failed: "The template wasn’t saved. Please try again.",
+      review: {
+        pending: "The new text is waiting for WhatsApp's approval. Until then, the approved text goes out.",
+        pendingFirst: "The text is waiting for WhatsApp's approval. Greetings start going out once it's approved.",
+        rejected: (reason) => (reason ? `WhatsApp didn't approve the text (${reason}). Fix it and save again.` : "WhatsApp didn't approve the text. Fix it and save again."),
+        approved: "WhatsApp approved the text.",
+        notConnected: "WhatsApp isn't connected yet. The text goes for approval once it is.",
+        submitted: "The template was saved and sent for WhatsApp's approval",
+      },
     },
 
     preview: { title: "Preview" },

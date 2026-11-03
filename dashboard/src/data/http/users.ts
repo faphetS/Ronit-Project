@@ -8,7 +8,7 @@ export function createHttpUsersService(api: ApiClient): UsersService {
   const http = dashboardApi(api);
   return {
     list: () => http.get<UserDirectory>("/users"),
-    updateProfile: ({ name }) => http.post<UserAccount>("/users/me", { name }),
+    updateProfile: ({ name, whatsappPhone }) => http.post<UserAccount>("/users/me", { name, whatsappPhone }),
     permissions: () => http.get<PermissionMatrix>("/users/permissions"),
     changePermission: (change) => http.post<PermissionMatrix>("/users/permissions", change),
     changeAccess: (userId, { role, passportAccess }) =>

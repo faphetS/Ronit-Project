@@ -6,6 +6,7 @@ import mondayRoutes from "../domains/monday/monday.routes.js";
 import callRoutes from "../domains/calls/calls.routes.js";
 import whatsappRoutes from "../domains/whatsapp/whatsapp.routes.js";
 import websiteRoutes from "../domains/website/website.routes.js";
+import zernioRoutes from "../domains/greetings/zernio.webhook.js";
 
 const router = express.Router();
 
@@ -16,5 +17,6 @@ router.use("/whatsapp", whatsappRoutes);
 router.use("/website", websiteRoutes);
 router.use("/auth", authRoutes);
 router.use("/dashboard", dashboardRoutes);
+router.use("/zernio", zernioRoutes);
 
 export default router;

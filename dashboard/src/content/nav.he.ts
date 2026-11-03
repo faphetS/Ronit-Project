@@ -42,6 +42,9 @@ export const nav = {
     email: "אימייל",
     /** Under the email in your own details: it's the Google account you sign in with, so it can't change here. */
     emailNote: "המייל של חשבון Google שאיתו נכנסים. כדי להחליף אותו, מנהלת מזמינה את המייל החדש.",
+    phone: "מספר וואטסאפ",
+    phoneNote: "בדיקות של ברכות מגיעות למספר הזה.",
+    phoneInvalid: "המספר לא נראה כמו מספר נייד.",
     save: "שמירה",
     saved: "הפרטים נשמרו",
     saveFailed: "הפרטים לא נשמרו. כדאי לנסות שוב.",

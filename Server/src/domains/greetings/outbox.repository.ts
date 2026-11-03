@@ -1,11 +1,15 @@
 import type { Queryable } from "../../config/pg.js";
+import type { TemplateMessage } from "./outbox.sender.js";
 
 /** A message the sender has claimed and must now send. */
 export interface ClaimedMessage {
   id: string;
   kind: "holiday" | "birthday";
   to_phone: string;
+  /** The text as it reads, filled for this recipient. */
   body: string;
+  /** The approved template it goes out as, on WhatsApp's own API. */
+  template: TemplateMessage | null;
 }
 
 /**
@@ -13,7 +17,9 @@ export interface ClaimedMessage {
  * SKIP LOCKED means two overlapping runs never claim the same message.
  */
 export async function claimDueMessages(db: Queryable, now: Date, limit: number): Promise<ClaimedMessage[]> {
-  const { rows } = await db.query<ClaimedMessage & { send_at: Date }>(
+  const { rows } = await db.query<
+    Omit<ClaimedMessage, "template"> & { send_at: Date; template_name: string | null; template_language: string | null; template_params: string[] | null }
+  >(
     `UPDATE messages
      SET status = 'sending', claimed_at = $1, attempts = attempts + 1, updated_at = now()
      WHERE id IN (
@@ -23,12 +29,18 @@ export async function claimDueMessages(db: Queryable, now: Date, limit: number):
        LIMIT $2
        FOR UPDATE SKIP LOCKED
      )
-     RETURNING id, kind, to_phone, body, send_at`,
+     RETURNING id, kind, to_phone, body, send_at, template_name, template_language, template_params`,
     [now, limit],
   );
   return rows
     .sort((a, b) => new Date(a.send_at).getTime() - new Date(b.send_at).getTime())
-    .map(({ id, kind, to_phone, body }) => ({ id, kind, to_phone, body }));
+    .map(({ id, kind, to_phone, body, template_name, template_language, template_params }) => ({
+      id,
+      kind,
+      to_phone,
+      body,
+      template: template_name && template_language ? { name: template_name, language: template_language, params: template_params ?? [] } : null,
+    }));
 }
 
 export async function markSent(db: Queryable, id: string, providerMessageId: string | null, at: Date): Promise<void> {

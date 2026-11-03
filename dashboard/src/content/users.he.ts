@@ -133,6 +133,8 @@ export const usersCopy = {
     via: { whatsapp: "מוואטסאפ", monday: "מ-Monday", manual: "ידנית" } satisfies Record<PassportSource, string>,
     greetingEdit: (holiday: string) => `עריכת ברכת ${holiday}`,
     greetingApprove: (holiday: string) => `אישור ברכת ${holiday}`,
+    greetingTest: (holiday: string, to: string) => `בדיקת ברכת ${holiday} בוואטסאפ · ${to}`,
+    staffPhoneChanged: (name: string, phone: string) => (phone ? `מספר וואטסאפ לבדיקות · ${name}: ${phone}` : `מספר וואטסאפ לבדיקות נמחק · ${name}`),
     newDevice: "כניסה ממכשיר חדש",
     signInLocked: "החשבון ננעל אחרי קודים שגויים",
     /** Someone with a Google account that isn't registered tried to sign in. */

@@ -2,7 +2,7 @@ import { motion } from "motion/react";
 import { useRef, useState } from "react";
 import { useCopy, useLocale } from "../../content/locale";
 import { MESSAGE_TOKENS } from "../../data/messages";
-import { useApproveCampaign, useAudiences, useSendCampaignTest, useUpdateCampaign } from "../../data/queries";
+import { useApproveCampaign, useAudiences, useCan, useSendCampaignTest, useSubmitCampaign, useUpdateCampaign, useWhatsAppStatus } from "../../data/queries";
 import { CAMPAIGN_STAGES, type HolidayCampaign } from "../../data/types";
 import { dayAt, daysBetween, now, today } from "../../lib/clock";
 import { cx } from "../../lib/cx";
@@ -34,12 +34,13 @@ import {
   fullName,
   hebrewYearLabel,
   isEditable,
-  messageCount,
   stageIndex,
+  TEMPLATE_LIMIT,
+  textApproved,
 } from "./greetings-model";
 import { useTextDirection } from "./hooks";
 
-type Confirming = "approve" | "test" | null;
+type Confirming = "approve" | "test" | "submit" | null;
 
 interface CampaignCardsProps {
   campaign: HolidayCampaign;
@@ -49,6 +50,8 @@ interface CampaignCardsProps {
 /**
  * The greeting being prepared: the orb card, the text with its WhatsApp preview, and sending.
  * Phones add the stage bar under the orb card. The preview follows the text as it is typed.
+ * The text goes to WhatsApp for review first (Meta approves every greeting), then a test to
+ * yourself and Ronit's approval.
  */
 export function CampaignCards({ campaign, phone }: CampaignCardsProps) {
   const { greetingsCopy, holidayNames } = useCopy();
@@ -58,7 +61,10 @@ export function CampaignCards({ campaign, phone }: CampaignCardsProps) {
   const audiences = useAudiences();
   const update = useUpdateCampaign();
   const approve = useApproveCampaign();
+  const submit = useSubmitCampaign();
   const sendTest = useSendCampaignTest();
+  const whatsapp = useWhatsAppStatus();
+  const canChange = useCan("greetings", "full");
   const [draft, setDraft] = useState(campaign.message);
   const [confirming, setConfirming] = useState<Confirming>(null);
   const fieldRef = useRef<HTMLDivElement>(null);
@@ -67,6 +73,8 @@ export function CampaignCards({ campaign, phone }: CampaignCardsProps) {
   const holiday = holidayNames[campaign.holiday];
   const eve = dayAt(campaign.eve);
   const eveDate = formatDayMonth(eve, locale);
+  // The day it goes out: the eve, or the Friday before when the eve is Shabbat.
+  const sendDate = formatDayMonth(new Date(campaign.sendAt), locale);
   const time = formatTime(new Date(campaign.sendAt));
   const countdown = copy.next.countdown(daysBetween(today(), eve));
   const recipients = formatNumber(campaign.recipients);
@@ -88,7 +96,13 @@ export function CampaignCards({ campaign, phone }: CampaignCardsProps) {
     const code = errorCode(error);
     if (code === "empty-message") return copy.editor.empty;
     if (code === "campaign-sent") return copy.editor.alreadySent;
-    return fallback;
+    if (code === "whatsapp-not-connected") return copy.review.notConnected;
+    if (code === "no-test-number") return copy.send.testNoNumber;
+    if (code === "number-not-allowed") return copy.send.testNotAllowed;
+    if (code === "test-too-soon") return copy.send.testTooSoon;
+    if (code === "test-limit") return copy.send.testLimit;
+    if (code === "changed-meanwhile") return copy.review.changedMeanwhile;
+    return (code && copy.review.problems[code]) || fallback;
   };
 
   const save = () => {
@@ -137,7 +151,7 @@ export function CampaignCards({ campaign, phone }: CampaignCardsProps) {
     try {
       if (dirty) await update.mutateAsync({ id: campaign.id, patch: { message: draft } });
       await approve.mutateAsync(campaign.id);
-      toast.show({ message: copy.send.approved(holiday, eveDate, time) });
+      toast.show({ message: copy.send.approved(holiday, sendDate, time) });
     } catch (error) {
       toast.show({ message: editError(error, copy.send.approveFailed), tone: "warning" });
     } finally {
@@ -148,9 +162,22 @@ export function CampaignCards({ campaign, phone }: CampaignCardsProps) {
   const confirmTest = () =>
     sendTest.mutate(campaign.id, {
       onSuccess: () => toast.show({ message: copy.send.testSent }),
-      onError: () => toast.show({ message: copy.send.testFailed, tone: "warning" }),
+      onError: (error) => toast.show({ message: editError(error, copy.send.testFailed), tone: "warning" }),
       onSettled: () => setConfirming(null),
     });
+
+  // Unsaved changes to the text are saved first, so WhatsApp reviews what Ronit sees.
+  const confirmSubmit = async () => {
+    try {
+      if (dirty) await update.mutateAsync({ id: campaign.id, patch: { message: draft } });
+      await submit.mutateAsync(campaign.id);
+      toast.show({ message: copy.review.submitted });
+    } catch (error) {
+      toast.show({ message: editError(error, copy.review.failed), tone: "warning" });
+    } finally {
+      setConfirming(null);
+    }
+  };
 
   const tokens = [
     { label: copy.editor.tokens.firstName, token: MESSAGE_TOKENS.firstName },
@@ -180,11 +207,39 @@ export function CampaignCards({ campaign, phone }: CampaignCardsProps) {
     />
   );
 
-  const approveControl = awaiting ? (
-    <GooButton onClick={() => setConfirming("approve")}>{copy.send.approve}</GooButton>
-  ) : (
-    <p className="text-small text-mute">{copy.send.approvedNote(eveDate, time)}</p>
-  );
+  const connected = whatsapp.data?.connected ?? false;
+  // The next step: WhatsApp's review, waiting for it, Ronit's approval, or the time it goes out.
+  const approveControl =
+    campaign.status === "draft" ? (
+      canChange ? (
+        <GooButton onClick={() => setConfirming("submit")} disabled={!connected || submit.isPending}>
+          {phone ? copy.review.submitPhone : copy.review.submit}
+        </GooButton>
+      ) : null
+    ) : campaign.status === "in-review" ? (
+      <p className="text-small text-mute">{copy.review.waiting}</p>
+    ) : awaiting ? (
+      canChange ? <GooButton onClick={() => setConfirming("approve")}>{copy.send.approve}</GooButton> : null
+    ) : (
+      <p className="text-small text-mute">{copy.send.approvedNote(sendDate, time)}</p>
+    );
+  const testControl =
+    canChange && textApproved(campaign) && editable ? (
+      <Button variant="outline" size={phone ? "sm" : "md"} onClick={() => setConfirming("test")}>
+        {phone ? copy.send.testPhone : copy.send.test}
+      </Button>
+    ) : null;
+  // What WhatsApp said about the text, or why the next step can't happen yet.
+  // Refused, or approved and later paused or disabled by Meta (the greeting is back to writing then).
+  const rejected = campaign.status === "draft" && ["REJECTED", "PAUSED", "DISABLED"].includes(campaign.template?.status ?? "");
+  const notice = rejected
+    ? copy.review.rejected(campaign.template?.reason || null)
+    : whatsapp.data && !whatsapp.data.connected && awaiting
+      ? copy.review.notConnected
+      : whatsapp.data?.connected && !whatsapp.data.sending && campaign.status === "scheduled"
+        ? copy.review.notSending
+        : null;
+  const noticeLine = notice ? <p className={cx("text-small", rejected ? "text-status-warning" : "text-mute")}>{notice}</p> : null;
 
   return (
     <>
@@ -265,7 +320,9 @@ export function CampaignCards({ campaign, phone }: CampaignCardsProps) {
         </div>
         {phone ? null : (
           <div className="mt-auto flex flex-wrap items-center justify-between gap-3">
-            <p className="text-caption text-mute">{copy.editor.length(formatNumber(draft.length), messageCount(draft))}</p>
+            <p className={cx("text-caption", draft.trim().length > TEMPLATE_LIMIT ? "text-status-warning" : "text-mute")}>
+              {copy.editor.length(formatNumber(draft.trim().length), formatNumber(TEMPLATE_LIMIT))}
+            </p>
             <Button variant="outline" size="sm" onClick={save} disabled={!editable || update.isPending}>
               {copy.editor.save}
             </Button>
@@ -297,11 +354,10 @@ export function CampaignCards({ campaign, phone }: CampaignCardsProps) {
             </div>
             {audienceChips}
             <KeyValue items={schedule} />
+            {noticeLine}
             <div className="flex flex-wrap items-center gap-2">
               {approveControl}
-              <Button variant="outline" size="sm" onClick={() => setConfirming("test")}>
-                {copy.send.testPhone}
-              </Button>
+              {testControl}
             </div>
           </>
         ) : (
@@ -320,11 +376,10 @@ export function CampaignCards({ campaign, phone }: CampaignCardsProps) {
                 <KeyValue items={schedule} />
               </div>
             </div>
+            {noticeLine ? <div className="mt-4">{noticeLine}</div> : null}
             <div className="mt-[18px] flex flex-wrap items-center gap-2.5">
               {approveControl}
-              <Button variant="outline" onClick={() => setConfirming("test")}>
-                {copy.send.test}
-              </Button>
+              {testControl}
             </div>
           </>
         )}
@@ -335,7 +390,7 @@ export function CampaignCards({ campaign, phone }: CampaignCardsProps) {
         title={copy.send.confirmTitle(holiday, recipients)}
         description={
           <>
-            <p>{copy.send.confirmBody(eveDate, time, rate)}</p>
+            <p>{copy.send.confirmBody(sendDate, time, rate)}</p>
             {dirty ? <p className="mt-2">{copy.send.confirmSavesDraft}</p> : null}
           </>
         }
@@ -343,6 +398,20 @@ export function CampaignCards({ campaign, phone }: CampaignCardsProps) {
         pending={update.isPending || approve.isPending}
         onCancel={() => setConfirming(null)}
         onConfirm={() => void confirmApprove()}
+      />
+      <ConfirmDialog
+        open={confirming === "submit"}
+        title={copy.review.submit}
+        description={
+          <>
+            <p>{copy.review.submitted}</p>
+            {dirty ? <p className="mt-2">{copy.send.confirmSavesDraft}</p> : null}
+          </>
+        }
+        confirmLabel={copy.review.submit}
+        pending={update.isPending || submit.isPending}
+        onCancel={() => setConfirming(null)}
+        onConfirm={() => void confirmSubmit()}
       />
       <ConfirmDialog
         open={confirming === "test"}

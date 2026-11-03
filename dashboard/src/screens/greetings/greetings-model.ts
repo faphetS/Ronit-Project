@@ -1,4 +1,5 @@
 import type { Locale } from "../../content/copy";
+import { ApiError } from "../../data/http/client";
 import {
   CAMPAIGN_STAGES,
   type AudienceOption,
@@ -31,6 +32,7 @@ export const KEEP_LINE = " ";
 /** Same tones as the overview's greeting card. */
 export const CAMPAIGN_TONE: Record<CampaignStatus, StatusTone> = {
   draft: "neutral",
+  "in-review": "talking",
   "awaiting-approval": "new",
   scheduled: "registered",
   sending: "talking",
@@ -57,6 +59,9 @@ export const SHABBAT_RULES: readonly ShabbatRule[] = ["after-shabbat", "before-s
 /** WhatsApp takes up to 4,096 characters in one message. */
 const WHATSAPP_LIMIT = 4096;
 
+/** A greeting goes out as a WhatsApp template, whose text Meta caps at 1,024 characters. */
+export const TEMPLATE_LIMIT = 1024;
+
 export function messageCount(text: string): number {
   return Math.max(1, Math.ceil(text.length / WHATSAPP_LIMIT));
 }
@@ -66,9 +71,14 @@ export function hebrewYearLabel(year: number, locale: Locale): string {
   return locale === "he" ? toHebrewNumeral(year % 1000) : String(year);
 }
 
-/** The greeting still waits for Ronit's approval. */
+/** The greeting still waits for Ronit's approval: written, in WhatsApp's review, or reviewed. */
 export function awaitsApproval(campaign: HolidayCampaign): boolean {
-  return campaign.status === "draft" || campaign.status === "awaiting-approval";
+  return campaign.status === "draft" || campaign.status === "in-review" || campaign.status === "awaiting-approval";
+}
+
+/** WhatsApp approved the text: tests can go out. */
+export function textApproved(campaign: HolidayCampaign): boolean {
+  return campaign.template?.status === "APPROVED";
 }
 
 /** The text and the audience can change until sending starts. */
@@ -109,8 +119,9 @@ export function audienceName(audience: AudienceOption | undefined, allLabel: str
   return (short ? (audience.shortName ?? audience.name) : audience.name) ?? "";
 }
 
-/** The code a service failed with, like "empty-message". */
+/** The code a service failed with, like "empty-message": the API's own (EMPTY_MESSAGE), or a test service's message. */
 export function errorCode(error: unknown): string | null {
+  if (error instanceof ApiError) return error.code.toLowerCase().replace(/_/g, "-");
   return error instanceof Error ? error.message : null;
 }
 

@@ -67,6 +67,7 @@ export const overview = {
     when: (date: string, time: string) => `ערב החג · ${date} · ${time}`,
     status: {
       draft: "טיוטה",
+      "in-review": "בבדיקת WhatsApp",
       "awaiting-approval": "ממתינה לאישור",
       scheduled: "מתוזמנת",
       sending: "בשליחה",
