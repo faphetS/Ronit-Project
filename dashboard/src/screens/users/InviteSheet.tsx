@@ -236,9 +236,9 @@ export function RemoveUserButton({ userId, name, invite }: RemoveUserProps) {
       </Button>
       <ConfirmDialog
         open={confirming}
-        title={text.title(name)}
-        description={text.body}
-        confirmLabel={text.confirm}
+        title={invite ? text.inviteTitle(name) : text.title(name)}
+        description={invite ? text.inviteBody : text.body}
+        confirmLabel={invite ? text.cancelInvite : text.confirm}
         pending={remove.isPending}
         onCancel={() => setConfirming(false)}
         onConfirm={confirm}

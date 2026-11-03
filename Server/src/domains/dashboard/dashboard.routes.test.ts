@@ -135,11 +135,10 @@ describe("the request limit", () => {
     await request(limited).get(`${API}/leads/counts`).set("Cookie", shira.cookie).expect(200);
   });
 
-  it("also counts per address, so made-up session cookies don't each get their own allowance", async () => {
-    const limited = app({ copy: { enabled: true, deps: copyDeps }, requestsPerMinutePerAddress: 3 });
-    for (let i = 0; i < 3; i += 1) await request(limited).get(`${API}/leads/counts`).set("Cookie", `${SESSION_COOKIE}=made-up-${i}`).expect(401);
-    const flooded = await request(limited).get(`${API}/leads/counts`).set("Cookie", `${SESSION_COOKIE}=made-up-9`).expect(429);
-    expect(flooded.body.code).toBe("RATE_LIMITED");
+  it("never lets signed-out requests use up the staff's allowance", async () => {
+    const limited = app({ copy: { enabled: true, deps: copyDeps }, requestsPerMinute: 3 });
+    for (let i = 0; i < 4; i += 1) await request(limited).get(`${API}/leads/counts`);
+    await request(limited).get(`${API}/leads/counts`).set("Cookie", ronit.cookie).expect(200);
   });
 });
 
