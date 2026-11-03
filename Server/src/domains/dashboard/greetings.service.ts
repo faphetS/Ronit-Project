@@ -8,6 +8,7 @@ import { MESSAGE_TOKENS, type MessageToken } from "../greetings/greetings.tokens
 import { discardTemplate, submitTemplate, TEMPLATE_EXAMPLES, templateParams, templateProblem } from "../greetings/whatsapp-templates.js";
 import { ZernioError, type TemplateStatus, type ZernioClient } from "../greetings/zernio.client.js";
 import type { DeliveryStatus } from "./customers.service.js";
+import { localPhone } from "./dashboard.format.js";
 
 /**
  * Holiday greetings and birthdays on the dashboard. A holiday greeting is written, sent to
@@ -414,9 +415,9 @@ async function testNumber(deps: GreetingsDeps, viewer: SignedInDto): Promise<str
 }
 
 /**
- * Sends the greeting, as approved, to the signed-in person's own WhatsApp, exactly as its first
- * recipient gets it: their name and trip, never text the person typed. Only while the greeting waits
- * to go out.
+ * Sends the greeting, as approved, to the signed-in person's own WhatsApp: the approved text with a
+ * sample name and the trip's name, never a customer's details or text the person typed. Only while the
+ * greeting waits to go out. Each test is counted and logged, with the number, before it goes.
  */
 export async function sendCampaignTest(deps: GreetingsDeps, viewer: SignedInDto, id: string): Promise<CampaignDto> {
   if (!deps.zernio) throw whatsappOff();
@@ -439,7 +440,6 @@ export async function sendCampaignTest(deps: GreetingsDeps, viewer: SignedInDto,
   );
   if (claimed.length === 0) throw new AppError(429, "A test just went out; wait a moment", "TEST_TOO_SOON");
 
-  const preview = deps.showsCustomers ? await previewFor(deps.db, row) : null;
   const { rows } = await deps.db.query<{ language: string; tokens: MessageToken[]; group_name: string | null }>(
     `SELECT t.language, t.tokens, (SELECT g.name FROM groups g WHERE g.id = ANY($2::uuid[]) LIMIT 1) AS group_name
      FROM whatsapp_templates t WHERE t.name = $1`,
@@ -447,24 +447,17 @@ export async function sendCampaignTest(deps: GreetingsDeps, viewer: SignedInDto,
   );
   const template = rows[0];
   const params = templateParams(template.tokens, {
-    firstName: preview?.firstName ?? TEMPLATE_EXAMPLES.firstName,
-    groupName: preview?.groupName ?? template.group_name ?? TEMPLATE_EXAMPLES.groupName,
+    firstName: TEMPLATE_EXAMPLES.firstName,
+    groupName: template.group_name ?? TEMPLATE_EXAMPLES.groupName,
   });
+  if (!params) throw new AppError(400, "A value for the test is missing", "MISSING_VALUE");
+  // In the log before it goes: a send that times out after reaching WhatsApp still counts and shows.
+  await recordCampaignAudit(deps.db, now, "greeting-test", viewer.user.id, id, { to: localPhone(phone) });
   try {
-    if (!params) throw new AppError(400, "A value for the test is missing", "MISSING_VALUE");
     await deps.zernio.sendTemplate({ to: phone, name: row.template_name, language: template.language, params });
   } catch (err) {
-    // Nothing went out: it doesn't count against the next test.
-    await deps.db.query("UPDATE campaigns SET last_test_at = $2, last_test_by = $3 WHERE id = $1 AND last_test_at = $4", [
-      id,
-      row.last_test_at,
-      row.last_test_by,
-      now,
-    ]);
-    if (err instanceof AppError) throw err;
     throw whatsappFailed(err);
   }
-  await recordCampaignAudit(deps.db, now, "greeting-test", viewer.user.id, id);
   return campaignWithPreview(deps.db, id, deps.showsCustomers);
 }
 
@@ -604,8 +597,11 @@ const UPCOMING_DAYS = 7;
 const RECENT_SENDS = 5;
 const WENT_OUT: Record<string, DeliveryStatus> = { sent: "sent", delivered: "delivered", read: "read", failed: "failed" };
 
-/** Birthdays come from passports (the birth date on file): today, the next week, and recent sends. */
-export async function birthdaysOverview(db: Queryable, now: Date): Promise<BirthdaysOverviewDto> {
+/**
+ * Birthdays come from passports (the birth date on file): today, the next week, and recent sends.
+ * Names only for roles that show customers (`showsCustomers`); the others see ages and dates.
+ */
+export async function birthdaysOverview(db: Queryable, now: Date, showsCustomers: boolean): Promise<BirthdaysOverviewDto> {
   const settings = await birthdaySettings(db);
   const today = israelDay(now);
   const people = await db.query<{ id: string; first_name: string; last_name: string; birth_date: string }>(
@@ -621,9 +617,9 @@ export async function birthdaysOverview(db: Queryable, now: Date): Promise<Birth
     // The greeting for that birthday: due that day, or on the Friday before.
     const send = sends.rows.find((m) => m.customer_id === person.id && [day, addDays(day, -1)].includes(israelDay(m.send_at)));
     return {
-      customerId: person.id,
-      firstName: person.first_name,
-      lastName: person.last_name,
+      customerId: showsCustomers ? person.id : "",
+      firstName: showsCustomers ? person.first_name : "",
+      lastName: showsCustomers ? person.last_name : "",
       day,
       age: Number(day.slice(0, 4)) - Number(person.birth_date.slice(0, 4)),
       sendAt: (send?.sent_at ?? send?.send_at ?? slot).toISOString(),

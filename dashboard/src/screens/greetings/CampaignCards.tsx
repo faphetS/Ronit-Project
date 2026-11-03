@@ -230,7 +230,8 @@ export function CampaignCards({ campaign, phone }: CampaignCardsProps) {
       </Button>
     ) : null;
   // What WhatsApp said about the text, or why the next step can't happen yet.
-  const rejected = campaign.status === "draft" && campaign.template?.status === "REJECTED";
+  // Refused, or approved and later paused or disabled by Meta (the greeting is back to writing then).
+  const rejected = campaign.status === "draft" && ["REJECTED", "PAUSED", "DISABLED"].includes(campaign.template?.status ?? "");
   const notice = rejected
     ? copy.review.rejected(campaign.template?.reason || null)
     : whatsapp.data && !whatsapp.data.connected && awaiting

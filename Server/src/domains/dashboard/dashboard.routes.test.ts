@@ -523,8 +523,8 @@ describe("greetings on WhatsApp", () => {
     const me = (await post(ronit, "/users/me", { name: "רונית ברש", whatsappPhone: "050-111-2233" }, server).expect(200)).body.data;
     expect(me.whatsappPhone).toBe("0501112233");
     expect((await post(ronit, at("/test"), {}, server).expect(200)).body.data.lastTest).toEqual({ at: clock.toISOString(), toUserId: ronit.id });
-    // As the first recipient gets it: her name and the trip's, never the tester's own name.
-    expect(zernio.sent).toEqual([{ to: "972501112233", name: template.name, language: "he", params: ["שירה", "טיסה טו באב 26"] }]);
+    // The approved text with a sample name and the trip's: no customer's details, nothing the tester typed.
+    expect(zernio.sent).toEqual([{ to: "972501112233", name: template.name, language: "he", params: ["שרה", "טיסה טו באב 26"] }]);
     // Each test is a paid message: not twice in a row.
     expect((await post(ronit, at("/test"), {}, server).expect(429)).body.code).toBe("TEST_TOO_SOON");
     expect(zernio.sent).toHaveLength(1);
@@ -572,7 +572,10 @@ describe("greetings on WhatsApp", () => {
     }
     expect((await post(ronit, `/greetings/${id}/test`, {}, server).expect(429)).body.code).toBe("TEST_LIMIT");
     expect(zernio.sent).toHaveLength(10);
-    expect((await get(ronit, "/users/audit").expect(200)).body.data[0]).toMatchObject({ action: "greeting-test", byUserId: ronit.id, holiday: "hanukkah" });
+    // Every test shows in the log with the number it went to, and so does the number's change.
+    const log = (await get(ronit, "/users/audit").expect(200)).body.data;
+    expect(log[0]).toMatchObject({ action: "greeting-test", byUserId: ronit.id, holiday: "hanukkah", to: "0501112233" });
+    expect(log.find((entry: { action: string }) => entry.action === "staff-phone-changed")).toMatchObject({ userId: ronit.id, phone: "0501112233" });
   });
 
   it("sends a changed text back to writing, and a new audience back to Ronit's approval", async () => {

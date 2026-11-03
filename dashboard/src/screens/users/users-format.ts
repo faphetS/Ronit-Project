@@ -58,7 +58,9 @@ export function auditTitle(entry: AuditEntry, usersCopy: UsersCopy, holidayNames
     case "greeting-approve":
       return copy.greetingApprove(holidayNames[entry.holiday]);
     case "greeting-test":
-      return copy.greetingTest(holidayNames[entry.holiday]);
+      return copy.greetingTest(holidayNames[entry.holiday], entry.to);
+    case "staff-phone-changed":
+      return copy.staffPhoneChanged(entry.userName, entry.phone);
     case "new-device-sign-in":
       return copy.newDevice;
     case "sign-in-locked":

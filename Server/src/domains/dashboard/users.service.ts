@@ -114,10 +114,14 @@ export async function updateProfile(
     phone = patch.whatsappPhone.trim() ? toMsisdn(patch.whatsappPhone) : null;
     if (phone !== null && !isValidMsisdn(phone)) throw new AppError(400, "That isn't a mobile number", "INVALID_PHONE");
   }
-  await db.query(
-    "UPDATE staff_users SET name = $2, whatsapp_phone = CASE WHEN $3 THEN $4 ELSE whatsapp_phone END, updated_at = $5 WHERE id = $1",
+  const { rows } = await db.query<{ phone_changed: boolean }>(
+    `UPDATE staff_users u SET name = $2, whatsapp_phone = CASE WHEN $3 THEN $4 ELSE u.whatsapp_phone END, updated_at = $5
+     FROM staff_users before WHERE u.id = $1 AND before.id = u.id
+     RETURNING $3 AND before.whatsapp_phone IS DISTINCT FROM $4 AS phone_changed`,
     [viewer.user.id, name, phone !== undefined, phone ?? null, now],
   );
+  // Tests go to this number from Ronit's business number: every change is in the log.
+  if (rows[0]?.phone_changed) await recordAudit(db, now, "staff-phone-changed", viewer.user.id, { userId: viewer.user.id, phone: localPhone(phone ?? null) });
   return ownAccount(db, viewer.user.id);
 }
 
@@ -207,7 +211,11 @@ interface AuditBase {
 export type AuditEntryDto = AuditBase &
   (
     | { action: "passport-view" | "passport-photo-view"; customerId: string; customerName: string }
-    | { action: "greeting-edit" | "greeting-approve" | "greeting-test"; campaignId: string; holiday: string }
+    | { action: "greeting-edit" | "greeting-approve"; campaignId: string; holiday: string }
+    /** A test greeting, and the number it went to. */
+    | { action: "greeting-test"; campaignId: string; holiday: string; to: string }
+    /** Someone set their WhatsApp number for tests ("" when they cleared it). */
+    | { action: "staff-phone-changed"; userId: string; userName: string; phone: string }
     | { action: "security-change"; setting: SecuritySwitch; enabled: boolean }
     | { action: "new-device-sign-in" | "sign-in-locked" | "monday-copy" }
     | { action: "staff-invited" | "staff-removed"; userId: string; userName: string }
@@ -222,6 +230,7 @@ const LOGGED = [
   "greeting-edit",
   "greeting-approve",
   "greeting-test",
+  "staff-phone-changed",
   "security-change",
   "new-device-sign-in",
   "sign-in-locked",
@@ -268,8 +277,13 @@ export async function auditLog(db: Queryable): Promise<AuditEntryDto[]> {
           : [];
       case "greeting-edit":
       case "greeting-approve":
-      case "greeting-test":
         return row.campaign_id ? [{ ...base, action: row.action, campaignId: row.campaign_id, holiday: row.holiday ?? "" }] : [];
+      case "greeting-test":
+        return row.campaign_id
+          ? [{ ...base, action: "greeting-test", campaignId: row.campaign_id, holiday: row.holiday ?? "", to: String(detail("to") ?? "") }]
+          : [];
+      case "staff-phone-changed":
+        return [{ ...base, action: "staff-phone-changed", userId: String(detail("userId") ?? ""), userName: row.target_name ?? "", phone: String(detail("phone") ?? "") }];
       case "security-change":
         return [{ ...base, action: "security-change", setting: detail("setting") as SecuritySwitch, enabled: detail("enabled") === true }];
       case "new-device-sign-in":

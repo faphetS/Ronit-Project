@@ -238,8 +238,8 @@ export function createDashboardRouter(resolveDeps: AuthDepsResolver, options: Da
   router.post("/birthdays/settings", requireAccess("greetings", "full"), validate({ body: BirthdaySettingsSchema }), async (req, res) => {
     sendData(res, await updateBirthdaySettings(greetings(req, res), staffOf(req), req.body));
   });
-  router.get("/birthdays/overview", requireAccess("greetings", "view"), async (_req, res) => {
-    sendData(res, await birthdaysOverview(db(res), now(res)));
+  router.get("/birthdays/overview", requireAccess("greetings", "view"), async (req, res) => {
+    sendData(res, await birthdaysOverview(db(res), now(res), can(req, "customers", "view")));
   });
 
   // ---- Users and access ----

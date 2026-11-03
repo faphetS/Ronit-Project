@@ -80,20 +80,13 @@ Nothing changes until it's set up:
 
 **Test sends** go to the WhatsApp number in each person's own details, added in the avatar panel. They're limited because each one is a paid message from Ronit's number:
 
-- a test reads exactly as the first recipient gets it, their name and trip, never text the tester typed;
+- a test carries the approved text with a sample name and the trip's name: never a customer's details, never text the tester typed;
 - tests only go out while the greeting waits to be sent;
 - one per greeting every 30 seconds, claimed in the database so parallel requests can't slip through;
-- ten a day per person, each one logged among the sensitive actions.
+- ten a day per person. Each one is logged with the number it went to, before it goes, so even one that times out still counts and shows;
+- every change to someone's WhatsApp number is logged too.
 
-The number itself isn't confirmed with a code yet: an admin can see every test in the log.
-
-## 8. Checked before going live
-
-A security review on 2026-11-03 led to these rules:
-
-- **The reviewed text is the text sent.** Submitting claims the greeting only if its text is still the one sent for review. Approving checks, in the same statement, that WhatsApp approved the current text. The queue sends only a template that is approved and matches the text; anything else goes back to writing.
-- **The webhook** applies each event id once, so retries and replays change nothing. It refuses events without an id, takes 100 kB at most, and has its own limit of 300 a minute per address.
-- **Zernio's error text** stays in the server's log; the screens get the code only.
+The number itself isn't confirmed with a code: an admin sees every test, and every number change, among the sensitive actions.
 
 ## 7. To connect
 
@@ -107,3 +100,19 @@ A security review on 2026-11-03 led to these rules:
 5. Send one greeting for review and test it to your own number. Then switch sending on.
 
 A new number starts at Meta's lowest tier: 250 people a day. That covers Ronit's customer list today.
+
+## 8. Checked before going live
+
+A security review on 2026-11-03 led to these rules:
+
+- **The reviewed text is the text sent.**
+  - Submitting claims the greeting only if its text is still the one sent for review.
+  - Approving checks, in the same statement, that WhatsApp approved the current text.
+  - The queue sends only a template that is approved and matches the text. Anything else goes back to writing, including a text Meta paused after the approval, and the screen says so.
+- **The webhook:**
+  - it applies each event id once, so retries and replays change nothing;
+  - it refuses events without an id, and takes 100 kB at most;
+  - it has its own limit of 300 a minute per address.
+- **Zernio's error text** stays in the server's log; the screens get the code only.
+- **Customers' names:** the greeting preview and the birthday list name customers only for roles that show customers.
+- **No per-address limit on the dashboard API:** staff share Vercel's few addresses, so one would let a flood of signed-out requests lock every staff member out. The per-session limit counts signed-out requests per address, apart from staff.
