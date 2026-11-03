@@ -345,6 +345,8 @@ describe("users and access", () => {
     expect(changed.find((row: { area: string }) => row.area === "greetings").access).toEqual({ admin: "full", office: "none", sales: "none" });
     expect((await get(shira, "/greetings/current").expect(403)).body.code).toBe("NO_ACCESS");
 
+    // A minute later, so the log lists the two changes in order.
+    clock = new Date(clock.getTime() + 60_000);
     await post(ronit, "/users/permissions", { role: "sales", area: "greetings", access: "view" }).expect(200);
     await get(moran, "/greetings/current").expect(200);
     expect((await post(moran, "/birthdays/settings", { sendTime: "10:00" }).expect(403)).body.code).toBe("NO_ACCESS");
