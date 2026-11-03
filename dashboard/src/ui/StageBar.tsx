@@ -1,6 +1,7 @@
 import { motion } from "motion/react";
 import { useCopy, useDirection } from "../content/locale";
 import { cx } from "../lib/cx";
+import { useEntrance } from "../motion/entrance";
 import { springs } from "../motion/springs";
 import type { SurfaceVariant } from "./Surface";
 
@@ -20,6 +21,7 @@ interface StageBarProps {
 export function StageBar({ stages, current, surface = "card", className }: StageBarProps) {
   const { uiCopy } = useCopy();
   const rtl = useDirection() === "rtl";
+  const entrance = useEntrance();
   const dark = surface === "ink";
   const at = Math.min(Math.max(current, 0), stages.length - 1);
   return (
@@ -31,7 +33,7 @@ export function StageBar({ stages, current, surface = "card", className }: Stage
               <motion.span
                 className={cx("block h-full rounded-full", index === at ? "bg-gold" : dark ? "bg-cream" : "bg-ink")}
                 style={{ originX: rtl ? 1 : 0 }}
-                initial={{ scaleX: 0 }}
+                initial={entrance ? { scaleX: 0 } : false}
                 animate={{ scaleX: 1 }}
                 transition={{ ...springs.gentle, delay: 0.2 + index * 0.08 }}
               />

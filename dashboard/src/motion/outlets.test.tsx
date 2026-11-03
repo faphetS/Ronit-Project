@@ -78,7 +78,7 @@ describe("StackOutlet", () => {
     );
     await act(() => router.navigate("/customers/c1"));
     const profile = await screen.findByRole("heading", { name: "profile" });
-    expect(profile.parentElement).toHaveStyle({ zIndex: "2" });
+    expect(profile.closest("[style*='z-index']")).toHaveStyle({ zIndex: "2" });
     await act(() => router.navigate(-1));
     expect(await screen.findByRole("heading", { name: "list" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "profile" })).not.toBeInTheDocument();

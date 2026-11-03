@@ -2,6 +2,7 @@ import { motion } from "motion/react";
 import { useCopy, useDirection } from "../content/locale";
 import { cx } from "../lib/cx";
 import { formatNumber } from "../lib/format";
+import { useEntrance } from "../motion/entrance";
 import { springs } from "../motion/springs";
 import { BigNumber } from "./BigNumber";
 import type { SurfaceVariant } from "./Surface";
@@ -43,6 +44,7 @@ const FILL: Record<ProportionTone, { light: string; dark: string }> = {
 export function ProportionBar({ parts, label, legend = "figures", surface = "card", compact = false, className }: ProportionBarProps) {
   const { uiCopy } = useCopy();
   const rtl = useDirection() === "rtl";
+  const entrance = useEntrance();
   const dark = surface === "ink";
   const fill = (tone: ProportionTone) => FILL[tone][dark ? "dark" : "light"];
   const total = parts.reduce((sum, part) => sum + part.value, 0);
@@ -58,7 +60,7 @@ export function ProportionBar({ parts, label, legend = "figures", surface = "car
         aria-hidden={withLegend ? true : undefined}
         className={cx("flex gap-0.5", compact ? "h-3" : "h-3.5")}
         style={{ originX: rtl ? 1 : 0 }}
-        initial={{ scaleX: 0 }}
+        initial={entrance ? { scaleX: 0 } : false}
         animate={{ scaleX: 1 }}
         transition={{ ...springs.gentle, delay: 0.3 }}
       >
