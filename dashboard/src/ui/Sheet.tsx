@@ -1,5 +1,6 @@
 import { AnimatePresence, motion, useDragControls } from "motion/react";
 import { useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import { useShell } from "../app/useShell";
 import { useCopy } from "../content/locale";
 import { cx } from "../lib/cx";
@@ -33,6 +34,8 @@ const DRAG_CLOSE_SPEED = 500;
 /**
  * A modal sheet on the native <dialog>: everything behind it is inert, Escape closes it, and focus comes back to
  * the control that opened it. Desktop: a white card in the middle. Phones: rises from the bottom and can be dragged closed.
+ * It renders at the end of the page, so it takes no text styles from where it's opened: a table cell's
+ * no-wrap would otherwise cut a long title off at the card's edge.
  */
 export function Sheet({ open, onClose, title, description, children, actions, initialFocus, role = "dialog", hideClose = false }: SheetProps) {
   const phone = useShell() === "phone";
@@ -75,7 +78,7 @@ export function Sheet({ open, onClose, title, description, children, actions, in
     ? { initial: { y: "100%" }, animate: { y: 0 }, exit: { y: "100%", transition: springs.surface } }
     : { initial: { opacity: 0, scale: 0.96, y: 8 }, animate: { opacity: 1, scale: 1, y: 0 }, exit: { opacity: 0, scale: 0.98, transition: fadeOut } };
 
-  return (
+  return createPortal(
     <dialog
       ref={dialogRef}
       role={role === "alertdialog" ? "alertdialog" : undefined}
@@ -154,6 +157,7 @@ export function Sheet({ open, onClose, title, description, children, actions, in
           </motion.div>
         ) : null}
       </AnimatePresence>
-    </dialog>
+    </dialog>,
+    document.body,
   );
 }
