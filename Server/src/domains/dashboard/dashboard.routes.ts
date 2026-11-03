@@ -77,11 +77,30 @@ function dashboardLimiter(limit: number) {
   });
 }
 
+/**
+ * Requests per minute from one address, on top of the per-session limit. Staff come through
+ * Vercel's few addresses, far under this. It stops a flood sent straight to the server, where
+ * every made-up session cookie would otherwise get its own allowance and a database lookup.
+ */
+export const DASHBOARD_REQUESTS_PER_MINUTE_PER_ADDRESS = 1200;
+
+function addressLimiter(limit: number) {
+  return rateLimit({
+    windowMs: 60_000,
+    limit,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { status: "error", code: "RATE_LIMITED", message: "Too many requests" },
+  });
+}
+
 export interface DashboardOptions {
   /** The copy from Monday: whether it's on, and how to reach Monday. Tests pass a fake. */
   copy?: { enabled: boolean; deps: (db: Db) => CopyDeps };
   /** Requests per minute per session. */
   requestsPerMinute?: number;
+  /** Requests per minute per address. */
+  requestsPerMinutePerAddress?: number;
 }
 
 /**
@@ -93,6 +112,7 @@ export function createDashboardRouter(resolveDeps: AuthDepsResolver, options: Da
   const router = express.Router();
   router.use(
     noStore,
+    addressLimiter(options.requestsPerMinutePerAddress ?? DASHBOARD_REQUESTS_PER_MINUTE_PER_ADDRESS),
     dashboardLimiter(options.requestsPerMinute ?? DASHBOARD_REQUESTS_PER_MINUTE),
     withAuthDeps(resolveDeps),
     requireDashboardOrigin,
@@ -156,8 +176,9 @@ export function createDashboardRouter(resolveDeps: AuthDepsResolver, options: Da
   router.get("/overview/stats", async (_req, res) => {
     sendData(res, await overviewStats(db(res), now(res)));
   });
-  router.get("/overview/activity", async (_req, res) => {
-    sendData(res, await recentActivity(db(res), now(res)));
+  router.get("/overview/activity", async (req, res) => {
+    const access = { leads: can(req, "leads", "view"), customers: can(req, "customers", "view"), passports: can(req, "passports", "view") };
+    sendData(res, await recentActivity(db(res), now(res), access));
   });
 
   // ---- Greetings and birthdays ----

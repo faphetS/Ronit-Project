@@ -128,6 +128,13 @@ describe("the request limit", () => {
     expect((await request(limited).get(`${API}/leads/counts`).set("Cookie", ronit.cookie).expect(429)).body.code).toBe("RATE_LIMITED");
     await request(limited).get(`${API}/leads/counts`).set("Cookie", shira.cookie).expect(200);
   });
+
+  it("also counts per address, so made-up session cookies don't each get their own allowance", async () => {
+    const limited = app({ copy: { enabled: true, deps: copyDeps }, requestsPerMinutePerAddress: 3 });
+    for (let i = 0; i < 3; i += 1) await request(limited).get(`${API}/leads/counts`).set("Cookie", `${SESSION_COOKIE}=made-up-${i}`).expect(401);
+    const flooded = await request(limited).get(`${API}/leads/counts`).set("Cookie", `${SESSION_COOKIE}=made-up-9`).expect(429);
+    expect(flooded.body.code).toBe("RATE_LIMITED");
+  });
 });
 
 describe("leads", () => {
@@ -237,6 +244,11 @@ describe("overview", () => {
     expect(stats.weeklyLeads.at(-1)).toEqual({ weekStart: "2026-11-01", count: 0 });
     const activity = (await get(moran, "/overview/activity").expect(200)).body.data;
     expect(activity.map((item: { kind: string }) => item.kind)).toEqual(["import", "lead", "lead"]);
+
+    // Closing leads to a role takes the leads' names out of its feed too.
+    await post(ronit, "/users/permissions", { role: "sales", area: "leads", access: "none" }).expect(200);
+    const closed = (await get(moran, "/overview/activity").expect(200)).body.data;
+    expect(closed.map((item: { kind: string }) => item.kind)).toEqual(["import"]);
   });
 });
 
