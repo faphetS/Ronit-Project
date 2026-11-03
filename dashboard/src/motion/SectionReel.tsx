@@ -26,11 +26,12 @@ interface SectionReelProps {
 /** Where the reel stands (in sections) and where it's heading, for every page on it, the leaving ones included. */
 const ReelContext = createContext<{ position: MotionValue<number>; target: number } | null>(null);
 
-// One section takes 0.55 s; each further one adds 0.17 s, up to 1.4 s. Fast in the middle, easing to a stop.
+// One section takes 0.55 s; each further one adds 0.17 s, up to 1.4 s. It gets going at once, then eases to a long,
+// soft stop.
 const STEP_SECONDS = 0.55;
 const EXTRA_SECONDS = 0.17;
 const MOST_SECONDS = 1.4;
-const SPIN_EASE = [0.65, 0, 0.2, 1] as const;
+const SPIN_EASE = [0.4, 0, 0.1, 1] as const;
 const appear = { duration: 0.22, ease: [0.22, 1, 0.36, 1] as const };
 /** The visit's first page: its cards settle in one after another. */
 const firstPage = { initial: {}, enter: { transition: { staggerChildren: STAGGER_SECONDS } } };
