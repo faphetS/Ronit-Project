@@ -251,10 +251,10 @@ Motion is a first-class requirement: it should feel like macOS.
 - **Shared highlights:** the segmented controls and the selected filter chip move between items through `layoutId`.
 - **Which transition:** switching between top-level sections (menu items, tabs) uses the page change. Opening a lead, a customer, the account or the import on a phone uses the push.
 - **Page change:**
-  - Pages are wrapped in `AnimatePresence`, keyed by route.
-  - The visit's first page fades in and rises 12px on the `surface` spring, and its cards stagger by 40ms.
-  - After that, the old and new pages slide together like a pager on the `surface` spring, so the panel is never blank. A section lower in the rail comes up from below and a higher one comes down from above; within a section, a new page comes from below and Back from above.
-  - Pages arrive with their content in place, as their data is loaded ahead. Each page scrolls on its own, so it arrives at its top.
+  - Sections sit on a reel, like a slot machine's, in the rail's order. Opening another section spins it past the sections in between (their main pages), fast in the middle, and eases it to a stop: 0.55s for one section, 0.17s more for each further one, at most 1.4s. The page left behind spins away as it was, so the panel is never blank.
+  - Within a section (a customer's card, the import), the new page fades in where it stands.
+  - The visit's first page fades in on the `surface` spring, and its cards stagger by 40ms. The others arrive with their content in place, as their data is loaded ahead.
+  - Each page scrolls on its own, so it arrives at its top. With Reduce Motion the reel jumps straight there.
 - **Phone push:**
   - The new screen enters from the left (`x: -100% → 0`, forward in RTL).
   - The screen underneath shifts right by 30% and dims slightly.

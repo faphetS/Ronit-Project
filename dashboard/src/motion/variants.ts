@@ -2,24 +2,6 @@ import type { Variants } from "motion/react";
 import { STAGGER_SECONDS, fadeOut, springs } from "./springs";
 import type { ScreenTransition } from "./transitions";
 
-/**
- * Desktop pages. The visit's first page rises in, its cards settling one after another. After that, a page change
- * slides the two pages together like a pager, so the panel is never blank: with direction 1 (further down the rail)
- * the old page leaves upwards and the new one comes up from below; with -1, the reverse.
- */
-export const pageVariants: Variants = {
-  initial: { opacity: 0, y: 12 },
-  enter: { opacity: 1, y: 0, transition: { ...springs.surface, staggerChildren: STAGGER_SECONDS } },
-  exit: (direction: number) => ({ y: `${-direction * 100}%`, transition: springs.surface }),
-};
-
-/** The desktop pages after the first: they arrive from the side the rail moved to. */
-export const pageSlideVariants: Variants = {
-  initial: (direction: number) => ({ y: `${direction * 100}%` }),
-  enter: { y: 0, transition: springs.surface },
-  exit: (direction: number) => ({ y: `${-direction * 100}%`, transition: springs.surface }),
-};
-
 /** Lets children with cardVariants settle in one after another. */
 export const staggerVariants: Variants = {
   initial: {},
