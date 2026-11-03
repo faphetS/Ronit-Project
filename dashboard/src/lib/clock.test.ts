@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { addDays, dayAt, daysBetween, isoDay, now, today, weekStart } from "./clock";
 
 describe("clock", () => {
-  it("anchors the demo day on 2026-10-28", () => {
+  it("reads the real clock: today is the Israeli day, at noon", () => {
+    // src/test/setup.ts fixes the clock at 2026-10-28 15:30 Israel time.
     expect(isoDay(today())).toBe("2026-10-28");
     expect(now().toISOString()).toBe("2026-10-28T13:30:00.000Z");
   });

@@ -6,11 +6,11 @@ import { Button } from "../../ui/Button";
 import { IconCircle } from "../../ui/IconCircle";
 import { SidePanel } from "../../ui/SidePanel";
 import { EmptyState, ErrorState } from "../../ui/states";
-import { LeadBodySkeleton, LeadContactLinks, LeadFacts, LeadHeader, LeadHeaderSkeleton, LeadHistory, LeadNoteForm, LeadStatusPicker } from "./LeadDetailParts";
+import { LeadBodySkeleton, LeadContactLinks, LeadFacts, LeadHeader, LeadHeaderSkeleton, LeadHistory, LeadInMonday } from "./LeadDetailParts";
 import { useLeadDetail } from "./leads-data";
 
 /**
- * The lead beside the list, as on the Leads board: status, contact, details, status chips, history and a new note.
+ * The lead beside the list: status, contact, details, where it is worked in Monday, and Monday's notes.
  * It stays in view while the list scrolls and scrolls on its own when it is taller than the window.
  */
 export function LeadSidePanel({ leadId, onClose }: { leadId: string; onClose: () => void }) {
@@ -24,9 +24,8 @@ export function LeadSidePanel({ leadId, onClose }: { leadId: string; onClose: ()
       <>
         <LeadContactLinks phone={lead.phone} />
         <LeadFacts lead={lead} surface="glass" />
-        <LeadStatusPicker lead={lead} level={3} />
+        <LeadInMonday lead={lead} level={3} />
         <LeadHistory lead={lead} level={3} surface="glass" />
-        <LeadNoteForm leadId={lead.id} />
       </>
     );
   else if (detail.isError && detail.error instanceof NotFoundError)

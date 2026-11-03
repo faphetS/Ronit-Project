@@ -21,7 +21,7 @@ interface GreetingCardProps {
   className?: string;
 }
 
-/** The next holiday greeting (Hanukkah in the demo): its audience, when it goes out, its stage, and approve-and-send. */
+/** The next holiday greeting: its audience, when it goes out, its stage, and approve-and-send. Says so when there is none yet. */
 export function GreetingCard({ phone, className }: GreetingCardProps) {
   const { overview, holidayNames } = useCopy();
   const copy = overview.greeting;

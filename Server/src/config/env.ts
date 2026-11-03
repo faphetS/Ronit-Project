@@ -429,6 +429,15 @@ const envSchema = z.object({
   GREETINGS_MAX_PER_RUN: z.coerce.number().int().min(1).default(10),
   GREETINGS_PACING_MS: z.coerce.number().int().min(0).default(3000),
 
+  // --- The dashboard's copy of Monday (leads, trips, customers) ---
+  // Copies Monday into the CRM database every 2 hours from 07:00 to 23:00 Israel time, and
+  // allows "sync now" from the dashboard. Read-only on Monday; off by default.
+  MONDAY_COPY_ENABLED: z.string().default("false").transform((v) => v === "true"),
+  // The CRM board before the 2026-08-09 migration ("רונית -CRM ישן"): its leads are archived.
+  MONDAY_BOARD_CRM_ARCHIVE_ID: z.string().default("5094895163"),
+  // The account's address on monday.com, for "open in Monday" links (ronit550418.monday.com).
+  MONDAY_ACCOUNT_SLUG: z.string().default("ronit550418"),
+
   // --- Staff sign-in for the dashboard: Google, then a code by email ---
   // Sign-in answers 503 until DATABASE_URL, AUTH_SECRET, DASHBOARD_URL, the Google client and
   // SMTP are all set.

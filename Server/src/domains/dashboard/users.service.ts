@@ -1,0 +1,272 @@
+import type { Queryable } from "../../config/pg.js";
+import { AppError, NotFoundError, ValidationError } from "../../lib/errors.js";
+import { recordAudit, type AuthDeps, type Role, type SignedInDto } from "../auth/auth.service.js";
+import { disableStaffById, inviteStaff } from "../auth/staff-accounts.service.js";
+import { PERMISSIONS, can } from "./dashboard.access.js";
+
+/** The users screen: the team, invites, the security switches and the log of sensitive actions. */
+
+export interface UserAccountDto {
+  id: string;
+  name: string;
+  initial: string;
+  role: Role;
+  passportAccess: boolean;
+  /** Only admins see other people's emails. */
+  email: string;
+  lastSignInAt: string | null;
+  /** Active once they've signed in: every new device then needs the emailed code. */
+  twoStep: "active" | "not-set";
+}
+
+export interface UserInviteDto {
+  id: string;
+  email: string;
+  role: Role;
+  passportAccess: boolean;
+  sentAt: string;
+  sentByUserId: string;
+}
+
+export interface UserDirectoryDto {
+  users: UserAccountDto[];
+  /** Accounts nobody signed in to yet. Admins only. */
+  invites: UserInviteDto[];
+}
+
+interface StaffRow {
+  id: string;
+  email: string;
+  name: string;
+  role: Role;
+  passport_access: boolean;
+  linked: boolean;
+  last_sign_in_at: Date | null;
+  created_at: Date;
+  invited_by: string | null;
+}
+
+const STAFF_SELECT = `
+  SELECT u.id, u.email, u.name, u.role, u.passport_access, u.google_sub IS NOT NULL AS linked, u.last_sign_in_at, u.created_at,
+    (SELECT a.by_user_id FROM audit_log a WHERE a.action = 'staff-invited' AND a.details->>'userId' = u.id::text
+     ORDER BY a.at DESC LIMIT 1) AS invited_by
+  FROM staff_users u`;
+
+function toAccount(row: StaffRow, showEmail: boolean): UserAccountDto {
+  return {
+    id: row.id,
+    name: row.name,
+    initial: row.name.trim().charAt(0),
+    role: row.role,
+    passportAccess: row.passport_access,
+    email: showEmail ? row.email : "",
+    lastSignInAt: row.last_sign_in_at?.toISOString() ?? null,
+    twoStep: row.last_sign_in_at ? "active" : "not-set",
+  };
+}
+
+function toInvite(row: StaffRow): UserInviteDto {
+  return {
+    id: row.id,
+    email: row.email,
+    role: row.role,
+    passportAccess: row.passport_access,
+    sentAt: row.created_at.toISOString(),
+    sentByUserId: row.invited_by ?? "",
+  };
+}
+
+/** Everyone with an open account. Admins also get emails and the pending invites. */
+export async function directory(db: Queryable, viewer: SignedInDto): Promise<UserDirectoryDto> {
+  const admin = can(viewer, "users", "full");
+  const { rows } = await db.query<StaffRow>(`${STAFF_SELECT} WHERE u.disabled_at IS NULL ORDER BY u.created_at, u.name`);
+  return {
+    users: rows.filter((row) => row.linked).map((row) => toAccount(row, admin || row.id === viewer.user.id)),
+    invites: admin ? rows.filter((row) => !row.linked).map(toInvite) : [],
+  };
+}
+
+async function account(db: Queryable, id: string, showEmail: boolean): Promise<UserAccountDto> {
+  const { rows } = await db.query<StaffRow>(`${STAFF_SELECT} WHERE u.id = $1`, [id]);
+  if (!rows[0]) throw new NotFoundError("Staff user");
+  return toAccount(rows[0], showEmail);
+}
+
+/** People change their own name. The email is the Google account they sign in with, so it stays. */
+export async function updateProfile(db: Queryable, viewer: SignedInDto, patch: { name: string }, now: Date): Promise<UserAccountDto> {
+  const name = patch.name.trim();
+  if (!name) throw new ValidationError("A name is needed");
+  await db.query("UPDATE staff_users SET name = $2, updated_at = $3 WHERE id = $1", [viewer.user.id, name, now]);
+  return account(db, viewer.user.id, true);
+}
+
+export function permissions() {
+  return PERMISSIONS;
+}
+
+// ---- Security switches ----
+
+export const SECURITY_SWITCHES = ["twoStepRequired", "maskPassportNumbers", "autoSignOut", "passportAccessLog"] as const;
+export type SecuritySwitch = (typeof SECURITY_SWITCHES)[number];
+
+const SWITCH_COLUMNS: Record<SecuritySwitch, string> = {
+  twoStepRequired: "two_step_required",
+  maskPassportNumbers: "mask_passport_numbers",
+  autoSignOut: "auto_sign_out",
+  passportAccessLog: "passport_access_log",
+};
+
+export type SecuritySettingsDto = Record<SecuritySwitch, boolean> & { autoSignOutMinutes: number };
+
+export async function securitySettings(db: Queryable): Promise<SecuritySettingsDto> {
+  const { rows } = await db.query<{
+    two_step_required: boolean;
+    mask_passport_numbers: boolean;
+    auto_sign_out: boolean;
+    passport_access_log: boolean;
+    auto_sign_out_minutes: number;
+  }>("SELECT two_step_required, mask_passport_numbers, auto_sign_out, passport_access_log, auto_sign_out_minutes FROM security_settings");
+  const row = rows[0];
+  return {
+    twoStepRequired: row.two_step_required,
+    maskPassportNumbers: row.mask_passport_numbers,
+    autoSignOut: row.auto_sign_out,
+    passportAccessLog: row.passport_access_log,
+    autoSignOutMinutes: row.auto_sign_out_minutes,
+  };
+}
+
+/** Flips one switch, and logs it when it actually changed. */
+export async function updateSecurity(
+  db: Queryable,
+  viewer: SignedInDto,
+  setting: SecuritySwitch,
+  enabled: boolean,
+  now: Date,
+): Promise<SecuritySettingsDto> {
+  const column = SWITCH_COLUMNS[setting];
+  const { rows } = await db.query(
+    `UPDATE security_settings SET ${column} = $1, updated_at = $2, updated_by = $3 WHERE ${column} IS DISTINCT FROM $1 RETURNING id`,
+    [enabled, now, viewer.user.id],
+  );
+  if (rows.length > 0) await recordAudit(db, now, "security-change", viewer.user.id, { setting, enabled });
+  return securitySettings(db);
+}
+
+// ---- The log of sensitive actions ----
+
+interface AuditBase {
+  id: string;
+  at: string;
+  byUserId: string | null;
+}
+
+export type AuditEntryDto = AuditBase &
+  (
+    | { action: "passport-view" | "passport-photo-view"; customerId: string; customerName: string }
+    | { action: "greeting-edit" | "greeting-approve"; campaignId: string; holiday: string }
+    | { action: "security-change"; setting: SecuritySwitch; enabled: boolean }
+    | { action: "new-device-sign-in" | "sign-in-locked" | "monday-copy" }
+    | { action: "staff-invited" | "staff-removed"; userId: string; userName: string }
+    | { action: "sign-in-refused"; email: string }
+  );
+
+const LOGGED = [
+  "passport-view",
+  "passport-photo-view",
+  "greeting-edit",
+  "greeting-approve",
+  "security-change",
+  "new-device-sign-in",
+  "sign-in-locked",
+  "sign-in-refused",
+  "monday-copy",
+  "staff-invited",
+  "staff-disabled",
+];
+
+/** Newest first. */
+export async function auditLog(db: Queryable): Promise<AuditEntryDto[]> {
+  const { rows } = await db.query<{
+    id: string;
+    at: Date;
+    by_user_id: string | null;
+    action: string;
+    customer_id: string | null;
+    campaign_id: string | null;
+    details: Record<string, unknown>;
+    customer_name: string | null;
+    holiday: string | null;
+    target_name: string | null;
+  }>(
+    `SELECT a.id, a.at, a.by_user_id, a.action, a.customer_id, a.campaign_id, a.details,
+       c.first_name || ' ' || c.last_name AS customer_name, camp.holiday, target.name AS target_name
+     FROM audit_log a
+     LEFT JOIN customers c ON c.id = a.customer_id
+     LEFT JOIN campaigns camp ON camp.id = a.campaign_id
+     LEFT JOIN staff_users target ON target.id::text = a.details->>'userId'
+     WHERE a.action = ANY($1::text[])
+     ORDER BY a.at DESC, a.id LIMIT 100`,
+    [LOGGED],
+  );
+  return rows.flatMap((row): AuditEntryDto[] => {
+    const base = { id: row.id, at: row.at.toISOString(), byUserId: row.by_user_id };
+    const detail = (key: string) => row.details[key];
+    switch (row.action) {
+      case "passport-view":
+      case "passport-photo-view":
+        return row.customer_id
+          ? [{ ...base, action: row.action, customerId: row.customer_id, customerName: (row.customer_name ?? String(detail("customerName") ?? "")).trim() }]
+          : [];
+      case "greeting-edit":
+      case "greeting-approve":
+        return row.campaign_id ? [{ ...base, action: row.action, campaignId: row.campaign_id, holiday: row.holiday ?? "" }] : [];
+      case "security-change":
+        return [{ ...base, action: "security-change", setting: detail("setting") as SecuritySwitch, enabled: detail("enabled") === true }];
+      case "new-device-sign-in":
+      case "sign-in-locked":
+      case "monday-copy":
+        return [{ ...base, action: row.action }];
+      case "staff-invited":
+      case "staff-disabled":
+        return [{ ...base, action: row.action === "staff-invited" ? "staff-invited" : "staff-removed", userId: String(detail("userId") ?? ""), userName: row.target_name ?? "" }];
+      case "sign-in-refused":
+        return [{ ...base, action: "sign-in-refused", email: String(detail("email") ?? "") }];
+      default:
+        return [];
+    }
+  });
+}
+
+// ---- Inviting and removing ----
+
+export interface InviteInput {
+  email: string;
+  name: string;
+  role: Role;
+  passportAccess: boolean;
+}
+
+/** Registers the account and emails the invite. Sales never get passport access. */
+export async function invite(deps: AuthDeps, viewer: SignedInDto, input: InviteInput): Promise<{ invite: UserInviteDto; emailed: boolean }> {
+  const { userId, emailed } = await inviteStaff(
+    deps,
+    { email: input.email, name: input.name, role: input.role, passportAccess: input.role !== "sales" && input.passportAccess, whatsappPhone: null },
+    viewer.user.id,
+  );
+  const { rows } = await deps.db.query<StaffRow>(`${STAFF_SELECT} WHERE u.id = $1`, [userId]);
+  return { invite: toInvite(rows[0]), emailed };
+}
+
+/** Closes someone's account and signs them out everywhere. Not yourself, and never the last admin. */
+export async function removeUser(deps: Pick<AuthDeps, "db" | "now">, viewer: SignedInDto, userId: string): Promise<void> {
+  if (userId === viewer.user.id) throw new AppError(400, "You can't remove your own account", "CANNOT_REMOVE_SELF");
+  const { rows } = await deps.db.query<{ role: Role; admins: number }>(
+    `SELECT u.role, (SELECT count(*)::int FROM staff_users WHERE role = 'admin' AND disabled_at IS NULL) AS admins
+     FROM staff_users u WHERE u.id = $1 AND u.disabled_at IS NULL`,
+    [userId],
+  );
+  if (!rows[0]) throw new NotFoundError("Staff user");
+  if (rows[0].role === "admin" && rows[0].admins <= 1) throw new AppError(400, "The last admin can't be removed", "LAST_ADMIN");
+  await disableStaffById(deps, userId, viewer.user.id);
+}

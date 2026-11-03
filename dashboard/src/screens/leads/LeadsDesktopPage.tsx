@@ -4,7 +4,6 @@ import { useNavigate } from "react-router";
 import { useCopy } from "../../content/locale";
 import { useLeadCounts, useOverview } from "../../data/queries";
 import { formatNumber } from "../../lib/format";
-import { GooButton } from "../../ui/GooButton";
 import { Headline } from "../../ui/Headline";
 import { ScreenFrame } from "../../ui/ScreenFrame";
 import { Segmented } from "../../ui/Segmented";
@@ -63,10 +62,6 @@ export function LeadsDesktopPage({ leadId }: { leadId?: string }) {
             ]}
           />
           <FilterToggle open={filtersOpen} controls={filtersId} activeCount={activeFilters} onToggle={() => setFiltersOpen((shown) => !shown)} />
-          {/* Adding leads needs the API: there is no service for it yet. */}
-          <GooButton icon="plus" disabled>
-            {copy.newLead}
-          </GooButton>
         </div>
       </div>
 

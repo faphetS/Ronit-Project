@@ -80,7 +80,7 @@ export function CustomerProfileScreen() {
           <ProfileHeader customer={data} groupLabel={groupLabel} />
           <div className="grid gap-5 lg:grid-cols-12">
             <PassportCard key={data.id} customer={data} groupLabel={groupLabel} intake={intake} canView={canView} className="lg:col-span-12 xl:col-span-8" />
-            <AccessLogCard customerId={data.id} className="lg:col-span-6 xl:col-span-4" />
+            {canView ? <AccessLogCard customerId={data.id} className="lg:col-span-6 xl:col-span-4" /> : null}
             <MessagesCard customerId={data.id} className="lg:col-span-6 xl:col-span-4" />
             <DetailsCard customer={data} groupLabel={groupLabel} className="lg:col-span-6 xl:col-span-4" />
             <NotesCard customer={data} className="lg:col-span-6 xl:col-span-4" />

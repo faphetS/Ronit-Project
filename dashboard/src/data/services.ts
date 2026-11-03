@@ -4,35 +4,38 @@ import type {
   AuditEntry,
   BirthdaySettings,
   BirthdaysOverview,
+  CopyRun,
   Customer,
   CustomerMessage,
   GroupParticipant,
   GroupSummary,
   HolidayCampaign,
-  ImportRun,
   Lead,
+  LeadService,
   LeadSource,
   LeadStatus,
+  MondayCopy,
   OverviewStats,
   PassportAccessEntry,
   PassportIntake,
   PermissionMatrix,
+  Role,
   SecuritySettings,
   SecuritySwitch,
   Session,
   StaffUser,
   UserAccount,
   UserDirectory,
+  UserInvite,
 } from "./types";
 
 export type LeadStatusFilter = LeadStatus | "all";
 
 export interface LeadFilters {
   status?: LeadStatusFilter;
-  groupId?: string;
+  service?: LeadService;
   source?: LeadSource;
-  assigneeId?: string;
-  /** Matches the name, or digits in the phone number. */
+  /** Matches the name, or digits in the phone number. A search also finds archived leads. */
   search?: string;
 }
 
@@ -66,6 +69,12 @@ export interface SignedIn {
 /** What a passport view revealed: the fields, or the photo behind "הצגה". */
 export type PassportPart = "details" | "photo";
 
+/** A logged passport view: the log line (null while the access log is off), and the full number for "details". */
+export interface PassportReveal {
+  entry: PassportAccessEntry | null;
+  number: string | null;
+}
+
 /** Fields of the current greeting that can be edited. */
 export interface CampaignPatch {
   message?: string;
@@ -74,7 +83,7 @@ export interface CampaignPatch {
 
 export type BirthdaySettingsPatch = Partial<Pick<BirthdaySettings, "enabled" | "sendTime" | "shabbatRule" | "template">>;
 
-/** Where "Continue with Google" leads: Google itself (through the API), or, on the demo data, straight to the code. */
+/** Where "Continue with Google" leads: Google itself, through the API. Test services may go straight to the code. */
 export type GoogleStart = { redirectTo: string } | { step: "code-required" };
 
 /** What Google's own button led to: signed in on a remembered device, or the emailed code is next. */
@@ -121,13 +130,13 @@ export interface SessionService {
   signOut(): Promise<void>;
 }
 
+/** Leads are copied from Monday and edited there until the switch-over, so this only reads. */
 export interface LeadsService {
-  /** The open pipeline, newest update first. */
+  /** The open pipeline, newest Monday update first. */
   list(filters?: LeadFilters): Promise<Lead[]>;
   counts(): Promise<LeadCounts>;
+  /** With its Monday notes. */
   get(id: string): Promise<Lead>;
-  updateStatus(id: string, status: LeadStatus): Promise<Lead>;
-  addNote(id: string, text: string): Promise<Lead>;
 }
 
 export interface CustomersService {
@@ -142,8 +151,8 @@ export interface CustomersService {
   accessLog(id: string): Promise<PassportAccessEntry[]>;
   /** Adds an internal note by the signed-in user. */
   addNote(id: string, text: string): Promise<Customer>;
-  /** Records that the signed-in user opened the passport. Null when the access log is switched off. */
-  logPassportView(id: string, part: PassportPart): Promise<PassportAccessEntry | null>;
+  /** Records that the signed-in user opened the passport, and returns the full number for "details". */
+  logPassportView(id: string, part: PassportPart): Promise<PassportReveal>;
 }
 
 export interface GroupsService {
@@ -181,31 +190,43 @@ export interface BirthdaysService {
   updateSettings(patch: BirthdaySettingsPatch): Promise<BirthdaySettings>;
 }
 
-/** The signed-in user's own details that they can change. */
+/** The signed-in user's own name. The email is the Google account they sign in with, so it can't change here. */
 export interface ProfilePatch {
-  name?: string;
-  email?: string;
+  name: string;
+}
+
+/** Someone to give an account: they sign in with the Google account of this email. */
+export interface InviteInput {
+  email: string;
+  name: string;
+  role: Role;
+  /** Never for sales. */
+  passportAccess: boolean;
 }
 
 export interface UsersService {
   list(): Promise<UserDirectory>;
-  /** Changes the signed-in user's own name or email. */
+  /** Changes the signed-in user's own name. */
   updateProfile(patch: ProfilePatch): Promise<UserAccount>;
   permissions(): Promise<PermissionMatrix>;
   security(): Promise<SecuritySettings>;
   updateSecurity(key: SecuritySwitch, enabled: boolean): Promise<SecuritySettings>;
-  /** Sensitive actions by staff, newest first. */
+  /** Sensitive actions, newest first. */
   audit(): Promise<AuditEntry[]>;
+  /** Registers the account and emails the invite. `emailed` is false when the email didn't go out. */
+  invite(input: InviteInput): Promise<{ invite: UserInvite; emailed: boolean }>;
+  /** Closes the account and signs them out everywhere. */
+  remove(userId: string): Promise<void>;
 }
 
 export interface ImportsService {
-  /** The Monday.com import. */
-  latest(): Promise<ImportRun>;
-  /** Confirms everything came over and closes the Monday boards. */
-  closeMonday(id: string): Promise<ImportRun>;
+  /** How the copy from Monday stands. */
+  latest(): Promise<MondayCopy>;
+  /** Copies from Monday now, in the background: the run comes back while it's still running. */
+  copyNow(): Promise<CopyRun>;
 }
 
-/** Everything the screens may ask of the backend. The mock implements it today; Ronit's API will later. */
+/** Everything the screens ask of Ronit's API (src/data/http). */
 export interface Services {
   session: SessionService;
   leads: LeadsService;
@@ -227,9 +248,3 @@ export class NotFoundError extends Error {
   }
 }
 
-export class ServiceUnavailableError extends Error {
-  constructor(service: ServiceName) {
-    super(`The ${service} service is unavailable`);
-    this.name = "ServiceUnavailableError";
-  }
-}

@@ -1,29 +1,33 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { createServices, httpServicesFromEnv } from "./createServices";
+import { describe, expect, it, vi } from "vitest";
+import { createServices } from "./createServices";
+import { NotFoundError } from "./services";
 
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
-
-describe("httpServicesFromEnv", () => {
-  it("reads a list, 'all', or nothing", () => {
-    expect([...httpServicesFromEnv("session, customers,nonsense")]).toEqual(["session", "customers"]);
-    expect(httpServicesFromEnv("all").size).toBe(9);
-    expect(httpServicesFromEnv(undefined).size).toBe(0);
-    expect(httpServicesFromEnv("").size).toBe(0);
-  });
-});
+/** A fetch that answers every call with `body` and `status`, and records what was asked. */
+function stubFetch(body: unknown, status = 200) {
+  return vi.fn<typeof fetch>(async () => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }));
+}
 
 describe("createServices", () => {
-  it("moves only the services that have an API adapter", async () => {
-    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({ status: "error", code: "UNAUTHENTICATED" }), { status: 401 }));
-    vi.stubGlobal("fetch", fetch);
-    const services = createServices({ http: new Set(["session", "leads"]), apiUrl: "https://api.example.com", mock: { latency: [0, 0], storage: window.sessionStorage } });
+  it("reads the dashboard API with the sign-in cookie, and unwraps its answers", async () => {
+    const fetch = stubFetch({ status: "ok", data: [{ id: "l-1", name: "נועה" }] });
+    const services = createServices({ apiUrl: "", fetch });
+    expect(await services.leads.list({ status: "no-answer", search: " נועה " })).toEqual([{ id: "l-1", name: "נועה" }]);
+    const [url, init] = fetch.mock.calls[0];
+    expect(url).toBe(`/api/dashboard/leads?status=no-answer&search=${encodeURIComponent("נועה")}`);
+    expect(init).toMatchObject({ method: "GET", credentials: "include" });
+  });
 
-    await expect(services.session.current()).resolves.toBeNull();
-    expect(fetch).toHaveBeenCalledWith("https://api.example.com/api/auth/session", expect.objectContaining({ credentials: "include" }));
-    // Leads has no adapter yet, so it still answers from the demo data.
-    await expect(services.leads.counts()).resolves.toMatchObject({ all: expect.any(Number) });
-    expect(fetch).toHaveBeenCalledTimes(1);
+  it("sends changes as JSON posts", async () => {
+    const fetch = stubFetch({ status: "ok", data: { invite: { id: "u-2" }, emailed: true } });
+    const services = createServices({ apiUrl: "https://api.example.com", fetch });
+    await services.users.invite({ email: "tal@example.com", name: "טל", role: "sales", passportAccess: false });
+    const [url, init] = fetch.mock.calls[0];
+    expect(url).toBe("https://api.example.com/api/dashboard/users/invites");
+    expect(init).toMatchObject({ method: "POST", body: JSON.stringify({ email: "tal@example.com", name: "טל", role: "sales", passportAccess: false }) });
+  });
+
+  it("turns a 404 into the NotFoundError the screens recognise", async () => {
+    const services = createServices({ apiUrl: "", fetch: stubFetch({ status: "error", code: "NOT_FOUND", message: "Lead not found" }, 404) });
+    await expect(services.leads.get("l-gone")).rejects.toBeInstanceOf(NotFoundError);
   });
 });

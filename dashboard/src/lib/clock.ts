@@ -1,7 +1,5 @@
 export const TIME_ZONE = "Asia/Jerusalem";
 
-const DEFAULT_DAY = "2026-10-28";
-const DEMO_TIME = "15:30";
 const DAY_MS = 86_400_000;
 
 const isoDayFormat = new Intl.DateTimeFormat("en-CA", {
@@ -25,18 +23,14 @@ export function dayAt(day: string, time = "12:00"): Date {
   return new Date(`${day}T${time}:00+02:00`);
 }
 
-function demoDay(): string {
-  return import.meta.env.VITE_DEMO_TODAY || DEFAULT_DAY;
-}
-
-/** The demo "today", at noon. Mock data is built around this day. */
+/** Today in Israel, at noon. */
 export function today(): Date {
-  return dayAt(demoDay());
+  return dayAt(isoDay(new Date()));
 }
 
-/** The demo "now": the demo day at 15:30 Israel time. */
+/** This moment. Tests fix it with vi.setSystemTime (src/test/setup.ts). */
 export function now(): Date {
-  return dayAt(demoDay(), DEMO_TIME);
+  return new Date();
 }
 
 export function addDays(date: Date, days: number): Date {

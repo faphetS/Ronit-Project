@@ -135,19 +135,16 @@ export function MessagesCard({ customerId, compact = false, className }: { custo
   );
 }
 
-/** Desktop: group, source, who it is assigned to, the lead and Monday board it came from, and the phone. */
+/** Desktop: group, source, the lead and Monday board she came from, and the phone. */
 export function DetailsCard({ customer, groupLabel, className }: { customer: Customer; groupLabel: string; className?: string }) {
   const { customersCopy: copy } = useCopy();
   const headingId = useId();
-  const staff = useStaffLookup();
   const rows = copy.details.rows;
-  const assignee = customer.assigneeId ? (staff(customer.assigneeId)?.name ?? copy.list.pending) : copy.details.unassigned;
   const fromMonday = customer.mondayBoard ? copy.details.fromMonday(customer.mondayBoard) : null;
   const lead = customer.leadId ? <TextLink to={`/leads/${customer.leadId}`}>{fromMonday ?? copy.details.openLead}</TextLink> : (fromMonday ?? copy.details.noLead);
   const items: KeyValueItem[] = [
     { key: "group", label: rows.group, value: groupLabel || "·" },
     { key: "source", label: rows.source, value: copy.details.sources[customer.source] },
-    { key: "assignee", label: rows.assignee, value: assignee },
     { key: "lead", label: rows.lead, value: lead },
     { key: "phone", label: rows.phone, value: <Ltr>{maskPhone(customer.phone)}</Ltr> },
   ];

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { Locale } from "../../content/copy";
 import { useCopy, useLocale } from "../../content/locale";
 import { useGroupParticipants } from "../../data/queries";
 import type { Flight, FlightLeg, GroupParticipant, GroupSummary } from "../../data/types";
@@ -44,15 +45,34 @@ function Blank() {
   );
 }
 
-/** Phone and the trip note, under a name in a phone list. */
+/** The notes on a person: Monday's status on a flight ("תשלום חלקי"), a challah booking's day, and the office's note. */
+function personNotes(person: GroupParticipant, sep: string, locale: Locale): string | null {
+  const day = person.eventOn ? formatDayMonth(dayAt(person.eventOn), locale) : null;
+  return [person.mondayStatus, day, person.note].filter(Boolean).join(sep) || null;
+}
+
+/** Phone and the notes, under a name in a phone list. */
 function ContactLine({ person }: { person: GroupParticipant }) {
   const { groupsCopy: copy } = useCopy();
+  const { locale } = useLocale();
+  const notes = personNotes(person, copy.sep, locale);
   return (
     <>
       <Ltr>{maskPhone(person.phone)}</Ltr>
-      {person.note ? `${copy.sep}${person.note}` : null}
+      {notes ? `${copy.sep}${notes}` : null}
     </>
   );
+}
+
+/** A passport on file, Monday's own mark while there is none ("יש · לפי Monday"), or missing. */
+function PassportTag({ person }: { person: GroupParticipant }) {
+  const { groupsCopy: copy } = useCopy();
+  const text = copy.participants;
+  if (person.passport === "received") return <StatusTag tone="registered">{text.passport.received}</StatusTag>;
+  if (person.mondayPassport) {
+    return <StatusTag tone={person.mondayPassport === "yes" ? "registered" : "talking"}>{text.mondayPassport[person.mondayPassport]}</StatusTag>;
+  }
+  return <StatusTag tone="warning">{text.passport.missing}</StatusTag>;
 }
 
 interface GroupProps {
@@ -73,7 +93,7 @@ export function ParticipantsCard({ group, className }: GroupProps) {
         {
           key: "passport",
           header: text.columns.passport,
-          cell: (row) => <StatusTag tone={row.passport === "received" ? "registered" : "warning"}>{text.passport[row.passport]}</StatusTag>,
+          cell: (row) => <PassportTag person={row} />,
         },
         {
           key: "expiry",
@@ -91,7 +111,7 @@ export function ParticipantsCard({ group, className }: GroupProps) {
     },
     { key: "phone", header: text.columns.phone, cell: (row) => <Ltr>{maskPhone(row.phone)}</Ltr> },
     ...passportColumns,
-    { key: "notes", header: text.columns.notes, wrap: true, className: "text-mute", cell: (row) => row.note ?? <Blank /> },
+    { key: "notes", header: text.columns.notes, wrap: true, className: "text-mute", cell: (row) => personNotes(row, copy.sep, locale) ?? <Blank /> },
   ];
   const tag = !flight ? null : group.missingPassports > 0 ? (
     <StatusTag tone="warning">{text.missingTag(group.missingPassports)}</StatusTag>
@@ -116,7 +136,7 @@ export function ParticipantsCard({ group, className }: GroupProps) {
           label={text.table(name)}
           columns={columns}
           rows={participants.data}
-          rowKey={(row) => row.customerId}
+          rowKey={(row) => row.id}
           rowHref={(row) => `/customers/${row.customerId}`}
           empty={<EmptyState message={text.empty} />}
           pageSize={CARD_PAGE_SIZE}
@@ -149,7 +169,7 @@ export function MissingPassportsCard({ group }: { group: GroupSummary }) {
             {missing.map((person) => (
               <ListRow
                 as="li"
-                key={person.customerId}
+                key={person.id}
                 to={`/customers/${person.customerId}`}
                 leading={<Avatar initial={person.firstName.charAt(0)} />}
                 title={fullName(person)}
@@ -188,7 +208,7 @@ export function ParticipantsList({ group }: { group: GroupSummary }) {
           {shown.map((person) => (
             <ListRow
               as="li"
-              key={person.customerId}
+              key={person.id}
               to={`/customers/${person.customerId}`}
               leading={<Avatar initial={person.firstName.charAt(0)} />}
               title={fullName(person)}
@@ -259,12 +279,13 @@ export function ReadinessCard({ group, phone, onShow }: OrbProps) {
   );
 }
 
-/** What an event has instead of readiness: its day, the Hebrew date and how long until it. */
+/** What an event has instead of readiness: its day, the Hebrew date and how long until it. A whole month shows the month. */
 export function EventDateCard({ group, phone, onShow }: OrbProps) {
   const { groupsCopy: copy } = useCopy();
   const { locale } = useLocale();
   const layout = phone ? ORB.phone : ORB.desktop;
-  const start = dayAt(group.startsOn);
+  const start = group.startsOn ? dayAt(group.startsOn) : null;
+  const seats = seatsFree(group);
   return (
     <OrbCard
       label={copy.event.label(plainName(group.shortName))}
@@ -274,8 +295,8 @@ export function EventDateCard({ group, phone, onShow }: OrbProps) {
       className={layout.className}
       strip={
         <>
-          {group.dateLabel ? (
-            <p className="text-display-3 font-light text-ink">{groupDate(group, locale)}</p>
+          {group.dateLabel || !start ? (
+            <p className="text-display-3 font-light text-ink">{groupDate(group, locale) ?? copy.noDate}</p>
           ) : (
             <>
               <p className="text-display font-light text-ink">
@@ -287,7 +308,9 @@ export function EventDateCard({ group, phone, onShow }: OrbProps) {
             </>
           )}
           <span className="flex-1" />
-          <p className={cx("font-medium text-ink", phone && "text-small")}>{copy.event.countdown(daysBetween(today(), start))}</p>
+          {start && !group.dateLabel ? (
+            <p className={cx("font-medium text-ink", phone && "text-small")}>{copy.event.countdown(daysBetween(today(), start))}</p>
+          ) : null}
         </>
       }
       side={
@@ -295,7 +318,7 @@ export function EventDateCard({ group, phone, onShow }: OrbProps) {
           <p className="text-caption text-mute">
             {group.shortName}
             <br />
-            {copy.seatsLeft(seatsFree(group))}
+            {seats === null ? copy.registeredCount(group.registered) : copy.seatsLeft(seats)}
           </p>
           <GooButton size="sm" onClick={onShow}>
             {copy.event.toParticipants}
@@ -351,11 +374,12 @@ export function EventDetailsCard({ group, phone }: { group: GroupSummary; phone:
   const { groupsCopy: copy } = useCopy();
   const { locale } = useLocale();
   const text = copy.event;
+  const seats = seatsFree(group);
   const items: KeyValueItem[] = [
-    { key: "date", label: text.date, value: groupDate(group, locale) },
-    { key: "capacity", label: text.capacity, value: formatNumber(group.capacity) },
+    { key: "date", label: text.date, value: groupDate(group, locale) ?? copy.noDate },
+    ...(group.capacity === null ? [] : [{ key: "capacity", label: text.capacity, value: formatNumber(group.capacity) }]),
     { key: "registered", label: text.registered, value: formatNumber(group.registered) },
-    { key: "free", label: text.free, value: formatNumber(seatsFree(group)) },
+    ...(seats === null ? [] : [{ key: "free", label: text.free, value: formatNumber(seats) }]),
     ...(group.womenOnly ? [{ key: "audience", label: text.audience, value: copy.womenOnly }] : []),
   ];
   return (

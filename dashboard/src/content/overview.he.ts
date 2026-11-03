@@ -109,6 +109,8 @@ export const overview = {
     womenOnly: "נשים בלבד",
     departs: (date: string) => `יציאה ${date}`,
     registered: (registered: string, capacity: string) => `${registered} מתוך ${capacity} נרשמו`,
+    registeredCount: (registered: string) => `${registered} נרשמו`,
+    noDate: "מועד ייקבע",
     empty: "אין קבוצות פעילות כרגע",
   },
 
@@ -127,5 +129,11 @@ export const overview = {
     title: "פעילות אחרונה",
     today: "היום",
     empty: "עדיין אין פעילות",
+    /** Under a new lead's name: where she came from and what she asked about. */
+    lead: (source: string, service: string | null) => (service ? `ליד חדש · ${source} · ${service}` : `ליד חדש · ${source}`),
+    registration: (group: string) => `נרשמה · ${group}`,
+    passport: { matched: "דרכון נקלט לכרטיס", "new-card": "דרכון פתח כרטיס חדש", "needs-review": "דרכון ממתין לבדיקה" } satisfies Record<IntakeResult, string>,
+    importTitle: "העתקה מ-Monday",
+    importDetail: (leads: string, customers: string) => `${leads} לידים · ${customers} לקוחות`,
   },
 } as const;

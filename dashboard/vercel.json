@@ -5,6 +5,7 @@
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/api/auth/(.*)", "destination": "https://api.ronitbarash.site/api/auth/$1" },
+    { "source": "/api/dashboard/(.*)", "destination": "https://api.ronitbarash.site/api/dashboard/$1" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

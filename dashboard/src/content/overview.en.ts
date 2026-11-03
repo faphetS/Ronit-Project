@@ -103,6 +103,8 @@ export const overview: Widen<typeof he> = {
     womenOnly: "Women only",
     departs: (date) => `Departs ${date}`,
     registered: (registered, capacity) => `${registered} of ${capacity} registered`,
+    registeredCount: (registered) => `${registered} registered`,
+    noDate: "Date to be set",
     empty: "No active groups right now",
   },
 
@@ -120,5 +122,10 @@ export const overview: Widen<typeof he> = {
     title: "Recent activity",
     today: "Today",
     empty: "No activity yet",
+    lead: (source, service) => (service ? `New lead · ${source} · ${service}` : `New lead · ${source}`),
+    registration: (group) => `Registered · ${group}`,
+    passport: { matched: "Passport added to her card", "new-card": "Passport opened a new card", "needs-review": "Passport waiting for review" },
+    importTitle: "Copy from Monday",
+    importDetail: (leads, customers) => `${leads} leads · ${customers} customers`,
   },
 };

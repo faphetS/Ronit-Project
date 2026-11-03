@@ -1,17 +1,16 @@
 import type { LeadStatusFilter } from "../data/services";
-import type { LeadSource, LeadStatus } from "../data/types";
+import type { LeadService, LeadSource, LeadStatus } from "../data/types";
 
 export const leadsCopy = {
-  /** Status names, on tags, chips and in the detail. The mock writes them into lead history, in Hebrew. */
+  /** Status names, on tags, chips and in the detail. */
   status: {
     new: "חדש",
+    "no-answer": "אין מענה",
     talking: "בשיחה",
     "details-sent": "נשלחו פרטים",
     registered: "הרשמה הושלמה",
     "not-relevant": "לא רלוונטי",
   } satisfies Record<LeadStatus, string>,
-  /** The toast after a status change. The mock writes it into lead history, in Hebrew. */
-  statusChanged: (label: string) => `הסטטוס עודכן: ${label}`,
 
   title: "לידים",
   summary: (open: string, newThisWeek: string) => `${open} פתוחים · ${newThisWeek} חדשים השבוע`,
@@ -26,13 +25,14 @@ export const leadsCopy = {
   view: { label: "תצוגה", table: "טבלה", board: "לוח" },
   filter: "סינון",
   activeFilters: (count: number) => (count === 1 ? "מסנן אחד פעיל" : `${count} מסננים פעילים`),
-  newLead: "ליד חדש",
 
+  /** The strip under the header: the leads are a copy of Monday, and when it was made. */
   monday: {
-    label: "הייבוא מ-Monday.com",
-    note: "כל הלידים הועברו מ-Monday.com, כולל הערות והיסטוריית פעילות.",
-    imported: (count: string) => `${count} יובאו`,
-    details: "לפרטי הייבוא",
+    label: "ההעתקה מ-Monday.com",
+    note: "הלידים מועתקים מ-Monday.com כל שעתיים, עם ההערות. עריכה של ליד נעשית ב-Monday.",
+    copiedAt: (when: string) => `עודכן ${when}`,
+    notYet: "עוד לא הועתק",
+    details: "לפרטי ההעתקה",
   },
 
   filters: {
@@ -41,6 +41,7 @@ export const leadsCopy = {
     statusOptions: {
       all: "הכל",
       new: "חדשים",
+      "no-answer": "אין מענה",
       talking: "בשיחה",
       "details-sent": "נשלחו פרטים",
       registered: "הרשמה הושלמה",
@@ -48,36 +49,39 @@ export const leadsCopy = {
     } satisfies Record<LeadStatusFilter, string>,
     source: "מקור",
     allSources: "כל המקורות",
-    group: "קבוצה",
-    allGroups: "כל הקבוצות",
-    assignee: "שיוך",
-    allAssignees: "שיוך: כולם",
-    assignedTo: (name: string) => `שיוך: ${name}`,
+    service: "שירות",
+    allServices: "כל השירותים",
     clear: "ניקוי הסינון",
   },
 
   sources: {
-    "landing-page": "דף נחיתה",
+    "landing-page": "אתר",
     instagram: "אינסטגרם",
     facebook: "פייסבוק",
     whatsapp: "וואטסאפ",
     referral: "המלצה",
   } satisfies Record<LeadSource, string>,
 
+  /** What the lead asked about, from Monday's "שירות". */
+  services: {
+    uman: "טיסות לאומן",
+    challah: "הפרשות חלה",
+  } satisfies Record<LeadService, string>,
+  noService: "שירות לא צוין",
+
   search: "חיפוש לפי שם או טלפון",
 
   table: {
-    label: "רשימת לידים לפי קבוצה",
+    label: "רשימת לידים לפי שירות",
     name: "שם והערה אחרונה",
     phone: "טלפון",
     source: "מקור",
     status: "סטטוס",
     updated: "עדכון",
   },
-  /** After a trip's name: when it leaves. */
-  departs: (date: string) => `יציאה ${date}`,
-  noGroup: "ללא קבוצה",
   leadCount: (count: number) => (count === 1 ? "ליד אחד" : `${count} לידים`),
+  /** A lead from the old CRM board, found by a search. */
+  archived: "ארכיון",
 
   board: {
     label: "לוח לידים לפי סטטוס",
@@ -92,7 +96,7 @@ export const leadsCopy = {
   /** In the side column on desktop, until a lead is chosen. */
   hint: {
     title: "בחרי ליד מהרשימה",
-    text: "כאן יופיעו הפרטים שלו, הסטטוס, ההיסטוריה וההערות.",
+    text: "כאן יופיעו הפרטים שלו, השיחות וההערות מ-Monday.",
   },
 
   detail: {
@@ -100,28 +104,25 @@ export const leadsCopy = {
     label: (name: string) => `פרטי ליד: ${name}`,
     whatsapp: "וואטסאפ",
     call: "שיחה",
-    /** The WhatsApp link opens in a new tab. */
+    /** A link that opens in a new tab. */
     newTab: (label: string) => `${label} (נפתח בלשונית חדשה)`,
     phone: "טלפון",
     source: "מקור",
-    assignee: "שיוך",
-    created: "נוצר",
-    unassigned: "לא משויך",
-    status: "סטטוס",
-    changeStatus: "שינוי סטטוס",
-    statusFailed: "הסטטוס לא עודכן. אפשר לנסות שוב.",
-    history: "היסטוריה",
-    noHistory: "אין עדיין פעילות",
-    /** When and who, under a history entry. */
+    service: "שירות",
+    mondayGroup: "קבוצה ב-Monday",
+    inquiry: "פנייה",
+    calls: "שיחות",
+    callsLine: (count: number, last: string | null) => (count === 0 ? "עוד לא" : last ? `${count} · אחרונה ${last}` : String(count)),
+    /** Where the lead is edited until the switch-over. */
+    inMonday: "ב-Monday",
+    openInMonday: "פתיחה ב-Monday",
+    editInMonday: "שינוי סטטוס והוספת הערות נעשים ב-Monday, עד המעבר למערכת.",
+    nextStep: "שלב הבא",
+    lastMessage: "הודעה אחרונה באינסטגרם",
+    history: "הערות ושיחות",
+    noHistory: "אין עדיין הערות",
+    /** When and who, under a note. */
     historyMeta: (date: string, by: string) => `${date} · ${by}`,
-    /** Under an entry that came over in the import: the Monday board it came from. */
-    mondayBoard: (board: string) => `לוח ${board}`,
-    note: "הערה חדשה",
-    notePlaceholder: "מה סוכם בשיחה?",
-    save: "שמירה",
-    noteSaved: "ההערה נשמרה",
-    noteEmpty: "כתבי הערה לפני השמירה",
-    noteFailed: "ההערה לא נשמרה. אפשר לנסות שוב.",
     notFound: "הליד הזה לא נמצא",
     backToList: "חזרה ללידים",
   },

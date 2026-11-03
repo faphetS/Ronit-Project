@@ -1,7 +1,7 @@
 /**
  * Calendar days and wall-clock times in Israel, exact across daylight saving. Days are
- * YYYY-MM-DD strings; times are HH:mm. Mirrors the dashboard's src/data/mock/schedule.ts,
- * which shows Ronit the same send times.
+ * YYYY-MM-DD strings; times are HH:mm. The dashboard API uses these too, so Ronit sees the
+ * same send times the automations use.
  */
 
 const ZONE = "Asia/Jerusalem";

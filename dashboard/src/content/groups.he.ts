@@ -23,6 +23,9 @@ export const groupsCopy = {
   /** Under the meter on the selected phone card. */
   registered: "נרשמו",
   registeredOf: (registered: number, capacity: number) => `${registered} מתוך ${capacity} נרשמו`,
+  registeredCount: (registered: number) => `${registered} נרשמו`,
+  /** A trip without a date yet (Monday's flight boards have none). */
+  noDate: "מועד ייקבע",
   percent: (value: number) => `${value}%`,
   seatsLeft,
   empty: "אין עדיין קבוצות.",
@@ -35,11 +38,13 @@ export const groupsCopy = {
     table: (group: string) => `משתתפי ${group}`,
     summary: (registered: number, received: number, missing: number) =>
       `${registered} נרשמו · ${received} ${received === 1 ? "דרכון התקבל" : "דרכונים התקבלו"} · ${missing} ${missing === 1 ? "חסר" : "חסרים"}`,
-    summaryEvent: (registered: number, seats: number) => `${registered} נרשמו · ${seatsLeft(seats)}`,
+    summaryEvent: (registered: number, seats: number | null) => (seats === null ? `${registered} נרשמו` : `${registered} נרשמו · ${seatsLeft(seats)}`),
     missingTag: (missing: number) => (missing === 1 ? "דרכון אחד חסר" : `${missing} דרכונים חסרים`),
     allReceived: "כל הדרכונים התקבלו",
     columns: { name: "שם", phone: "טלפון", passport: "דרכון", expiry: "תוקף", notes: "הערות" },
     passport: { received: "התקבל", missing: "חסר" },
+    /** Monday's own passport column, while no passport is on file. */
+    mondayPassport: { yes: "יש · לפי Monday", "in-progress": "בהנפקה · לפי Monday" },
     /** An empty cell shows a dot; screen readers hear noValue instead. */
     blank: "·",
     noValue: "אין",

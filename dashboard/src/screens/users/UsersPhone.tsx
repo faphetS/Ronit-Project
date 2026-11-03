@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useNavigate } from "react-router";
 import { PhoneTopBar } from "../../app/phone/PhoneTopBar";
 import { useCopy, useLocale } from "../../content/locale";
@@ -15,21 +16,21 @@ import { EmptyState, ErrorState, Skeleton } from "../../ui/states";
 import { StatusTag } from "../../ui/StatusTag";
 import { Surface } from "../../ui/Surface";
 import { useToast } from "../../ui/toast-context";
+import { InviteSheet } from "./InviteSheet";
 import { LoadingRows } from "./LoadingRows";
 import { SecurityCard } from "./SecurityCard";
 import { formatWhen, IMPORT_TONE } from "./users-format";
 
 /** The black "+" at the end of the top bar. Inviting a user has no service yet, so it stays disabled. */
 function InviteButton({ label, className }: { label: string; className?: string }) {
+  const [open, setOpen] = useState(false);
   return (
-    <button
-      type="button"
-      disabled
-      aria-label={label}
-      className={cx("grid size-12 place-items-center rounded-full bg-ink text-cream disabled:opacity-50", className)}
-    >
-      <Icon name="plus" />
-    </button>
+    <>
+      <button type="button" onClick={() => setOpen(true)} aria-label={label} className={cx("grid size-12 place-items-center rounded-full bg-ink text-cream", className)}>
+        <Icon name="plus" />
+      </button>
+      <InviteSheet open={open} onClose={() => setOpen(false)} />
+    </>
   );
 }
 
@@ -71,7 +72,7 @@ function AdminLinks() {
   const signOut = useSignOut();
   const navigate = useNavigate();
   const toast = useToast();
-  const status = run.data?.status;
+  const status = run.data?.lastRun?.status;
 
   const leave = () =>
     signOut.mutate(undefined, {

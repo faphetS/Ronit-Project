@@ -157,6 +157,8 @@ export function PassportCard({ customer, groupLabel, intake, canView, compact = 
   const logDetails = useLogPassportView();
   const logPhoto = useLogPassportView();
   const [numberShown, setNumberShown] = useState(false);
+  // The full number, as the server returns it once the view is logged (it sends it masked otherwise).
+  const [fullNumber, setFullNumber] = useState<string | null>(null);
   const [photoShown, setPhotoShown] = useState(false);
   const reference = now();
   const passport = customer.passport;
@@ -167,7 +169,8 @@ export function PassportCard({ customer, groupLabel, intake, canView, compact = 
     (part === "photo" ? logPhoto : logDetails).mutate(
       { id: customer.id, part },
       {
-        onSuccess: (entry) => {
+        onSuccess: ({ entry, number }) => {
+          if (number) setFullNumber(number);
           show();
           // Null when the access log is switched off: nothing was recorded, so nothing to say.
           if (entry) toast.show({ message: copy.passport.viewLogged });
@@ -184,8 +187,10 @@ export function PassportCard({ customer, groupLabel, intake, canView, compact = 
     return copy.passport.at.date(formatDate(moment, locale));
   };
 
+  const monday = customer.mondayPassport;
   let tag: ReactNode;
-  if (!passport) tag = <StatusTag tone="warning">{copy.profile.tags.passport.missing}</StatusTag>;
+  if (!passport && monday) tag = <StatusTag tone={monday === "yes" ? "registered" : "talking"}>{copy.table.mondayPassport[monday]}</StatusTag>;
+  else if (!passport) tag = <StatusTag tone="warning">{copy.profile.tags.passport.missing}</StatusTag>;
   else if (state === "valid") tag = <StatusTag tone="registered">{copy.passport.validUntil(yearOf(passport.expiryDate))}</StatusTag>;
   else if (state === "expiring") tag = <StatusTag tone="warning">{copy.passport.validUntilDate(date(passport.expiryDate))}</StatusTag>;
   else tag = <StatusTag tone="warning">{copy.passport.expiredOn(date(passport.expiryDate))}</StatusTag>;
@@ -209,8 +214,8 @@ export function PassportCard({ customer, groupLabel, intake, canView, compact = 
         <div className={cx("flex items-start gap-3.5 bg-sand-light", compact ? "rounded-[20px] p-4" : "rounded-[24px] p-5")}>
           <IconCircle icon="customers" tone="paper" size={compact ? "md" : "lg"} />
           <div className="min-w-0">
-            <p className="font-medium text-ink">{copy.passport.missingTitle}</p>
-            <p className="mt-0.5 text-small text-mute">{copy.passport.missingBody}</p>
+            <p className="font-medium text-ink">{monday ? copy.passport.mondayTitle[monday] : copy.passport.missingTitle}</p>
+            <p className="mt-0.5 text-small text-mute">{monday ? copy.passport.mondayBody : copy.passport.missingBody}</p>
           </div>
         </div>
       </Surface>
@@ -220,7 +225,7 @@ export function PassportCard({ customer, groupLabel, intake, canView, compact = 
   const fields = copy.passport.fields;
   const number = (
     <span className="inline-flex items-center gap-2">
-      <Ltr>{numberShown ? passport.number : maskPassport(passport.number)}</Ltr>
+      <Ltr>{numberShown ? (fullNumber ?? passport.number) : maskPassport(passport.number)}</Ltr>
       {canView ? (
         <RevealToggle shown={numberShown} pending={logDetails.isPending} onShow={() => reveal("details", () => setNumberShown(true))} onHide={() => setNumberShown(false)} />
       ) : null}

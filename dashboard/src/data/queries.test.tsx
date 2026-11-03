@@ -2,8 +2,8 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 import { TestProviders, createTestClient, createTestServices } from "../test/app";
-import { queryKeys, useLead, useLeadCounts, useOverview, useSession, useStartGoogle, useUpdateLeadStatus, useVerifyCode } from "./queries";
-import type { Lead } from "./types";
+import { queryKeys, useCopyNow, useImportRun, useOverview, useSession, useStartGoogle, useVerifyCode } from "./queries";
+import type { MondayCopy } from "./types";
 
 function setup() {
   const services = createTestServices();
@@ -34,25 +34,18 @@ describe("query hooks", () => {
     await waitFor(() => expect(result.current.data?.openLeads).toBe(24));
   });
 
-  it("changes a lead's status optimistically and refreshes the counts", async () => {
-    const { wrapper, client } = setup();
-    const { result } = renderHook(() => ({ lead: useLead("l-noa-biton"), counts: useLeadCounts(), update: useUpdateLeadStatus() }), { wrapper });
-    await waitFor(() => expect(result.current.lead.data?.status).toBe("new"));
-    act(() => result.current.update.mutate({ id: "l-noa-biton", status: "talking" }));
-    await waitFor(() => expect(client.getQueryData<Lead>(queryKeys.lead("l-noa-biton"))?.status).toBe("talking"));
-    await waitFor(() => expect(result.current.counts.data?.new).toBe(5));
-  });
-
-  it("rolls the status back when the update fails", async () => {
+  it("shows a copy from Monday as running as soon as it starts", async () => {
     const { services, wrapper, client } = setup();
-    services.leads.updateStatus = async () => {
-      throw new Error("boom");
-    };
-    const { result } = renderHook(() => ({ lead: useLead("l-noa-biton"), update: useUpdateLeadStatus() }), { wrapper });
-    await waitFor(() => expect(result.current.lead.data?.status).toBe("new"));
-    await act(async () => {
-      await result.current.update.mutateAsync({ id: "l-noa-biton", status: "talking" }).catch(() => undefined);
+    // After the start, the server still answers with the last finished copy for a moment.
+    services.imports.latest = async () => ({ ...(await createTestServices().imports.latest()) });
+    const { result } = renderHook(() => ({ copy: useImportRun(), copyNow: useCopyNow() }), { wrapper });
+    await waitFor(() => expect(result.current.copy.data?.lastRun?.status).toBe("completed"));
+    let seen: string | undefined;
+    const unsubscribe = client.getQueryCache().subscribe(() => {
+      seen ??= client.getQueryData<MondayCopy>(queryKeys.importRun)?.lastRun?.status === "running" ? "running" : undefined;
     });
-    expect(client.getQueryData<Lead>(queryKeys.lead("l-noa-biton"))?.status).toBe("new");
+    await act(() => result.current.copyNow.mutateAsync());
+    unsubscribe();
+    expect(seen).toBe("running");
   });
 });

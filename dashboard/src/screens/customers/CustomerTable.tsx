@@ -74,7 +74,13 @@ export function CustomerTable({ filter, page, onFilterChange, onPageChange, clas
       key: "passport",
       header: copy.table.columns.passport,
       cell: (customer) =>
-        customer.passport ? <Ltr>{maskPassport(customer.passport.number)}</Ltr> : <StatusTag tone="warning">{copy.table.missingPassport}</StatusTag>,
+        customer.passport ? (
+          <Ltr>{maskPassport(customer.passport.number)}</Ltr>
+        ) : customer.mondayPassport ? (
+          <StatusTag tone={customer.mondayPassport === "yes" ? "registered" : "talking"}>{copy.table.mondayPassport[customer.mondayPassport]}</StatusTag>
+        ) : (
+          <StatusTag tone="warning">{copy.table.missingPassport}</StatusTag>
+        ),
     },
     {
       key: "expiry",

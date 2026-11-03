@@ -1,13 +1,14 @@
 import { logger } from "../../config/logger.js";
 import type { Queryable } from "../../config/pg.js";
-import { NotFoundError, ValidationError } from "../../lib/errors.js";
+import { AppError, NotFoundError } from "../../lib/errors.js";
 import type { Mailer } from "../../lib/mailer.js";
 import { inviteEmail } from "./auth.emails.js";
 import { normalizeEmail, recordAudit, type AuthDeps, type Role } from "./auth.service.js";
 
 /**
- * Registering dashboard accounts and looking after them. Run from the server console today
- * (scripts/staff-user.ts); the users screen will call the same functions in step 2.
+ * Registering dashboard accounts and looking after them: from the dashboard's users screen, and
+ * from the server console (scripts/staff-user.ts). `byUserId` is the admin who did it (null on
+ * the console).
  */
 
 export type AccountDeps = Pick<AuthDeps, "db" | "dashboardUrl" | "now"> & {
@@ -38,8 +39,15 @@ async function signOutEverywhere(tx: Queryable, userId: string, now: Date): Prom
   await tx.query("UPDATE staff_devices SET trusted_until = NULL WHERE user_id = $1", [userId]);
 }
 
-/** Registers the account and emails the invite. Only this email's Google account can then sign in. */
-export async function inviteStaff(deps: AccountDeps, invite: StaffInvite): Promise<{ userId: string; emailed: boolean }> {
+/**
+ * Registers the account and emails the invite. Only this email's Google account can then sign in.
+ * A removed account under the same email is opened again, as a new invite.
+ */
+export async function inviteStaff(
+  deps: AccountDeps,
+  invite: StaffInvite,
+  byUserId: string | null = null,
+): Promise<{ userId: string; emailed: boolean }> {
   const now = deps.now();
   const email = normalizeEmail(invite.email);
   const name = invite.name.trim();
@@ -47,12 +55,16 @@ export async function inviteStaff(deps: AccountDeps, invite: StaffInvite): Promi
     const { rows } = await tx.query<{ id: string }>(
       `INSERT INTO staff_users (email, name, role, passport_access, whatsapp_phone, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, $6)
-       ON CONFLICT (email) DO NOTHING
+       ON CONFLICT (email) DO UPDATE SET
+         name = EXCLUDED.name, role = EXCLUDED.role, passport_access = EXCLUDED.passport_access,
+         whatsapp_phone = COALESCE(EXCLUDED.whatsapp_phone, staff_users.whatsapp_phone),
+         disabled_at = NULL, google_sub = NULL, failed_sign_ins = 0, locked_until = NULL, updated_at = EXCLUDED.updated_at
+       WHERE staff_users.disabled_at IS NOT NULL
        RETURNING id`,
       [email, name, invite.role, invite.passportAccess, invite.whatsappPhone, now],
     );
-    if (!rows[0]) throw new ValidationError(`${email} already has an account`);
-    await recordAudit(tx, now, "staff-invited", null, { userId: rows[0].id, role: invite.role, passportAccess: invite.passportAccess });
+    if (!rows[0]) throw new AppError(409, `${email} already has an account`, "ALREADY_REGISTERED");
+    await recordAudit(tx, now, "staff-invited", byUserId, { userId: rows[0].id, role: invite.role, passportAccess: invite.passportAccess });
     return rows[0].id;
   });
   if (!deps.mailer) return { userId, emailed: false };
@@ -81,12 +93,19 @@ export async function resetSignIn(deps: AccountDeps, email: string): Promise<voi
 }
 
 /** Closes the account: no sign-in, and every session ended. */
-export async function disableStaff(deps: AccountDeps, email: string): Promise<void> {
+export async function disableStaff(deps: AccountDeps, email: string, byUserId: string | null = null): Promise<void> {
+  await disableStaffById(deps, await userIdByEmail(deps.db, email), byUserId);
+}
+
+export async function disableStaffById(deps: Pick<AccountDeps, "db" | "now">, userId: string, byUserId: string | null = null): Promise<void> {
   const now = deps.now();
   await deps.db.transaction(async (tx) => {
-    const userId = await userIdByEmail(tx, email);
-    await tx.query("UPDATE staff_users SET disabled_at = $2, updated_at = $2 WHERE id = $1", [userId, now]);
+    const { rows } = await tx.query("UPDATE staff_users SET disabled_at = $2, updated_at = $2 WHERE id = $1 AND disabled_at IS NULL RETURNING id", [
+      userId,
+      now,
+    ]);
+    if (rows.length === 0) throw new NotFoundError("Staff user");
     await signOutEverywhere(tx, userId, now);
-    await recordAudit(tx, now, "staff-disabled", null, { userId });
+    await recordAudit(tx, now, "staff-disabled", byUserId, { userId });
   });
 }

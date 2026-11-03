@@ -10,7 +10,7 @@ import type {
   WeeklyCount,
 } from "../../data/types";
 import { dayAt, isoDay, now, today } from "../../lib/clock";
-import { formatDate, formatDayMonth, formatRelative, formatTime } from "../../lib/format";
+import { formatDate, formatDayMonth, formatNumber, formatRelative, formatTime } from "../../lib/format";
 import type { IconName } from "../../ui/icons";
 import type { StatusTone } from "../../ui/StatusTag";
 import type { WeekBar } from "../../ui/WeekBars";
@@ -27,6 +27,7 @@ export const SHOWN = {
 
 export const LEAD_TONE: Record<LeadStatus, StatusTone> = {
   new: "new",
+  "no-answer": "warning",
   talking: "talking",
   "details-sent": "sent",
   registered: "registered",
@@ -48,10 +49,9 @@ export const CAMPAIGN_TONE: Record<CampaignStatus, StatusTone> = {
 };
 
 export const ACTIVITY_ICON: Record<ActivityKind, IconName> = {
-  passport: "customers",
   lead: "leads",
-  greeting: "edit",
-  birthday: "greetings",
+  registration: "groups",
+  passport: "customers",
   import: "import",
 };
 
@@ -60,7 +60,7 @@ export function initialOf(name: string): string {
   return Array.from(name.trim())[0] ?? "";
 }
 
-/** Whether a moment falls on the demo "today". */
+/** Whether a moment falls on today, in Israel. */
 export function isToday(iso: string): boolean {
   return isoDay(new Date(iso)) === isoDay(now());
 }
@@ -90,10 +90,13 @@ export function weekBars(weeks: readonly WeeklyCount[], locale: Locale, thisWeek
   }));
 }
 
-/** Groups that have not ended, by start date as the service lists them. */
+/** Groups that have not ended (and trips without a date yet), by start date as the service lists them. */
 export function activeGroups(groups: readonly GroupSummary[]): GroupSummary[] {
   const day = isoDay(today());
-  return groups.filter((group) => (group.endsOn ?? group.startsOn) >= day);
+  return groups.filter((group) => {
+    const last = group.endsOn ?? group.startsOn;
+    return last === null || last >= day;
+  });
 }
 
 /** "טיסה · נשים בלבד · אוגוסט 2027" or "אירוע · 03.12.2026". `short` is the phone card: no "women only", no year. */
@@ -102,6 +105,8 @@ export function groupCaption(group: GroupSummary, copy: OverviewCopy["groups"], 
   if (group.womenOnly && !short) parts.push(copy.womenOnly);
   if (group.dateLabel) {
     parts.push(group.dateLabel);
+  } else if (!group.startsOn) {
+    parts.push(copy.noDate);
   } else {
     const start = dayAt(group.startsOn);
     const date = short ? formatDayMonth(start, locale) : formatDate(start, locale);
@@ -111,7 +116,13 @@ export function groupCaption(group: GroupSummary, copy: OverviewCopy["groups"], 
 }
 
 export function registeredShare(group: GroupSummary): number {
-  return group.capacity > 0 ? group.registered / group.capacity : 0;
+  return group.capacity ? group.registered / group.capacity : 0;
+}
+
+/** "12 מתוך 45 נרשמו", or "12 נרשמו" without a capacity. */
+export function registeredLine(group: GroupSummary, copy: OverviewCopy["groups"]): string {
+  const registered = formatNumber(group.registered);
+  return group.capacity === null ? copy.registeredCount(registered) : copy.registered(registered, formatNumber(group.capacity));
 }
 
 /** The two lines about today's birthday greetings in the orb card. */
@@ -128,8 +139,8 @@ export function birthdayLines(entries: readonly BirthdayEntry[], copy: OverviewC
 const RECHECK_MS = 15_000;
 
 /**
- * Whole minutes since `since`, a timestamp such as a query's dataUpdatedAt. This is real elapsed time on purpose,
- * not the demo clock: it tells how fresh the numbers on screen are. Rechecked every 15 seconds.
+ * Whole minutes since `since`, a timestamp such as a query's dataUpdatedAt: how fresh the numbers on screen are.
+ * Rechecked every 15 seconds.
  */
 export function useMinutesSince(since: number): number {
   const [checkedAt, setCheckedAt] = useState(since);

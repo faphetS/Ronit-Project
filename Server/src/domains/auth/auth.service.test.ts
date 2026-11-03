@@ -349,7 +349,7 @@ describe("account care", () => {
 
   it("refuses a second account with the same email, in any case", async () => {
     await register();
-    await expect(register("RONIT@example.com")).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    await expect(register("RONIT@example.com")).rejects.toMatchObject({ statusCode: 409, code: "ALREADY_REGISTERED" });
   });
 
   it("still registers the person when the invite can't be emailed", async () => {
@@ -375,5 +375,15 @@ describe("account care", () => {
     await expect(authenticate(deps(), sessionToken)).rejects.toMatchObject({ code: "UNAUTHENTICATED" });
     await expect(viaGoogle()).rejects.toMatchObject({ code: "NOT_REGISTERED" });
     await expect(resetSignIn(accounts(), "nobody@example.com")).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("inviting a removed account again opens it as a new invite", async () => {
+    await register();
+    await signedIn();
+    await disableStaff(accounts(), RONIT.email);
+    await expect(register()).resolves.toMatchObject({ emailed: true });
+    const { rows } = await db.query("SELECT disabled_at, google_sub FROM staff_users WHERE email = $1", [RONIT.email]);
+    expect(rows).toEqual([{ disabled_at: null, google_sub: null }]);
+    expect((await viaGoogle()).step).toBe("code-sent");
   });
 });

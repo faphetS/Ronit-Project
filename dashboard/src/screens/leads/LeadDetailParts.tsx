@@ -1,14 +1,12 @@
+import { useId } from "react";
 import { motion } from "motion/react";
-import { useId, useState, type FormEvent } from "react";
 import { useCopy, useLocale } from "../../content/locale";
-import { useAddLeadNote, useGroups, useUpdateLeadStatus } from "../../data/queries";
-import type { Lead, LeadStatus } from "../../data/types";
+import type { Lead } from "../../data/types";
+import { dayAt } from "../../lib/clock";
 import { cx } from "../../lib/cx";
 import { formatDate, formatDayMonth, maskPhone } from "../../lib/format";
 import { PRESS_SCALE, springs } from "../../motion/springs";
 import { Avatar } from "../../ui/Avatar";
-import { Button } from "../../ui/Button";
-import { ChipGroup } from "../../ui/ChipGroup";
 import { Icon } from "../../ui/Icon";
 import type { IconName } from "../../ui/icons";
 import { KeyValue, type KeyValueItem } from "../../ui/KeyValue";
@@ -16,39 +14,39 @@ import { Ltr } from "../../ui/Ltr";
 import { Skeleton } from "../../ui/states";
 import { StatusTag } from "../../ui/StatusTag";
 import type { SurfaceVariant } from "../../ui/Surface";
-import { TextArea } from "../../ui/TextArea";
-import { TextLink } from "../../ui/TextLink";
 import { Timeline, type TimelineEntry } from "../../ui/Timeline";
-import { useToast } from "../../ui/toast-context";
-import { useStaff } from "./leads-data";
-import { initialOf, STATUS_ORDER, STATUS_TONE, telHref, whatsappHref } from "./leads-model";
+import { initialOf, STATUS_TONE, telHref, whatsappHref } from "./leads-model";
 
 const HEADING = { 1: "h1", 2: "h2", 3: "h3" } as const;
 
-/** The small muted heading over a part of the detail ("סטטוס", "היסטוריה"), like the board's labels. */
+/** The small muted heading over a part of the detail ("ב-Monday", "הערות ושיחות"), like the board's labels. */
 const PART_HEADING = "mb-2 text-[13px] font-medium text-mute";
 
 interface LeadHeaderProps {
   lead: Lead;
   /** h2 in the desktop panel, h1 on the phone screen. */
   level: 1 | 2;
-  /** Phones: the status goes under the trip, so long names keep their width. */
+  /** Phones: the status goes under the service, so long names keep their width. */
   stacked?: boolean;
 }
 
-/** Avatar, name, trip and status. */
+/** Avatar, name, what she asked about and the Monday group, and the status. */
 export function LeadHeader({ lead, level, stacked = false }: LeadHeaderProps) {
   const { leadsCopy: copy } = useCopy();
-  const groups = useGroups();
   const Heading = HEADING[level];
-  const trip = lead.groupId ? groups.data?.find((group) => group.id === lead.groupId)?.name : copy.noGroup;
+  const service = lead.service ? copy.services[lead.service] : copy.noService;
   const status = <StatusTag tone={STATUS_TONE[lead.status]}>{copy.status[lead.status]}</StatusTag>;
   return (
     <div className="flex items-center gap-3.5">
       <Avatar initial={initialOf(lead.name)} tone="glass" size="lg" />
       <div className="min-w-0 flex-1">
         <Heading className="text-display-3 font-light break-words text-ink">{lead.name}</Heading>
-        {trip ? <p className="mt-1 text-small text-mute">{trip}</p> : groups.isPending ? <Skeleton className="mt-2 h-3.5 w-28" /> : null}
+        <p className="mt-1 text-small text-mute">
+          {service}
+          {copy.separator}
+          <bdi>{lead.mondayGroup}</bdi>
+          {lead.archived ? `${copy.separator}${copy.archived}` : null}
+        </p>
         {stacked ? <div className="mt-2.5">{status}</div> : null}
       </div>
       {stacked ? null : status}
@@ -97,79 +95,59 @@ export function LeadContactLinks({ phone }: { phone: string }) {
   );
 }
 
-/** Phone, source, assignee and the day the lead came in. */
+/** Phone, source, service, the Monday group, the first contact and the calls. */
 export function LeadFacts({ lead, surface }: { lead: Lead; surface: SurfaceVariant }) {
-  const { leadsCopy: copy, states } = useCopy();
+  const { leadsCopy: copy } = useCopy();
   const { locale } = useLocale();
-  const staff = useStaff();
-
-  let assignee;
-  if (lead.assigneeId === null) assignee = copy.detail.unassigned;
-  else if (staff.names.has(lead.assigneeId)) assignee = staff.names.get(lead.assigneeId);
-  else if (staff.isError)
-    assignee = (
-      <TextLink size="xs" onClick={() => void staff.refetch()}>
-        {states.retry}
-      </TextLink>
-    );
-  else if (staff.isPending)
-    assignee = (
-      <span className="inline-flex align-middle">
-        <Skeleton className="h-4 w-14" />
-      </span>
-    );
-  else assignee = copy.pending;
-
+  const inquiry = lead.inquiryOn ? dayAt(lead.inquiryOn) : new Date(lead.createdAt);
+  const lastCall = lead.lastCallOn ? formatDayMonth(dayAt(lead.lastCallOn), locale) : null;
   const items: KeyValueItem[] = [
     { key: "phone", label: copy.detail.phone, value: <Ltr>{maskPhone(lead.phone)}</Ltr> },
     { key: "source", label: copy.detail.source, value: copy.sources[lead.source] },
-    { key: "assignee", label: copy.detail.assignee, value: assignee },
-    { key: "created", label: copy.detail.created, value: formatDate(new Date(lead.createdAt), locale) },
+    { key: "service", label: copy.detail.service, value: lead.service ? copy.services[lead.service] : copy.noService },
+    { key: "group", label: copy.detail.mondayGroup, value: <bdi>{lead.mondayGroup}</bdi> },
+    { key: "inquiry", label: copy.detail.inquiry, value: formatDate(inquiry, locale) },
+    { key: "calls", label: copy.detail.calls, value: copy.detail.callsLine(lead.calls, lastCall) },
   ];
   return <KeyValue items={items} surface={surface} />;
 }
 
-interface LeadStatusPickerProps {
+interface LeadInMondayProps {
   lead: Lead;
   level: 2 | 3;
-  /** On a white card. */
-  onPaper?: boolean;
 }
 
-/** The status chips. A change shows at once, is confirmed by a toast with undo, and rolls back if it fails. */
-export function LeadStatusPicker({ lead, level, onPaper = false }: LeadStatusPickerProps) {
+/**
+ * Where the lead is worked until the switch-over: what Monday says comes next, her last Instagram
+ * message, and the way to her row in Monday, where the status and notes change.
+ */
+export function LeadInMonday({ lead, level }: LeadInMondayProps) {
   const { leadsCopy: copy } = useCopy();
-  const toast = useToast();
-  const update = useUpdateLeadStatus();
   const headingId = useId();
   const Heading = HEADING[level];
-
-  const setStatus = (status: LeadStatus, previous?: LeadStatus): void => {
-    update.mutate(
-      { id: lead.id, status },
-      {
-        onSuccess: () => toast.show({ message: copy.statusChanged(copy.status[status]), onUndo: previous ? () => setStatus(previous) : undefined }),
-        onError: () => toast.show({ message: copy.detail.statusFailed, tone: "warning" }),
-      },
-    );
-  };
-
   return (
-    <section aria-labelledby={headingId}>
-      <Heading id={headingId} className={PART_HEADING}>
-        {copy.detail.status}
+    <section aria-labelledby={headingId} className="flex flex-col gap-3">
+      <Heading id={headingId} className={cx(PART_HEADING, "mb-0")}>
+        {copy.detail.inMonday}
       </Heading>
-      <ChipGroup
-        id="lead-status-change"
-        label={copy.detail.changeStatus}
-        options={STATUS_ORDER.map((status) => ({ value: status, label: copy.status[status] }))}
-        value={lead.status}
-        onChange={(status) => {
-          if (status !== lead.status) setStatus(status, lead.status);
-        }}
-        onPaper={onPaper}
-      />
+      {lead.nextStep ? <MondayText label={copy.detail.nextStep} text={lead.nextStep} /> : null}
+      {lead.lastMessage ? <MondayText label={copy.detail.lastMessage} text={lead.lastMessage} /> : null}
+      <p className="text-small text-mute">{copy.detail.editInMonday}</p>
+      <div className="flex">
+        <ContactLink href={lead.mondayUrl} icon="forward" label={copy.detail.openInMonday} newTabLabel={copy.detail.newTab(copy.detail.openInMonday)} />
+      </div>
     </section>
+  );
+}
+
+function MondayText({ label, text }: { label: string; text: string }) {
+  return (
+    <div>
+      <p className="text-caption text-mute">{label}</p>
+      <p className="mt-0.5 text-small break-words whitespace-pre-line text-copy">
+        <bdi>{text}</bdi>
+      </p>
+    </div>
   );
 }
 
@@ -179,19 +157,16 @@ interface LeadHistoryProps {
   surface: SurfaceVariant;
 }
 
-/** Notes and changes, newest first. What came over from Monday is a soft entry under its board's name. */
+/** Monday's notes and call summaries, newest first, with the day and who wrote them. */
 export function LeadHistory({ lead, level, surface }: LeadHistoryProps) {
   const { leadsCopy: copy } = useCopy();
   const { locale } = useLocale();
-  const staff = useStaff();
   const headingId = useId();
   const Heading = HEADING[level];
 
   const entries: TimelineEntry[] = lead.history.map((event) => {
-    if (event.mondayBoard) return { key: event.id, title: event.text, meta: copy.detail.mondayBoard(event.mondayBoard), soft: true };
     const date = formatDayMonth(new Date(event.at), locale);
-    const by = event.byUserId ? staff.names.get(event.byUserId) : undefined;
-    return { key: event.id, title: event.text, meta: by ? copy.detail.historyMeta(date, by) : date };
+    return { key: event.id, title: event.text, meta: event.author ? copy.detail.historyMeta(date, event.author) : date };
   });
 
   return (
@@ -201,66 +176,6 @@ export function LeadHistory({ lead, level, surface }: LeadHistoryProps) {
       </Heading>
       {entries.length > 0 ? <Timeline entries={entries} surface={surface} /> : <p className="text-small text-mute">{copy.detail.noHistory}</p>}
     </section>
-  );
-}
-
-/** A new note: it tops the history at once; the field empties, and gets the text back if saving fails. */
-export function LeadNoteForm({ leadId, onPaper = false }: { leadId: string; onPaper?: boolean }) {
-  const { leadsCopy: copy } = useCopy();
-  const toast = useToast();
-  const addNote = useAddLeadNote();
-  const [text, setText] = useState("");
-  const [needsText, setNeedsText] = useState(false);
-  const hintId = useId();
-
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const note = text.trim();
-    if (!note) {
-      setNeedsText(true);
-      const field = event.currentTarget.elements.namedItem("note");
-      if (field instanceof HTMLTextAreaElement) field.focus();
-      return;
-    }
-    setNeedsText(false);
-    setText("");
-    addNote.mutate(
-      { id: leadId, text: note },
-      {
-        onSuccess: () => toast.show({ message: copy.detail.noteSaved }),
-        onError: () => {
-          setText((current) => current || note);
-          toast.show({ message: copy.detail.noteFailed, tone: "warning" });
-        },
-      },
-    );
-  };
-
-  return (
-    <form onSubmit={submit} noValidate className="flex flex-col gap-2.5">
-      <TextArea
-        label={copy.detail.note}
-        showLabel
-        name="note"
-        rows={3}
-        value={text}
-        onChange={(value) => {
-          setText(value);
-          if (needsText && value.trim()) setNeedsText(false);
-        }}
-        placeholder={copy.detail.notePlaceholder}
-        onPaper={onPaper}
-        describedBy={hintId}
-      />
-      <div className="flex flex-wrap items-center gap-3">
-        <Button type="submit" size="sm" disabled={addNote.isPending}>
-          {copy.detail.save}
-        </Button>
-        <p id={hintId} role="status" className="text-caption text-mute">
-          {needsText ? copy.detail.noteEmpty : ""}
-        </p>
-      </div>
-    </form>
   );
 }
 
@@ -279,7 +194,7 @@ export function LeadHeaderSkeleton() {
   );
 }
 
-/** The rest of the detail while it loads: contact buttons, details, status chips and history. */
+/** The rest of the detail while it loads: contact buttons, details, the Monday part and the notes. */
 export function LeadBodySkeleton() {
   const { states } = useCopy();
   return (

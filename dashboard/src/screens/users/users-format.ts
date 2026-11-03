@@ -1,5 +1,5 @@
 import type { Copy, Locale } from "../../content/copy";
-import type { AuditEntry, ImportRun, Role, SecuritySettings, SecuritySwitch, UserAccount, UserDirectory, UserInvite } from "../../data/types";
+import type { AuditEntry, CopyStatus, Role, SecuritySettings, SecuritySwitch, UserAccount, UserDirectory, UserInvite } from "../../data/types";
 import { daysBetween } from "../../lib/clock";
 import { formatDayMonth, formatTime } from "../../lib/format";
 import type { StatusTone } from "../../ui/StatusTag";
@@ -9,8 +9,8 @@ type UsersCopy = Copy["usersCopy"];
 /** The permission matrix's columns, in the board's order. */
 export const ROLES: readonly Role[] = ["admin", "office", "sales"];
 
-/** The dot beside the import's status on the phone's admin links. */
-export const IMPORT_TONE: Record<ImportRun["status"], StatusTone> = { running: "new", completed: "registered", failed: "warning" };
+/** The dot beside the copy's status on the phone's admin links. */
+export const IMPORT_TONE: Record<CopyStatus, StatusTone> = { running: "new", completed: "registered", failed: "warning", skipped: "warning" };
 
 /** The sensitive-actions card shows the latest few, as on the board. */
 export const RECENT_ACTIONS = 4;
@@ -56,14 +56,20 @@ export function auditTitle(entry: AuditEntry, copy: UsersCopy["audit"], holidayN
       return copy.greetingEdit(holidayNames[entry.holiday]);
     case "greeting-approve":
       return copy.greetingApprove(holidayNames[entry.holiday]);
-    case "role-change":
-      return copy.roleChange(entry.userName, copy.roleTo[entry.role]);
     case "new-device-sign-in":
       return copy.newDevice;
+    case "sign-in-locked":
+      return copy.signInLocked;
+    case "sign-in-refused":
+      return copy.signInRefused(entry.email);
+    case "staff-invited":
+      return copy.staffInvited(entry.userName);
+    case "staff-removed":
+      return copy.staffRemoved(entry.userName);
     case "security-change":
       return copy.securityChange(copy.settings[entry.setting], entry.enabled);
-    case "monday-close":
-      return copy.mondayClose;
+    case "monday-copy":
+      return copy.mondayCopy;
   }
 }
 

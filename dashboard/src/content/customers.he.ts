@@ -1,5 +1,5 @@
 import type { CustomerFilter } from "../data/services";
-import type { DeliveryFailure, DeliveryStatus, IntakeResult, LeadSource, PassportSource } from "../data/types";
+import type { CustomerSource, DeliveryFailure, DeliveryStatus, IntakeResult, MondayPassport, PassportSource } from "../data/types";
 
 /** Copy for the customers and passports screens (boards Customers, Mobile-Customers, CustomerProfile, Mobile-Profile). */
 export const customersCopy = {
@@ -80,6 +80,8 @@ export const customersCopy = {
       updated: "עדכון",
     },
     missingPassport: "חסר דרכון",
+    /** Monday's own passport column, while no passport is on file. */
+    mondayPassport: { yes: "יש · לפי Monday", "in-progress": "בהנפקה · לפי Monday" } satisfies Record<MondayPassport, string>,
     expiringSoon: "פג בקרוב",
     expired: "פג תוקף",
     fromWhatsapp: (time: string) => `מוואטסאפ, ${time}`,
@@ -181,6 +183,9 @@ export const customersCopy = {
     } satisfies Record<IntakeResult, (reason: string) => string>,
     missingTitle: "עוד לא התקבל דרכון",
     missingBody: "כשצילום הדרכון יגיע בוואטסאפ, הפרטים ייקלטו כאן אוטומטית.",
+    /** No passport on file, but Monday's trip board marks one. */
+    mondayTitle: { yes: "ב-Monday מסומן שיש לה דרכון", "in-progress": "ב-Monday מסומן שהדרכון בהנפקה" } satisfies Record<MondayPassport, string>,
+    mondayBody: "הפרטים עצמם ייקלטו כאן כשצילום הדרכון יגיע בוואטסאפ.",
   },
   accessLog: {
     title: "יומן גישה לדרכון",
@@ -236,19 +241,19 @@ export const customersCopy = {
     rows: {
       group: "קבוצה",
       source: "מקור",
-      assignee: "שיוך",
       lead: "ליד מקורי",
       phone: "טלפון",
     },
     sources: {
-      "landing-page": "דף נחיתה",
+      "landing-page": "אתר",
       instagram: "אינסטגרם",
       facebook: "פייסבוק",
       whatsapp: "וואטסאפ",
       referral: "המלצה",
-    } satisfies Record<LeadSource, string>,
-    unassigned: "ללא שיוך",
-    fromMonday: (board: string) => `יובא מ-Monday, לוח ${board}`,
+      monday: "Monday",
+      manual: "הוזן ידנית",
+    } satisfies Record<CustomerSource, string>,
+    fromMonday: (board: string) => `מ-Monday, לוח ${board}`,
     openLead: "פתיחת הליד",
     noLead: "אין ליד מקושר",
   },
