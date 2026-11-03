@@ -251,10 +251,10 @@ Motion is a first-class requirement: it should feel like macOS.
 - **Shared highlights:** the segmented controls and the selected filter chip move between items through `layoutId`.
 - **Which transition:** switching between top-level sections (menu items, tabs) uses the page change. Opening a lead, a customer, the account or the import on a phone uses the push.
 - **Page change:**
-  - Pages are wrapped in `AnimatePresence`, keyed by route.
-  - The new page fades in and rises 12px on the `surface` spring.
-  - Its cards stagger by 40ms, on the visit's first page only. The pages opened after it already have their data, so they rise in with their content in place.
-  - The old page fades out in 120ms, without moving.
+  - Sections sit on a reel, like a slot machine's, in the rail's order. Opening another section spins it past the sections in between (their main pages), fast in the middle, and eases it to a stop: 0.55s for one section, 0.17s more for each further one, at most 1.4s. The page left behind spins away as it was, so the panel is never blank.
+  - Within a section (a customer's card, the import), the new page fades in where it stands.
+  - The visit's first page fades in on the `surface` spring, and its cards stagger by 40ms. The others arrive with their content in place, as their data is loaded ahead.
+  - Each page scrolls on its own, so it arrives at its top. With Reduce Motion the reel jumps straight there.
 - **Phone push:**
   - The new screen enters from the left (`x: -100% → 0`, forward in RTL).
   - The screen underneath shifts right by 30% and dims slightly.
@@ -278,6 +278,7 @@ Motion is a first-class requirement: it should feel like macOS.
 - 60fps on desktop, and on a mid-range phone profile (Chrome DevTools with 4× CPU throttling). No task over 50ms during a transition.
 - Never animate `backdrop-filter`, shadows or layout properties.
 - At most three glass layers in view on phones.
+- The desktop reel moves one layer that the browser animates by itself, so work in the page can't make it stutter. Pages leaving or passing by keep their own address and don't redraw for the next one; passing pages draw only the table rows that fit on screen; the pages passed are cleared once the browser is idle after the stop.
 - The customers table pages at 25 rows. Every other list is short enough to show in full.
 
 The canvas prototype already uses the same curves in CSS, so it doubles as the motion reference.

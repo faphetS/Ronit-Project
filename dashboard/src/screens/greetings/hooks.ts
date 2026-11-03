@@ -2,6 +2,7 @@ import { useReducedMotion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 import { useLocation } from "react-router";
 import type { Locale } from "../../content/copy";
+import { useScreenPath } from "../../motion/screen-path";
 
 /**
  * Keeps a big headline at `maxSize` px unless a word would not fit its box, and then shrinks it just enough
@@ -48,15 +49,17 @@ export function useFitText(ref: RefObject<HTMLElement | null>, maxSize: number, 
 /**
  * Scrolls to the section the address points at (#history from the rail, #send and #template from the orb cards)
  * once the screen's data has loaded, so the section is where it will stay, and moves focus there.
- * Arriving on the screen jumps; a link within the screen glides, unless Reduce Motion is on.
+ * Arriving on the screen jumps; a link within the screen glides, unless Reduce Motion is on. Only the address's own
+ * page does this: not a page the desktop reel shows on its way, nor one leaving.
  */
 export function useScrollToHash(ready: boolean): void {
-  const { hash, key } = useLocation();
+  const { hash, key, pathname } = useLocation();
+  const screenPath = useScreenPath();
   const reduceMotion = useReducedMotion();
   // The navigation the screen first became ready on.
   const arrival = useRef<string | null>(null);
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || screenPath !== pathname) return;
     arrival.current ??= key;
     if (!hash) return;
     let id: string;
@@ -69,11 +72,22 @@ export function useScrollToHash(ready: boolean): void {
     if (!target) return;
     const glide = key !== arrival.current && !reduceMotion;
     const frame = window.requestAnimationFrame(() => {
-      target.scrollIntoView({ behavior: glide ? "smooth" : "auto", block: "start" });
+      scrollToTop(target, glide ? "smooth" : "auto");
       target.focus({ preventScroll: true });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [ready, hash, key, reduceMotion]);
+  }, [ready, hash, key, pathname, screenPath, reduceMotion]);
+}
+
+/** Scrolls the nearest scrolling box (on desktop, the page's own) so `target` sits at its top. */
+function scrollToTop(target: HTMLElement, behavior: ScrollBehavior): void {
+  let box = target.parentElement;
+  while (box && !/(auto|scroll)/.test(getComputedStyle(box).overflowY)) box = box.parentElement;
+  if (!box) {
+    target.scrollIntoView({ behavior, block: "start" });
+    return;
+  }
+  box.scrollTo({ top: target.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop, behavior });
 }
 
 /**

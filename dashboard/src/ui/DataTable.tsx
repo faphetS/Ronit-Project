@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useState, type MouseEvent, type ReactElement, type ReactNode } from "react";
+import { usePassing } from "../motion/passing";
 import { useNavigate } from "react-router";
 import { cx } from "../lib/cx";
 import { fadeOut, springs } from "../motion/springs";
@@ -216,8 +217,14 @@ export function DataTable<Row>(props: DataTableProps<Row>) {
   const { rowHref, onRowClick, pageSize, pageResetKey, className, ...rest } = props;
   const total = rest.groups ? rest.groups.reduce((sum, group) => sum + group.rows.length, 0) : (rest.rows?.length ?? 0);
   const paging = usePage(total, pageSize ?? Math.max(total, 1), pageResetKey);
-  const paged = pageSize !== undefined && total > pageSize;
-  const shown = paged ? { ...rest, ...pageOf(rest.rows, rest.groups, paging.page, pageSize), page: paging.page, fade: paging.turned } : rest;
+  // A page the desktop reel only spins past shows its top alone, so it draws just the rows that fit on screen.
+  const passing = usePassing() && total > PASSING_ROWS;
+  const paged = !passing && pageSize !== undefined && total > pageSize;
+  const shown = passing
+    ? { ...rest, ...pageOf(rest.rows, rest.groups, 1, PASSING_ROWS) }
+    : paged
+      ? { ...rest, ...pageOf(rest.rows, rest.groups, paging.page, pageSize), page: paging.page, fade: paging.turned }
+      : rest;
   const table = rowHref ? (
     <NavigatingTable {...shown} className={paged ? undefined : className} rowHref={rowHref} onRowClick={onRowClick} />
   ) : (
@@ -231,6 +238,9 @@ export function DataTable<Row>(props: DataTableProps<Row>) {
     </div>
   );
 }
+
+/** The rows a passing page draws: a screenful, at most. */
+const PASSING_ROWS = 14;
 
 /** The page a paged table shows: the first again when `resetKey` changes, and never past the last. */
 function usePage(total: number, pageSize: number, resetKey: string | undefined) {

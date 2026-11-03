@@ -2,13 +2,6 @@ import type { Variants } from "motion/react";
 import { STAGGER_SECONDS, fadeOut, springs } from "./springs";
 import type { ScreenTransition } from "./transitions";
 
-/** Desktop page change: the new page rises in, the old one fades out fast. */
-export const pageVariants: Variants = {
-  initial: { opacity: 0, y: 12 },
-  enter: { opacity: 1, y: 0, transition: { ...springs.surface, staggerChildren: STAGGER_SECONDS } },
-  exit: { opacity: 0, transition: fadeOut },
-};
-
 /** Lets children with cardVariants settle in one after another. */
 export const staggerVariants: Variants = {
   initial: {},
