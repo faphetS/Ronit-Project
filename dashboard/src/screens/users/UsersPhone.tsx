@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 import { PhoneTopBar } from "../../app/phone/PhoneTopBar";
 import { useCopy, useLocale } from "../../content/locale";
-import { useImportRun, useSession, useSignOut, useUsers } from "../../data/queries";
+import { useCan, useImportRun, useSession, useSignOut, useUsers } from "../../data/queries";
 import { now } from "../../lib/clock";
 import { cx } from "../../lib/cx";
 import { formatDayMonth } from "../../lib/format";
@@ -16,14 +16,16 @@ import { EmptyState, ErrorState, Skeleton } from "../../ui/states";
 import { StatusTag } from "../../ui/StatusTag";
 import { Surface } from "../../ui/Surface";
 import { useToast } from "../../ui/toast-context";
-import { InviteSheet } from "./InviteSheet";
+import { AccessSheet, InviteSheet, type AccessTarget } from "./InviteSheet";
 import { LoadingRows } from "./LoadingRows";
 import { SecurityCard } from "./SecurityCard";
 import { formatWhen, IMPORT_TONE } from "./users-format";
 
-/** The black "+" at the end of the top bar. Inviting a user has no service yet, so it stays disabled. */
+/** The black "+" at the end of the top bar, for admins: the invite form. */
 function InviteButton({ label, className }: { label: string; className?: string }) {
   const [open, setOpen] = useState(false);
+  const admin = useCan("users", "full");
+  if (!admin) return null;
   return (
     <>
       <button type="button" onClick={() => setOpen(true)} aria-label={label} className={cx("grid size-12 place-items-center rounded-full bg-ink text-cream", className)}>
@@ -103,16 +105,19 @@ function AdminLinks() {
   );
 }
 
-/** The others on the team, then the pending invites. Ronit is on her own card above. */
+/** The others on the team, then the pending invites. Ronit is on her own card above. Admins tap someone to change their access. */
 function TeamCard() {
   const { usersCopy: copy } = useCopy();
   const { locale } = useLocale();
   const directory = useUsers();
   const session = useSession();
+  const admin = useCan("users", "full");
+  const [editing, setEditing] = useState<AccessTarget | null>(null);
   const meId = session.data?.user.id;
   const data = directory.data;
   const reference = now();
   const others = data ? data.users.filter((user) => user.id !== meId) : [];
+  const edit = (target: AccessTarget) => (admin ? () => setEditing(target) : undefined);
 
   return (
     <Surface variant="card" compact aria-label={copy.users.title} className="px-4 pt-4 pb-1.5">
@@ -124,6 +129,7 @@ function TeamCard() {
               <ListRow
                 key={user.id}
                 as="li"
+                onClick={edit({ id: user.id, name: user.name, role: user.role, passportAccess: user.passportAccess, self: false })}
                 leading={<Avatar initial={user.initial} />}
                 title={user.name}
                 description={copy.account.personLine(
@@ -143,6 +149,7 @@ function TeamCard() {
               <ListRow
                 key={invite.id}
                 as="li"
+                onClick={edit({ id: invite.id, name: invite.email, role: invite.role, passportAccess: invite.passportAccess, self: false })}
                 leading={<Avatar initial={copy.users.inviteInitial} tone="outline" />}
                 title={copy.users.pendingInvite}
                 titleTone="muted"
@@ -158,6 +165,7 @@ function TeamCard() {
       ) : (
         <LoadingRows shape="person" count={3} />
       )}
+      <AccessSheet target={editing} onClose={() => setEditing(null)} />
     </Surface>
   );
 }

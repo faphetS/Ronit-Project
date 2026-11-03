@@ -1,9 +1,31 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient, type QueryKey } from "@tanstack/react-query";
 import { now } from "../lib/clock";
-import { estimateSendMinutes } from "./rules";
-import type { BirthdaySettingsPatch, CampaignPatch, CustomerQuery, InviteInput, LeadFilters, PassportPart, ProfilePatch, SignedIn } from "./services";
+import { accessFor, atLeast, estimateSendMinutes } from "./rules";
+import type {
+  AccessInput,
+  BirthdaySettingsPatch,
+  CampaignPatch,
+  CustomerQuery,
+  InviteInput,
+  LeadFilters,
+  PassportPart,
+  PermissionChange,
+  ProfilePatch,
+  SignedIn,
+} from "./services";
 import { useServices } from "./services-context";
-import type { AudienceOption, BirthdaySettings, Customer, HolidayCampaign, MondayCopy, SecuritySettings, SecuritySwitch } from "./types";
+import type {
+  AudienceOption,
+  BirthdaySettings,
+  Customer,
+  HolidayCampaign,
+  MondayCopy,
+  PermissionArea,
+  PermissionMatrix,
+  SecuritySettings,
+  SecuritySwitch,
+  StaffAccess,
+} from "./types";
 
 export const queryKeys = {
   session: ["session"] as const,
@@ -360,6 +382,58 @@ export function useUsers() {
 export function usePermissions() {
   const { users } = useServices();
   return useQuery({ queryKey: queryKeys.permissions, queryFn: () => users.permissions() });
+}
+
+/**
+ * What the signed-in person may do in each area, from the role table the server enforces. Null until both the
+ * session and the table are in; screens then show their content and the server still decides.
+ */
+export function useAccess(): StaffAccess | null {
+  const session = useSession();
+  const permissions = usePermissions();
+  const user = session.data?.user;
+  return user && permissions.data ? accessFor(permissions.data, user) : null;
+}
+
+/** Whether an area's content shows. True until the role table says otherwise, so nothing flickers away while it loads. */
+export function useMaySee(area: PermissionArea): boolean {
+  const access = useAccess();
+  return !access || atLeast(access[area] ?? "none", "view");
+}
+
+/** Whether the signed-in person may do this. False until it's known: for the actions only some people get. */
+export function useCan(area: PermissionArea, level: "view" | "full"): boolean {
+  const access = useAccess();
+  return access ? atLeast(access[area] ?? "none", level) : false;
+}
+
+/** Changes one cell of the role table; the table and the log pick it up. */
+export function useChangePermission() {
+  const { users } = useServices();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (change: PermissionChange) => users.changePermission(change),
+    onSuccess: (matrix) => client.setQueryData<PermissionMatrix>(queryKeys.permissions, matrix),
+    onSettled: async () => {
+      await client.invalidateQueries({ queryKey: queryKeys.permissions });
+      await client.invalidateQueries({ queryKey: queryKeys.audit });
+    },
+  });
+}
+
+/** Changes someone's role and passport access; the team list, the log and (for yourself) the session pick it up. */
+export function useChangeAccess() {
+  const { users } = useServices();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, input }: { userId: string; input: AccessInput }) => users.changeAccess(userId, input),
+    onSuccess: (directory) => client.setQueryData(queryKeys.users, directory),
+    onSettled: async (_data, _error, { userId }) => {
+      await client.invalidateQueries({ queryKey: queryKeys.users });
+      await client.invalidateQueries({ queryKey: queryKeys.audit });
+      if (userId === signedInUserId(client)) await client.invalidateQueries({ queryKey: queryKeys.session });
+    },
+  });
 }
 
 export function useSecuritySettings() {

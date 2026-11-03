@@ -10,6 +10,7 @@ import { LeadsScreen } from "../screens/leads/LeadsScreen";
 import { OverviewScreen } from "../screens/overview/OverviewScreen";
 import { SignInScreen } from "../screens/sign-in/SignInScreen";
 import { UsersScreen } from "../screens/users/UsersScreen";
+import { RequireAccess } from "./RequireAccess";
 import { RequireSession } from "./RequireSession";
 import { Shell } from "./Shell";
 
@@ -24,15 +25,16 @@ export const routes: RouteObject[] = [
     ),
     children: [
       { index: true, element: <OverviewScreen /> },
-      { path: "leads", element: <LeadsScreen /> },
-      { path: "leads/:leadId", element: <LeadDetailScreen /> },
-      { path: "customers", element: <CustomersScreen /> },
-      { path: "customers/:customerId", element: <CustomerProfileScreen /> },
-      { path: "groups", element: <GroupsScreen /> },
-      { path: "groups/:groupId", element: <GroupsScreen /> },
+      // Sections the role table can close: a "no access" page then, in place of errors.
+      { path: "leads", element: <RequireAccess area="leads"><LeadsScreen /></RequireAccess> },
+      { path: "leads/:leadId", element: <RequireAccess area="leads"><LeadDetailScreen /></RequireAccess> },
+      { path: "customers", element: <RequireAccess area="customers"><CustomersScreen /></RequireAccess> },
+      { path: "customers/:customerId", element: <RequireAccess area="customers"><CustomerProfileScreen /></RequireAccess> },
+      { path: "groups", element: <RequireAccess area="customers"><GroupsScreen /></RequireAccess> },
+      { path: "groups/:groupId", element: <RequireAccess area="customers"><GroupsScreen /></RequireAccess> },
       { path: "greetings", element: <Navigate to="/greetings/holidays" replace /> },
-      { path: "greetings/holidays", element: <HolidaysScreen /> },
-      { path: "greetings/birthdays", element: <BirthdaysScreen /> },
+      { path: "greetings/holidays", element: <RequireAccess area="greetings"><HolidaysScreen /></RequireAccess> },
+      { path: "greetings/birthdays", element: <RequireAccess area="greetings"><BirthdaysScreen /></RequireAccess> },
       { path: "users", element: <UsersScreen /> },
       { path: "import", element: <ImportScreen /> },
       { path: "*", element: <Navigate to="/" replace /> },

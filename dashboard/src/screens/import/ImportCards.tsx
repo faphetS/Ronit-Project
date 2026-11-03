@@ -1,6 +1,6 @@
 import { useCopy, useLocale } from "../../content/locale";
 import { ApiError } from "../../data/http/client";
-import { useCopyNow, useSession } from "../../data/queries";
+import { useCan, useCopyNow } from "../../data/queries";
 import type { MondayCopy } from "../../data/types";
 import { cx } from "../../lib/cx";
 import { formatNumber } from "../../lib/format";
@@ -51,7 +51,7 @@ function CopyNowButton({ copy, phone }: { copy: MondayCopy; phone: boolean }) {
 export function ResultCard({ copy, phone, className }: CardProps) {
   const { importCopy } = useCopy();
   const { locale } = useLocale();
-  const session = useSession();
+  const canCopy = useCan("import", "full");
   const text = importCopy.result;
   // On phones the top bar names the screen, so this is the page heading.
   const Heading = phone ? "h1" : "h2";
@@ -123,7 +123,7 @@ export function ResultCard({ copy, phone, className }: CardProps) {
         <GooButton to="/leads" tone="light">
           {text.toLeads}
         </GooButton>
-        {session.data?.user.role === "admin" ? <CopyNowButton copy={copy} phone={phone} /> : null}
+        {canCopy ? <CopyNowButton copy={copy} phone={phone} /> : null}
       </div>
     </Surface>
   );

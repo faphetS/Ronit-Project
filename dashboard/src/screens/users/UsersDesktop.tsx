@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { useCopy, useLocale } from "../../content/locale";
-import { useAuditLog, usePermissions, useSession, useUsers } from "../../data/queries";
-import type { AccessLevel, PermissionRow } from "../../data/types";
+import { useAuditLog, useCan, usePermissions, useSession, useUsers } from "../../data/queries";
+import type { AccessLevel, PermissionRow, Role } from "../../data/types";
 import { now } from "../../lib/clock";
 import { formatDayMonth } from "../../lib/format";
+import { Button } from "../../ui/Button";
 import { DataTable, type DataColumn } from "../../ui/DataTable";
 import { GooButton } from "../../ui/GooButton";
 import { Headline } from "../../ui/Headline";
@@ -15,19 +16,28 @@ import { EmptyState, ErrorState } from "../../ui/states";
 import { StatusTag } from "../../ui/StatusTag";
 import { Surface } from "../../ui/Surface";
 import { Timeline, type TimelineEntry } from "../../ui/Timeline";
-import { InviteSheet, RemoveUserButton } from "./InviteSheet";
+import { AccessSheet, InviteSheet, RemoveUserButton, type AccessTarget } from "./InviteSheet";
 import { LoadingRows } from "./LoadingRows";
+import { PermissionSheet, type PermissionCell } from "./PermissionSheet";
 import { SecurityCard } from "./SecurityCard";
 import { auditTitle, auditWho, directoryRows, formatWhen, RECENT_ACTIONS, ROLES, type DirectoryRow } from "./users-format";
 
-/** Everyone with an account, then the invites nobody accepted yet. */
+/** The edit form's starting point for a row of the users table. */
+function accessTarget(row: DirectoryRow, meId: string | undefined): AccessTarget {
+  return row.kind === "user"
+    ? { id: row.user.id, name: row.user.name, role: row.user.role, passportAccess: row.user.passportAccess, self: row.user.id === meId }
+    : { id: row.invite.id, name: row.invite.email, role: row.invite.role, passportAccess: row.invite.passportAccess, self: false };
+}
+
+/** Everyone with an account, then the invites nobody accepted yet. Admins edit and remove from here. */
 function UsersTableCard({ className }: { className?: string }) {
   const { usersCopy: copy } = useCopy();
   const { locale } = useLocale();
   const directory = useUsers();
   const session = useSession();
   const meId = session.data?.user.id;
-  const admin = session.data?.user.role === "admin";
+  const admin = useCan("users", "full");
+  const [editing, setEditing] = useState<AccessTarget | null>(null);
   const data = directory.data;
   const table = copy.users;
   const reference = now();
@@ -81,19 +91,25 @@ function UsersTableCard({ className }: { className?: string }) {
           </span>
         ),
     },
-    // Admins remove people (not themselves) and cancel invites.
+    // Admins change anyone's access (their own passport access too), remove people (not themselves) and cancel invites.
     ...(admin
       ? [
           {
-            key: "remove",
-            header: copy.remove.action,
+            key: "manage",
+            header: copy.edit.action,
             srOnlyHeader: true,
-            cell: (row: DirectoryRow) =>
-              row.kind === "invite" ? (
-                <RemoveUserButton userId={row.invite.id} name={row.invite.email} invite />
-              ) : row.user.id === meId ? null : (
-                <RemoveUserButton userId={row.user.id} name={row.user.name} invite={false} />
-              ),
+            cell: (row: DirectoryRow) => (
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" size="sm" onClick={() => setEditing(accessTarget(row, meId))}>
+                  {copy.edit.action}
+                </Button>
+                {row.kind === "invite" ? (
+                  <RemoveUserButton userId={row.invite.id} name={row.invite.email} invite />
+                ) : row.user.id === meId ? null : (
+                  <RemoveUserButton userId={row.user.id} name={row.user.name} invite={false} />
+                )}
+              </div>
+            ),
           } satisfies DataColumn<DirectoryRow>,
         ]
       : []),
@@ -116,6 +132,7 @@ function UsersTableCard({ className }: { className?: string }) {
       ) : (
         <LoadingRows shape="person" count={4} />
       )}
+      <AccessSheet target={editing} onClose={() => setEditing(null)} />
     </Surface>
   );
 }
@@ -129,11 +146,35 @@ function AccessMark({ level }: { level: AccessLevel }) {
   return <StatusTag tone="irrelevant">{label}</StatusTag>;
 }
 
-/** What each role can do in each area. Read only: changing permissions has no service yet. */
+/** What each role can do in each area. Admins click a cell to change it, except the fixed ones. */
 function PermissionsCard({ className }: { className?: string }) {
   const { usersCopy: copy } = useCopy();
   const permissions = usePermissions();
+  const admin = useCan("users", "full");
+  const [cell, setCell] = useState<PermissionCell | null>(null);
   const matrix = copy.permissions;
+
+  const mark = (row: PermissionRow, role: Role) => {
+    const level = row.access[role];
+    if (!admin) return <AccessMark level={level} />;
+    if (row.fixed.includes(role)) {
+      return (
+        <span title={matrix.fixed} className="inline-flex">
+          <AccessMark level={level} />
+        </span>
+      );
+    }
+    return (
+      <button
+        type="button"
+        onClick={() => setCell({ role, area: row.area, access: level })}
+        aria-label={`${copy.roles[role]} · ${matrix.areas[row.area]}: ${matrix.access[level]}`}
+        className="-m-1.5 inline-flex rounded-full p-1.5 transition-colors hover:bg-sand-light focus-visible:outline-offset-2"
+      >
+        <AccessMark level={level} />
+      </button>
+    );
+  };
 
   const columns: DataColumn<PermissionRow>[] = [
     {
@@ -147,28 +188,32 @@ function PermissionsCard({ className }: { className?: string }) {
         key: role,
         header: copy.roles[role],
         align: "center",
-        cell: (row) => <AccessMark level={row.access[role]} />,
+        cell: (row) => mark(row, role),
       }),
     ),
   ];
 
   return (
     <Surface variant="card" aria-label={matrix.title} className={className}>
-      <SectionHeader title={matrix.title} trailing={matrix.adminOnly} />
+      <SectionHeader title={matrix.title} trailing={admin ? matrix.adminHint : matrix.adminOnly} />
       {permissions.data ? (
-        <DataTable
-          label={matrix.title}
-          columns={columns}
-          rows={permissions.data}
-          rowKey={(row) => row.area}
-          animateRows={false}
-          empty={<EmptyState message={matrix.empty} />}
-        />
+        <>
+          <DataTable
+            label={matrix.title}
+            columns={columns}
+            rows={permissions.data}
+            rowKey={(row) => row.area}
+            animateRows={false}
+            empty={<EmptyState message={matrix.empty} />}
+          />
+          {admin ? <p className="mt-4 text-caption text-mute">{matrix.fixedNote}</p> : null}
+        </>
       ) : permissions.isError ? (
         <ErrorState onRetry={() => void permissions.refetch()} />
       ) : (
         <LoadingRows shape="matrix" count={6} />
       )}
+      <PermissionSheet cell={cell} onClose={() => setCell(null)} />
     </Surface>
   );
 }
@@ -184,7 +229,7 @@ function AuditCard({ className }: { className?: string }) {
   const entries = audit.data?.slice(0, RECENT_ACTIONS).map((entry): TimelineEntry => {
     const who = auditWho(entry, directory.data?.users, copy.audit);
     const when = formatWhen(entry.at, reference, locale, copy);
-    return { key: entry.id, title: auditTitle(entry, copy.audit, holidayNames), meta: who ? copy.audit.meta(who, when) : when };
+    return { key: entry.id, title: auditTitle(entry, copy, holidayNames), meta: who ? copy.audit.meta(who, when) : when };
   });
 
   return (
@@ -209,8 +254,7 @@ function AuditCard({ className }: { className?: string }) {
 export function UsersDesktop() {
   const { usersCopy: copy } = useCopy();
   const directory = useUsers();
-  const session = useSession();
-  const admin = session.data?.user.role === "admin";
+  const admin = useCan("users", "full");
   const [inviting, setInviting] = useState(false);
   const data = directory.data;
 

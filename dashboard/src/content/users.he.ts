@@ -40,6 +40,18 @@ export const usersCopy = {
     done: "ההסרה בוצעה",
     failed: "ההסרה לא הצליחה. נסי שוב.",
   },
+  /** Changing someone's role and passport access, or a pending invite's. */
+  edit: {
+    action: "עריכה",
+    title: (name: string) => `ההרשאות של ${name}`,
+    body: "התפקיד קובע מה רואים בכל תחום, לפי הטבלה. השינוי חל מיד.",
+    /** Beside your own role, which another admin changes. */
+    ownRole: "את התפקיד שלך משנה מנהל אחר.",
+    save: "שמירה",
+    saved: (name: string) => `ההרשאות של ${name} עודכנו`,
+    lastAdmin: "צריך להישאר לפחות מנהל אחד.",
+    failed: "השינוי לא נשמר. נסי שוב.",
+  },
   today: (clock: string) => `היום ${clock}`,
   yesterday: (clock: string) => `אתמול ${clock}`,
   roles: { admin: "ניהול", office: "משרד", sales: "מכירות" } satisfies Record<Role, string>,
@@ -79,6 +91,21 @@ export const usersCopy = {
     } satisfies Record<PermissionArea, string>,
     access: { full: "גישה מלאה", view: "צפייה", none: "ללא גישה" } satisfies Record<AccessLevel, string>,
     empty: "אין הרשאות להצגה.",
+    /** For admins, in place of adminOnly. */
+    adminHint: "לחיצה על תא משנה אותו",
+    /** Read beside a cell that can't change. */
+    fixed: "קבוע",
+    /** Under the table, for admins: why some cells don't change. */
+    fixedNote: "לניהול תמיד גישה מלאה, למכירות אין גישה לדרכונים, ורק הניהול מנהל משתמשים.",
+    /** The sheet for one cell: "משרד · לקוחות". */
+    change: {
+      title: (role: string, area: string) => `${role} · ${area}`,
+      body: "מה התפקיד יכול לעשות בתחום הזה. השינוי חל על כל מי שבתפקיד, מיד.",
+      label: "רמת גישה",
+      save: "שמירה",
+      saved: (role: string, area: string, level: string) => `${role} · ${area}: ${level}`,
+      failed: "השינוי לא נשמר. נסי שוב.",
+    },
   },
   security: {
     title: "אבטחה",
@@ -109,6 +136,8 @@ export const usersCopy = {
     signInRefused: (email: string) => `ניסיון כניסה של חשבון לא רשום · ${email}`,
     staffInvited: (name: string) => `הזמנת משתמש · ${name}`,
     staffRemoved: (name: string) => `הסרת משתמש · ${name}`,
+    staffAccessChanged: (name: string, role: string, passports: boolean) => `שינוי הרשאות · ${name}: ${role}${passports ? ", עם דרכונים" : ""}`,
+    permissionChange: (role: string, area: string, level: string) => `שינוי בטבלת ההרשאות · ${role} · ${area}: ${level}`,
     securityChange: (setting: string, enabled: boolean) => `${enabled ? "הפעלת" : "כיבוי"} ${setting}`,
     settings: {
       twoStepRequired: "חובת אימות דו-שלבי",
