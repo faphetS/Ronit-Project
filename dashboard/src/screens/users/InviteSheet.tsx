@@ -144,8 +144,10 @@ export interface AccessTarget extends AccessInput {
   id: string;
   /** Their name, or the invite's email. */
   name: string;
-  /** The signed-in admin's own row: the role is shown, not changed. */
+  /** The signed-in admin's own row: the role is shown, not changed, and there's no removing yourself. */
   self: boolean;
+  /** A pending invite: removing it is cancelling the invite. */
+  invite: boolean;
 }
 
 /** Changes someone's role and passport access, or a pending invite's. Opens with `target`, closes on save. */
@@ -200,6 +202,11 @@ function AccessForm({ target, onClose }: { target: AccessTarget; onClose: () => 
           {uiCopy.cancel}
         </Button>
       </div>
+      {target.self ? null : (
+        <div className="mt-2 border-t border-ink/8 pt-4">
+          <RemoveUserButton userId={target.id} name={target.name} invite={target.invite} onRemoved={onClose} />
+        </div>
+      )}
     </form>
   );
 }
@@ -209,10 +216,12 @@ interface RemoveUserProps {
   /** The person's name, or the invite's email. */
   name: string;
   invite: boolean;
+  /** After the account is closed, like closing the sheet it was in. */
+  onRemoved?: () => void;
 }
 
-/** "הסרה" in the users table: asks first, then closes the account and signs them out everywhere. */
-export function RemoveUserButton({ userId, name, invite }: RemoveUserProps) {
+/** "הסרה" at the bottom of a person's sheet: asks first, then closes the account and signs them out everywhere. */
+export function RemoveUserButton({ userId, name, invite, onRemoved }: RemoveUserProps) {
   const { usersCopy: copy } = useCopy();
   const text = copy.remove;
   const remove = useRemoveUser();
@@ -223,6 +232,7 @@ export function RemoveUserButton({ userId, name, invite }: RemoveUserProps) {
       onSuccess: () => {
         setConfirming(false);
         toast.show({ message: text.done });
+        onRemoved?.();
       },
       onError: () => {
         setConfirming(false);

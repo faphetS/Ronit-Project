@@ -4,9 +4,9 @@ import { useAuditLog, useCan, usePermissions, useSession, useUsers } from "../..
 import type { AccessLevel, PermissionRow, Role } from "../../data/types";
 import { now } from "../../lib/clock";
 import { formatDayMonth } from "../../lib/format";
-import { Button } from "../../ui/Button";
 import { DataTable, type DataColumn } from "../../ui/DataTable";
 import { GooButton } from "../../ui/GooButton";
+import { Icon } from "../../ui/Icon";
 import { Headline } from "../../ui/Headline";
 import { IconCircle } from "../../ui/IconCircle";
 import { PersonCell } from "../../ui/PersonCell";
@@ -16,7 +16,7 @@ import { EmptyState, ErrorState } from "../../ui/states";
 import { StatusTag } from "../../ui/StatusTag";
 import { Surface } from "../../ui/Surface";
 import { Timeline, type TimelineEntry } from "../../ui/Timeline";
-import { AccessSheet, InviteSheet, RemoveUserButton, type AccessTarget } from "./InviteSheet";
+import { AccessSheet, InviteSheet, type AccessTarget } from "./InviteSheet";
 import { LoadingRows } from "./LoadingRows";
 import { PermissionSheet, type PermissionCell } from "./PermissionSheet";
 import { SecurityCard } from "./SecurityCard";
@@ -25,8 +25,8 @@ import { auditTitle, auditWho, directoryRows, formatWhen, RECENT_ACTIONS, ROLES,
 /** The edit form's starting point for a row of the users table. */
 function accessTarget(row: DirectoryRow, meId: string | undefined): AccessTarget {
   return row.kind === "user"
-    ? { id: row.user.id, name: row.user.name, role: row.user.role, passportAccess: row.user.passportAccess, self: row.user.id === meId }
-    : { id: row.invite.id, name: row.invite.email, role: row.invite.role, passportAccess: row.invite.passportAccess, self: false };
+    ? { id: row.user.id, name: row.user.name, role: row.user.role, passportAccess: row.user.passportAccess, self: row.user.id === meId, invite: false }
+    : { id: row.invite.id, name: row.invite.email, role: row.invite.role, passportAccess: row.invite.passportAccess, self: false, invite: true };
 }
 
 /** Everyone with an account, then the invites nobody accepted yet. Admins edit and remove from here. */
@@ -91,25 +91,28 @@ function UsersTableCard({ className }: { className?: string }) {
           </span>
         ),
     },
-    // Admins change anyone's access (their own passport access too), remove people (not themselves) and cancel invites.
+    // Admins open anyone's row: their access, and removing them (not themselves) or cancelling the invite.
+    // The chevron is the row's way in for the keyboard; a click anywhere on the row opens it too.
     ...(admin
       ? [
           {
-            key: "manage",
+            key: "open",
             header: copy.edit.action,
             srOnlyHeader: true,
-            cell: (row: DirectoryRow) => (
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" size="sm" onClick={() => setEditing(accessTarget(row, meId))}>
-                  {copy.edit.action}
-                </Button>
-                {row.kind === "invite" ? (
-                  <RemoveUserButton userId={row.invite.id} name={row.invite.email} invite />
-                ) : row.user.id === meId ? null : (
-                  <RemoveUserButton userId={row.user.id} name={row.user.name} invite={false} />
-                )}
-              </div>
-            ),
+            align: "end",
+            cell: (row: DirectoryRow) => {
+              const target = accessTarget(row, meId);
+              return (
+                <button
+                  type="button"
+                  onClick={() => setEditing(target)}
+                  aria-label={copy.edit.title(target.name)}
+                  className="-my-1 inline-grid size-9 place-items-center rounded-full text-mute transition-colors group-hover/row:text-ink hover:bg-sand-light focus-visible:outline-offset-2"
+                >
+                  <Icon name="forward" size={16} />
+                </button>
+              );
+            },
           } satisfies DataColumn<DirectoryRow>,
         ]
       : []),
@@ -124,6 +127,7 @@ function UsersTableCard({ className }: { className?: string }) {
           columns={columns}
           rows={directoryRows(data)}
           rowKey={(row) => row.id}
+          onRowClick={admin ? (row) => setEditing(accessTarget(row, meId)) : undefined}
           animateRows={false}
           empty={<EmptyState message={table.empty} />}
         />

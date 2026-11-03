@@ -129,7 +129,7 @@ function TeamCard() {
               <ListRow
                 key={user.id}
                 as="li"
-                onClick={edit({ id: user.id, name: user.name, role: user.role, passportAccess: user.passportAccess, self: false })}
+                onClick={edit({ id: user.id, name: user.name, role: user.role, passportAccess: user.passportAccess, self: false, invite: false })}
                 leading={<Avatar initial={user.initial} />}
                 title={user.name}
                 description={copy.account.personLine(
@@ -149,7 +149,7 @@ function TeamCard() {
               <ListRow
                 key={invite.id}
                 as="li"
-                onClick={edit({ id: invite.id, name: invite.email, role: invite.role, passportAccess: invite.passportAccess, self: false })}
+                onClick={edit({ id: invite.id, name: invite.email, role: invite.role, passportAccess: invite.passportAccess, self: false, invite: true })}
                 leading={<Avatar initial={copy.users.inviteInitial} tone="outline" />}
                 title={copy.users.pendingInvite}
                 titleTone="muted"
