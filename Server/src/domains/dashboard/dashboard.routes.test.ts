@@ -524,7 +524,8 @@ describe("greetings on WhatsApp", () => {
     const me = (await post(ronit, "/users/me", { name: "רונית ברש", whatsappPhone: "050-111-2233" }, server).expect(200)).body.data;
     expect(me.whatsappPhone).toBe("0501112233");
     expect((await post(ronit, at("/test"), {}, server).expect(200)).body.data.lastTest).toEqual({ at: clock.toISOString(), toUserId: ronit.id });
-    expect(zernio.sent).toEqual([{ to: "972501112233", name: template.name, language: "he", params: ["רונית", "טיסה טו באב 26"] }]);
+    // As the first recipient gets it: her name and the trip's, never the tester's own name.
+    expect(zernio.sent).toEqual([{ to: "972501112233", name: template.name, language: "he", params: ["שירה", "טיסה טו באב 26"] }]);
     // Each test is a paid message: not twice in a row.
     expect((await post(ronit, at("/test"), {}, server).expect(429)).body.code).toBe("TEST_TOO_SOON");
     expect(zernio.sent).toHaveLength(1);
@@ -541,6 +542,38 @@ describe("greetings on WhatsApp", () => {
     const tal = await signedIn("tal", "office");
     const sent = (await get(tal, "/greetings/history").expect(200)).body.data[0];
     expect(sent).toMatchObject({ status: "completed", stats: { sent: 1, delivered: 1, read: 1, failed: 0 } });
+  });
+
+  it("never pairs a template with a text that changed while it went for review", async () => {
+    const server = wa();
+    const { id } = (await post(ronit, "/greetings", {}, server).expect(201)).body.data;
+    await post(ronit, `/greetings/${id}`, { message: "חג שמח {שם פרטי}!" }, server).expect(200);
+    // While Meta is asked, the text is edited (another tab, another person).
+    const create = zernio.createTemplate;
+    zernio.createTemplate = async (template) => {
+      await db.query("UPDATE campaigns SET message = 'חג אורים שמח {שם פרטי}!' WHERE id = $1", [id]);
+      return create(template);
+    };
+    expect((await post(ronit, `/greetings/${id}/submit`, {}, server).expect(409)).body.code).toBe("CHANGED_MEANWHILE");
+    expect((await get(shira, "/greetings/current").expect(200)).body.data).toMatchObject({ status: "draft", template: null });
+    expect(zernio.templates.size).toBe(0);
+  });
+
+  it("caps test sends at ten a day per person", async () => {
+    const server = wa();
+    const { id } = (await post(ronit, "/greetings", {}, server).expect(201)).body.data;
+    await post(ronit, `/greetings/${id}`, { message: "חג שמח {שם פרטי}!" }, server).expect(200);
+    expect((await post(ronit, `/greetings/${id}/test`, {}, server).expect(409)).body.code).toBe("WRONG_STAGE");
+    await post(ronit, `/greetings/${id}/submit`, {}, server).expect(200);
+    await approveAll();
+    await post(ronit, "/users/me", { name: "רונית", whatsappPhone: "0501112233" }, server).expect(200);
+    for (let i = 0; i < 10; i += 1) {
+      await post(ronit, `/greetings/${id}/test`, {}, server).expect(200);
+      clock = new Date(clock.getTime() + 31_000);
+    }
+    expect((await post(ronit, `/greetings/${id}/test`, {}, server).expect(429)).body.code).toBe("TEST_LIMIT");
+    expect(zernio.sent).toHaveLength(10);
+    expect((await get(ronit, "/users/audit").expect(200)).body.data[0]).toMatchObject({ action: "greeting-test", byUserId: ronit.id, holiday: "hanukkah" });
   });
 
   it("sends a changed text back to writing, and a new audience back to Ronit's approval", async () => {

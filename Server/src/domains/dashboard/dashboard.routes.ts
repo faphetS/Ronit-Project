@@ -152,11 +152,12 @@ export function createDashboardRouter(resolveDeps: AuthDepsResolver, options: Da
   const db = (res: Response) => authDeps(res).db;
   const now = (res: Response) => authDeps(res).now();
   const viewer = (req: Request): Viewer => ({ userId: staffOf(req).user.id, passports: can(req, "passports", "view") });
-  const greetings = (res: Response): GreetingsDeps => ({
+  const greetings = (req: Request, res: Response): GreetingsDeps => ({
     db: db(res),
     zernio: whatsapp.zernio(),
     language: whatsapp.language,
     isAllowed: whatsapp.isAllowed,
+    showsCustomers: can(req, "customers", "view"),
     now: () => now(res),
   });
 
@@ -218,8 +219,8 @@ export function createDashboardRouter(resolveDeps: AuthDepsResolver, options: Da
   });
 
   // ---- Greetings and birthdays ----
-  router.get("/greetings/current", requireAccess("greetings", "view"), async (_req, res) => {
-    sendData(res, await currentCampaign(db(res)));
+  router.get("/greetings/current", requireAccess("greetings", "view"), async (req, res) => {
+    sendData(res, await currentCampaign(db(res), can(req, "customers", "view")));
   });
   router.get("/greetings/history", requireAccess("greetings", "view"), async (_req, res) => {
     sendData(res, await campaignHistory(db(res)));
@@ -233,25 +234,25 @@ export function createDashboardRouter(resolveDeps: AuthDepsResolver, options: Da
   });
   // A greeting for the next holiday, then its text and audience, WhatsApp's review, Ronit's approval and a test.
   router.post("/greetings", requireAccess("greetings", "full"), async (req, res) => {
-    sendData(res, await createCampaign(greetings(res), staffOf(req)), 201);
+    sendData(res, await createCampaign(greetings(req, res), staffOf(req)), 201);
   });
   router.post("/greetings/:id", requireAccess("greetings", "full"), validate({ body: CampaignPatchSchema }), async (req, res) => {
-    sendData(res, await updateCampaign(greetings(res), staffOf(req), idParam(req.params.id, "Campaign"), req.body));
+    sendData(res, await updateCampaign(greetings(req, res), staffOf(req), idParam(req.params.id, "Campaign"), req.body));
   });
   router.post("/greetings/:id/submit", requireAccess("greetings", "full"), async (req, res) => {
-    sendData(res, await submitCampaign(greetings(res), staffOf(req), idParam(req.params.id, "Campaign")));
+    sendData(res, await submitCampaign(greetings(req, res), staffOf(req), idParam(req.params.id, "Campaign")));
   });
   router.post("/greetings/:id/approve", requireAccess("greetings", "full"), async (req, res) => {
-    sendData(res, await approveCampaign(greetings(res), staffOf(req), idParam(req.params.id, "Campaign")));
+    sendData(res, await approveCampaign(greetings(req, res), staffOf(req), idParam(req.params.id, "Campaign")));
   });
   router.post("/greetings/:id/test", requireAccess("greetings", "full"), async (req, res) => {
-    sendData(res, await sendCampaignTest(greetings(res), staffOf(req), idParam(req.params.id, "Campaign")));
+    sendData(res, await sendCampaignTest(greetings(req, res), staffOf(req), idParam(req.params.id, "Campaign")));
   });
   router.get("/birthdays/settings", requireAccess("greetings", "view"), async (_req, res) => {
     sendData(res, await birthdaySettings(db(res)));
   });
   router.post("/birthdays/settings", requireAccess("greetings", "full"), validate({ body: BirthdaySettingsSchema }), async (req, res) => {
-    sendData(res, await updateBirthdaySettings(greetings(res), staffOf(req), req.body));
+    sendData(res, await updateBirthdaySettings(greetings(req, res), staffOf(req), req.body));
   });
   router.get("/birthdays/overview", requireAccess("greetings", "view"), async (_req, res) => {
     sendData(res, await birthdaysOverview(db(res), now(res)));

@@ -100,6 +100,8 @@ export function CampaignCards({ campaign, phone }: CampaignCardsProps) {
     if (code === "no-test-number") return copy.send.testNoNumber;
     if (code === "number-not-allowed") return copy.send.testNotAllowed;
     if (code === "test-too-soon") return copy.send.testTooSoon;
+    if (code === "test-limit") return copy.send.testLimit;
+    if (code === "changed-meanwhile") return copy.review.changedMeanwhile;
     return (code && copy.review.problems[code]) || fallback;
   };
 

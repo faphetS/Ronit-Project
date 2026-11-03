@@ -42,8 +42,8 @@ export function templateProblem(text: string, allowed: readonly MessageToken[]):
   return null;
 }
 
-/** Sample values Meta's reviewers see. */
-const EXAMPLES: Record<MessageToken, string> = { firstName: "שרה", groupName: "טיסה לאומן", age: "30" };
+/** Sample values Meta's reviewers see, and a test shows when there's no customer to show. */
+export const TEMPLATE_EXAMPLES: Record<MessageToken, string> = { firstName: "שרה", groupName: "טיסה לאומן", age: "30" };
 
 /**
  * A value as Meta takes it: no line breaks or tabs, no runs of four spaces. Null for an empty one,
@@ -93,7 +93,7 @@ export async function submitTemplate(
 ): Promise<TemplateRow> {
   const { body, tokens } = toTemplate(input.sourceText);
   const name = `${input.nameBase.toLowerCase().replace(/[^a-z0-9_]/g, "_")}_${randomBytes(3).toString("hex")}`;
-  const { status } = await deps.zernio.createTemplate({ name, language: deps.language, body, examples: tokens.map((token) => EXAMPLES[token]) });
+  const { status } = await deps.zernio.createTemplate({ name, language: deps.language, body, examples: tokens.map((token) => TEMPLATE_EXAMPLES[token]) });
   const now = deps.now();
   const { rows } = await deps.db.query<TemplateRow>(
     `INSERT INTO whatsapp_templates (name, language, purpose, source_text, body, tokens, status, created_by, created_at, status_at)

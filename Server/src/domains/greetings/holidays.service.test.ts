@@ -6,6 +6,7 @@ vi.mock("../../config/logger.js", () => ({
 
 import { createTestDb, TEST_DB_TIMEOUT_MS, type TestDb } from "../../db/test-db.js";
 import { completeFinishedCampaigns, queueDueCampaigns } from "./holidays.service.js";
+import { toTemplate } from "./whatsapp-templates.js";
 
 // Hanukkah eve, 4 December 2026, 16:00 in Israel.
 const NOW = new Date("2026-12-04T14:00:00Z");
@@ -27,6 +28,8 @@ async function addCampaign(options: {
   sendAt?: Date;
   rate?: [number, number];
   groupIds?: string[];
+  /** Its text approved on WhatsApp, as every greeting Ronit approves is. False: no template for it. */
+  reviewed?: boolean;
 }): Promise<string> {
   const [messages, everyMinutes] = options.rate ?? [50, 10];
   const { rows } = await db.query<{ id: string }>(
@@ -44,7 +47,17 @@ async function addCampaign(options: {
       options.holiday ?? "hanukkah",
     ],
   );
-  return rows[0]!.id;
+  const id = rows[0]!.id;
+  if (options.reviewed !== false) {
+    const text = options.message ?? "חג אורים שמח {שם פרטי}";
+    const { body, tokens } = toTemplate(text);
+    await db.query(
+      `INSERT INTO whatsapp_templates (name, language, purpose, source_text, body, tokens, status) VALUES ($1, 'he', 'holiday', $2, $3, $4, 'APPROVED')`,
+      [`t_${id.replace(/-/g, "")}`, text, body, tokens],
+    );
+    await db.query("UPDATE campaigns SET template_name = $2 WHERE id = $1", [id, `t_${id.replace(/-/g, "")}`]);
+  }
+  return id;
 }
 
 async function messages() {
@@ -117,6 +130,26 @@ describe("queueDueCampaigns", () => {
     await addCustomer("בתיה", "972502222222", true);
     await addCampaign({});
     expect(await queueDueCampaigns(db, NOW)).toBe(0);
+  });
+
+  it("sends each message as the approved template, with its values", async () => {
+    await addCustomer("אביגיל", "972501111111");
+    await addCampaign({});
+    await queueDueCampaigns(db, NOW);
+    const { rows } = await db.query<{ template_language: string; template_params: string[] }>("SELECT template_language, template_params FROM messages");
+    expect(rows).toEqual([{ template_language: "he", template_params: ["אביגיל"] }]);
+  });
+
+  it("sends nothing whose text WhatsApp hasn't approved, and puts the greeting back to writing", async () => {
+    await addCustomer("אביגיל", "972501111111");
+    const unreviewed = await addCampaign({ reviewed: false });
+    const changed = await addCampaign({ holiday: "tuBishvat" });
+    // Its text changed after the review, behind the dashboard's back.
+    await db.query("UPDATE campaigns SET message = 'חג אילנות שמח {שם פרטי}!' WHERE id = $1", [changed]);
+    expect(await queueDueCampaigns(db, NOW)).toBe(0);
+    const { rows } = await db.query<{ id: string; status: string }>("SELECT id, status FROM campaigns ORDER BY id");
+    expect(rows.map((row) => row.status)).toEqual(["draft", "draft"]);
+    expect(rows.map((row) => row.id).sort()).toEqual([unreviewed, changed].sort());
   });
 });
 

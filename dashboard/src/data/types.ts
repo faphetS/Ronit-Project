@@ -464,7 +464,7 @@ export type AuditEntry = AuditBase &
   (
     | { action: "passport-view" | "passport-photo-view"; customerId: string; customerName: string }
     | { action: "passport-received"; customerId: string; customerName: string; via: PassportSource }
-    | { action: "greeting-edit" | "greeting-approve"; campaignId: string; holiday: HolidayKey }
+    | { action: "greeting-edit" | "greeting-approve" | "greeting-test"; campaignId: string; holiday: HolidayKey }
     | { action: "security-change"; setting: SecuritySwitch; enabled: boolean }
     /** A sign-in from a new device; an account locked after wrong codes; a copy from Monday asked for now. */
     | { action: "new-device-sign-in" | "sign-in-locked" | "monday-copy" }

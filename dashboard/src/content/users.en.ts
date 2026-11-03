@@ -117,6 +117,7 @@ export const usersCopy: Widen<typeof he> = {
     via: { whatsapp: "on WhatsApp", monday: "from Monday", manual: "by hand" },
     greetingEdit: (holiday) => `${holiday} greeting edited`,
     greetingApprove: (holiday) => `${holiday} greeting approved`,
+    greetingTest: (holiday) => `${holiday} greeting test on WhatsApp`,
     newDevice: "Sign-in from a new device",
     signInLocked: "Account locked after wrong codes",
     signInRefused: (email) => `Sign-in by an account that isn't registered · ${email}`,

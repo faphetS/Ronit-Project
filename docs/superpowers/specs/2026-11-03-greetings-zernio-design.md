@@ -78,7 +78,22 @@ Nothing changes until it's set up:
 | `GREETINGS_ENABLED=true` and `GREETINGS_CHANNEL=zernio` | sending to customers |
 | `RONIT_WA_ALLOWED_NUMBERS` | every real send, test sends included, as before |
 
-**Test sends** go to the WhatsApp number in each person's own details, added in the avatar panel.
+**Test sends** go to the WhatsApp number in each person's own details, added in the avatar panel. They're limited because each one is a paid message from Ronit's number:
+
+- a test reads exactly as the first recipient gets it, their name and trip, never text the tester typed;
+- tests only go out while the greeting waits to be sent;
+- one per greeting every 30 seconds, claimed in the database so parallel requests can't slip through;
+- ten a day per person, each one logged among the sensitive actions.
+
+The number itself isn't confirmed with a code yet: an admin can see every test in the log.
+
+## 8. Checked before going live
+
+A security review on 2026-11-03 led to these rules:
+
+- **The reviewed text is the text sent.** Submitting claims the greeting only if its text is still the one sent for review. Approving checks, in the same statement, that WhatsApp approved the current text. The queue sends only a template that is approved and matches the text; anything else goes back to writing.
+- **The webhook** applies each event id once, so retries and replays change nothing. It refuses events without an id, takes 100 kB at most, and has its own limit of 300 a minute per address.
+- **Zernio's error text** stays in the server's log; the screens get the code only.
 
 ## 7. To connect
 

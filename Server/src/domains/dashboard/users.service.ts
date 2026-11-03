@@ -207,7 +207,7 @@ interface AuditBase {
 export type AuditEntryDto = AuditBase &
   (
     | { action: "passport-view" | "passport-photo-view"; customerId: string; customerName: string }
-    | { action: "greeting-edit" | "greeting-approve"; campaignId: string; holiday: string }
+    | { action: "greeting-edit" | "greeting-approve" | "greeting-test"; campaignId: string; holiday: string }
     | { action: "security-change"; setting: SecuritySwitch; enabled: boolean }
     | { action: "new-device-sign-in" | "sign-in-locked" | "monday-copy" }
     | { action: "staff-invited" | "staff-removed"; userId: string; userName: string }
@@ -221,6 +221,7 @@ const LOGGED = [
   "passport-photo-view",
   "greeting-edit",
   "greeting-approve",
+  "greeting-test",
   "security-change",
   "new-device-sign-in",
   "sign-in-locked",
@@ -267,6 +268,7 @@ export async function auditLog(db: Queryable): Promise<AuditEntryDto[]> {
           : [];
       case "greeting-edit":
       case "greeting-approve":
+      case "greeting-test":
         return row.campaign_id ? [{ ...base, action: row.action, campaignId: row.campaign_id, holiday: row.holiday ?? "" }] : [];
       case "security-change":
         return [{ ...base, action: "security-change", setting: detail("setting") as SecuritySwitch, enabled: detail("enabled") === true }];

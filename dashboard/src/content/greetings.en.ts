@@ -60,6 +60,7 @@ export const greetingsCopy: Widen<typeof he> = {
       notConnected: "WhatsApp isn't connected yet. You can write and save the greeting, and send it for review once it's connected.",
       notSending: "WhatsApp is connected, but sending to customers is still off. An approved greeting goes out once it's on.",
       failed: "It didn't go for review. Please try again.",
+      changedMeanwhile: "The text changed while it went for review. Send it again.",
       problems: {
         "empty-message": "An empty greeting can't go for review.",
         "too-long": "WhatsApp takes up to 1,024 characters in a greeting like this.",
@@ -145,6 +146,7 @@ export const greetingsCopy: Widen<typeof he> = {
       testNoNumber: "To get a test, add your WhatsApp number in your personal details.",
       testNotAllowed: "Your number isn't open for WhatsApp sends on the system yet.",
       testTooSoon: "A test just went out. You can send another in half a minute.",
+      testLimit: "Ten tests went out today. You can send more tomorrow.",
     },
 
     last: {

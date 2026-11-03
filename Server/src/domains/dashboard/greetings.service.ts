@@ -5,7 +5,7 @@ import { holidaySendAt, upcomingHolidays, type HolidayKey } from "../../lib/hebr
 import { addDays, birthdayIn, birthdaySlot, israelDay, weekdayOf, type ShabbatRule } from "../../lib/israel-time.js";
 import type { SignedInDto } from "../auth/auth.service.js";
 import { MESSAGE_TOKENS, type MessageToken } from "../greetings/greetings.tokens.js";
-import { discardTemplate, submitTemplate, templateParams, templateProblem } from "../greetings/whatsapp-templates.js";
+import { discardTemplate, submitTemplate, TEMPLATE_EXAMPLES, templateParams, templateProblem } from "../greetings/whatsapp-templates.js";
 import { ZernioError, type TemplateStatus, type ZernioClient } from "../greetings/zernio.client.js";
 import type { DeliveryStatus } from "./customers.service.js";
 
@@ -159,15 +159,17 @@ async function campaignRow(db: Queryable, id: string): Promise<CampaignRow> {
   return rows[0];
 }
 
-async function campaignWithPreview(db: Queryable, id: string): Promise<CampaignDto> {
+/** The preview names a customer: only for people whose role shows customers. */
+async function campaignWithPreview(db: Queryable, id: string, showsCustomers: boolean): Promise<CampaignDto> {
   const row = await campaignRow(db, id);
-  return toCampaign(row, await previewFor(db, row));
+  return toCampaign(row, showsCustomers ? await previewFor(db, row) : null);
 }
 
 /** The next greeting that hasn't finished going out, or null. */
-export async function currentCampaign(db: Queryable): Promise<CampaignDto | null> {
+export async function currentCampaign(db: Queryable, showsCustomers: boolean): Promise<CampaignDto | null> {
   const { rows } = await db.query<CampaignRow>(`${CAMPAIGN_SELECT} WHERE c.status <> 'completed' ORDER BY c.send_at LIMIT 1`);
-  return rows[0] ? toCampaign(rows[0], await previewFor(db, rows[0])) : null;
+  if (!rows[0]) return null;
+  return toCampaign(rows[0], showsCustomers ? await previewFor(db, rows[0]) : null);
 }
 
 /** Every greeting, newest first. */
@@ -211,6 +213,8 @@ export interface GreetingsDeps {
   language: string;
   /** Whether a staff number may get WhatsApp messages (RONIT_WA_ALLOWED_NUMBERS). */
   isAllowed: (msisdn: string) => boolean;
+  /** The signed-in person's role shows customers: the preview may name one. */
+  showsCustomers: boolean;
   now: () => Date;
 }
 
@@ -244,8 +248,12 @@ function whatsappFailed(err: unknown): AppError {
   return new AppError(502, `WhatsApp didn't take it (${code})`, "WHATSAPP_ERROR");
 }
 
-/** Each test is a real WhatsApp message Meta charges for: at most one per greeting this often. */
+/**
+ * Each test is a real WhatsApp message from Ronit's number, and Meta charges for it: one per greeting
+ * every 30 seconds, and ten a day per person.
+ */
 const TEST_COOLDOWN_MS = 30_000;
+const TESTS_PER_DAY = 10;
 
 async function recordCampaignAudit(db: Queryable, at: Date, action: string, byUserId: string, campaignId: string, details: Record<string, unknown> = {}) {
   await db.query("INSERT INTO audit_log (at, by_user_id, action, campaign_id, details) VALUES ($1, $2, $3, $4, $5::text::jsonb)", [
@@ -274,7 +282,7 @@ export async function createCampaign(deps: GreetingsDeps, viewer: SignedInDto): 
      VALUES ($1, $2, $3, $4, '', $5, $6, $6) RETURNING id`,
     [next.key satisfies HolidayKey, next.hebrewYear, next.eve, holidaySendAt(next.eve), viewer.user.id, now],
   );
-  return campaignWithPreview(deps.db, rows[0].id);
+  return campaignWithPreview(deps.db, rows[0].id, deps.showsCustomers);
 }
 
 export interface CampaignPatch {
@@ -336,7 +344,7 @@ export async function updateCampaign(deps: GreetingsDeps, viewer: SignedInDto, i
   });
   // The old text's template is no use now.
   if (replaced && deps.zernio) await discardTemplate({ db: deps.db, zernio: deps.zernio, now: deps.now }, replaced);
-  return campaignWithPreview(deps.db, id);
+  return campaignWithPreview(deps.db, id, deps.showsCustomers);
 }
 
 /** Sends the text to WhatsApp for review. Meta usually answers within minutes, at most a day. */
@@ -358,15 +366,19 @@ export async function submitCampaign(deps: GreetingsDeps, viewer: SignedInDto, i
   } catch (err) {
     throw whatsappFailed(err);
   }
-  const previous = row.template_name;
-  await deps.db.query("UPDATE campaigns SET template_name = $2, status = $3, updated_at = $4 WHERE id = $1", [
-    id,
-    template.name,
-    template.status === "APPROVED" ? "awaiting-approval" : template.status === "REJECTED" ? "draft" : "in-review",
-    now,
-  ]);
-  await discardTemplate({ db: deps.db, zernio: deps.zernio, now: deps.now }, previous);
-  return campaignWithPreview(deps.db, id);
+  const templates = { db: deps.db, zernio: deps.zernio, now: deps.now };
+  // Only if the greeting is still the one that went for review: an edit while Meta was being asked
+  // makes this template no use, and it must never end up beside another text.
+  const { rows: claimed } = await deps.db.query(
+    "UPDATE campaigns SET template_name = $2, status = $3, updated_at = $4 WHERE id = $1 AND status = 'draft' AND message = $5 RETURNING id",
+    [id, template.name, template.status === "APPROVED" ? "awaiting-approval" : template.status === "REJECTED" ? "draft" : "in-review", now, row.message],
+  );
+  if (claimed.length === 0) {
+    await discardTemplate(templates, template.name);
+    throw new AppError(409, "The greeting changed while it went for review; send it again", "CHANGED_MEANWHILE");
+  }
+  await discardTemplate(templates, row.template_name);
+  return campaignWithPreview(deps.db, id, deps.showsCustomers);
 }
 
 /** Ronit's approval: the greeting goes out at its send time. Only a text WhatsApp approved. */
@@ -377,13 +389,19 @@ export async function approveCampaign(deps: GreetingsDeps, viewer: SignedInDto, 
     throw new AppError(409, "WhatsApp hasn't approved this text yet", "NOT_REVIEWED");
   }
   if (row.eve < israelDay(now)) throw new AppError(409, "This holiday has passed", "HOLIDAY_PASSED");
-  await deps.db.query("UPDATE campaigns SET status = 'scheduled', approved_at = $2, approved_by = $3, updated_at = $2 WHERE id = $1", [
-    id,
-    now,
-    viewer.user.id,
-  ]);
+  // Only the text WhatsApp approved, checked in the same statement that schedules it: an edit
+  // landing in between can't leave an unreviewed text scheduled.
+  const { rows } = await deps.db.query(
+    `UPDATE campaigns c SET status = 'scheduled', approved_at = $2, approved_by = $3, updated_at = $2
+     FROM whatsapp_templates t
+     WHERE c.id = $1 AND c.status = 'awaiting-approval'
+       AND t.name = c.template_name AND t.status = 'APPROVED' AND t.source_text = c.message
+     RETURNING c.id`,
+    [id, now, viewer.user.id],
+  );
+  if (rows.length === 0) throw new AppError(409, "WhatsApp hasn't approved this text yet", "NOT_REVIEWED");
   await recordCampaignAudit(deps.db, now, "greeting-approve", viewer.user.id, id);
-  return campaignWithPreview(deps.db, id);
+  return campaignWithPreview(deps.db, id, deps.showsCustomers);
 }
 
 /** The signed-in person's WhatsApp number for tests, or an error saying what's missing. */
@@ -395,31 +413,59 @@ async function testNumber(deps: GreetingsDeps, viewer: SignedInDto): Promise<str
   return phone;
 }
 
-/** Sends the greeting, as approved, to the signed-in person's own WhatsApp: their name, the trip's. */
+/**
+ * Sends the greeting, as approved, to the signed-in person's own WhatsApp, exactly as its first
+ * recipient gets it: their name and trip, never text the person typed. Only while the greeting waits
+ * to go out.
+ */
 export async function sendCampaignTest(deps: GreetingsDeps, viewer: SignedInDto, id: string): Promise<CampaignDto> {
   if (!deps.zernio) throw whatsappOff();
   const row = await campaignRow(deps.db, id);
-  if (row.template_status !== "APPROVED" || !row.template_name) throw new AppError(409, "WhatsApp hasn't approved this text yet", "NOT_REVIEWED");
-  if (row.last_test_at && deps.now().getTime() - row.last_test_at.getTime() < TEST_COOLDOWN_MS) {
-    throw new AppError(429, "A test just went out; wait a moment", "TEST_TOO_SOON");
+  if (row.status !== "awaiting-approval" && row.status !== "scheduled") {
+    throw new AppError(409, "Tests go out while a greeting waits to be sent", "WRONG_STAGE");
   }
+  if (row.template_status !== "APPROVED" || !row.template_name) throw new AppError(409, "WhatsApp hasn't approved this text yet", "NOT_REVIEWED");
   const phone = await testNumber(deps, viewer);
+  const now = deps.now();
+  const { rows: sentToday } = await deps.db.query<{ n: number }>(
+    "SELECT count(*)::int AS n FROM audit_log WHERE action = 'greeting-test' AND by_user_id = $1 AND at > $2",
+    [viewer.user.id, new Date(now.getTime() - 86_400_000)],
+  );
+  if (sentToday[0].n >= TESTS_PER_DAY) throw new AppError(429, "That's today's tests", "TEST_LIMIT");
+  // Claimed before it's sent, so two at once can't both go out.
+  const { rows: claimed } = await deps.db.query(
+    "UPDATE campaigns SET last_test_at = $2, last_test_by = $3 WHERE id = $1 AND (last_test_at IS NULL OR last_test_at <= $4) RETURNING id",
+    [id, now, viewer.user.id, new Date(now.getTime() - TEST_COOLDOWN_MS)],
+  );
+  if (claimed.length === 0) throw new AppError(429, "A test just went out; wait a moment", "TEST_TOO_SOON");
+
+  const preview = deps.showsCustomers ? await previewFor(deps.db, row) : null;
   const { rows } = await deps.db.query<{ language: string; tokens: MessageToken[]; group_name: string | null }>(
     `SELECT t.language, t.tokens, (SELECT g.name FROM groups g WHERE g.id = ANY($2::uuid[]) LIMIT 1) AS group_name
      FROM whatsapp_templates t WHERE t.name = $1`,
     [row.template_name, row.audience_group_ids],
   );
   const template = rows[0];
-  const params = templateParams(template.tokens, { firstName: viewer.user.name.trim().split(/\s+/)[0], groupName: template.group_name });
-  if (!params) throw new AppError(400, "A value for the test is missing", "MISSING_VALUE");
+  const params = templateParams(template.tokens, {
+    firstName: preview?.firstName ?? TEMPLATE_EXAMPLES.firstName,
+    groupName: preview?.groupName ?? template.group_name ?? TEMPLATE_EXAMPLES.groupName,
+  });
   try {
+    if (!params) throw new AppError(400, "A value for the test is missing", "MISSING_VALUE");
     await deps.zernio.sendTemplate({ to: phone, name: row.template_name, language: template.language, params });
   } catch (err) {
+    // Nothing went out: it doesn't count against the next test.
+    await deps.db.query("UPDATE campaigns SET last_test_at = $2, last_test_by = $3 WHERE id = $1 AND last_test_at = $4", [
+      id,
+      row.last_test_at,
+      row.last_test_by,
+      now,
+    ]);
+    if (err instanceof AppError) throw err;
     throw whatsappFailed(err);
   }
-  const now = deps.now();
-  await deps.db.query("UPDATE campaigns SET last_test_at = $2, last_test_by = $3 WHERE id = $1", [id, now, viewer.user.id]);
-  return campaignWithPreview(deps.db, id);
+  await recordCampaignAudit(deps.db, now, "greeting-test", viewer.user.id, id);
+  return campaignWithPreview(deps.db, id, deps.showsCustomers);
 }
 
 // ---- Birthdays ----
