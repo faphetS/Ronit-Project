@@ -99,6 +99,7 @@ export function CampaignCards({ campaign, phone }: CampaignCardsProps) {
     if (code === "whatsapp-not-connected") return copy.review.notConnected;
     if (code === "no-test-number") return copy.send.testNoNumber;
     if (code === "number-not-allowed") return copy.send.testNotAllowed;
+    if (code === "test-too-soon") return copy.send.testTooSoon;
     return (code && copy.review.problems[code]) || fallback;
   };
 

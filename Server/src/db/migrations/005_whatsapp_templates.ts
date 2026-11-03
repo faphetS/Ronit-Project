@@ -47,4 +47,11 @@ ALTER TABLE messages
   ADD COLUMN template_name text,
   ADD COLUMN template_language text,
   ADD COLUMN template_params jsonb;
+
+-- Every Zernio webhook event applied, by its id: a retried or replayed delivery is applied once.
+CREATE TABLE zernio_webhook_events (
+  id text PRIMARY KEY,
+  event text NOT NULL,
+  received_at timestamptz NOT NULL DEFAULT now()
+);
 `;

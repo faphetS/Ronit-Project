@@ -144,6 +144,7 @@ export const greetingsCopy: Widen<typeof he> = {
       testFailed: "The test wasn’t sent. Please try again.",
       testNoNumber: "To get a test, add your WhatsApp number in your personal details.",
       testNotAllowed: "Your number isn't open for WhatsApp sends on the system yet.",
+      testTooSoon: "A test just went out. You can send another in half a minute.",
     },
 
     last: {

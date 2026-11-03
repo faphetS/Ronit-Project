@@ -513,6 +513,9 @@ describe("greetings on WhatsApp", () => {
     expect(me.whatsappPhone).toBe("0501112233");
     expect((await post(ronit, at("/test"), {}, server).expect(200)).body.data.lastTest).toEqual({ at: clock.toISOString(), toUserId: ronit.id });
     expect(zernio.sent).toEqual([{ to: "972501112233", name: template.name, language: "he", params: ["רונית", "טיסה טו באב 26"] }]);
+    // Each test is a paid message: not twice in a row.
+    expect((await post(ronit, at("/test"), {}, server).expect(429)).body.code).toBe("TEST_TOO_SOON");
+    expect(zernio.sent).toHaveLength(1);
 
     expect((await post(ronit, at("/approve"), {}, server).expect(200)).body.data).toMatchObject({ status: "scheduled", stage: "track", approvedByUserId: ronit.id });
 
@@ -561,6 +564,11 @@ describe("greetings on WhatsApp", () => {
       status: "draft",
       template: { status: "REJECTED", reason: "INVALID_FORMAT" },
     });
+
+    // An event id is applied once: a replay under it changes nothing, and an event without one isn't taken.
+    await deliver({ ...rejected, template: { name, status: "APPROVED", reason: "NONE" } }).expect(200);
+    expect((await get(shira, "/greetings/current").expect(200)).body.data.template.status).toBe("REJECTED");
+    await deliver({ ...rejected, id: undefined }).expect(400);
   });
 
   it("is written but not sent for review while WhatsApp isn't connected", async () => {

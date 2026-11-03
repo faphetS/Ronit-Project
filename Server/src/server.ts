@@ -85,9 +85,10 @@ app.use(
   "/api/calls/webhook",
   express.raw({ type: "application/json", limit: "1mb" }),
 );
+// Zernio's events are a few kilobytes; anything far bigger isn't one.
 app.use(
   "/api/zernio/webhook",
-  express.raw({ type: "application/json", limit: "1mb" }),
+  express.raw({ type: "application/json", limit: "100kb" }),
 );
 
 // 5b. Body parsing with size limits
@@ -110,8 +111,9 @@ app.use(
     legacyHeaders: false,
     message: { status: "error", code: "RATE_LIMITED", message: "Too many requests" },
     // The dashboard API reaches us through Vercel, so every user shares Vercel's address; it limits
-    // per signed-in session instead (domains/dashboard/dashboard.routes.ts). Zernio's signed
-    // webhook sends a receipt per greeting, in bursts while a holiday greeting goes out.
+    // per signed-in session instead (domains/dashboard/dashboard.routes.ts). Zernio's webhook sends
+    // a receipt per greeting, in bursts while a holiday greeting goes out; it has its own, higher
+    // limit (domains/greetings/zernio.webhook.ts).
     skip: (req) => req.path.startsWith("/dashboard/") || req.path === "/zernio/webhook",
   }),
 );

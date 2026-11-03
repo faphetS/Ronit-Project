@@ -1,3 +1,4 @@
+import { logger } from "../../config/logger.js";
 import type { Db, Queryable } from "../../config/pg.js";
 import { AppError, NotFoundError, ValidationError } from "../../lib/errors.js";
 import { holidaySendAt, upcomingHolidays, type HolidayKey } from "../../lib/hebrew-holidays.js";
@@ -236,10 +237,15 @@ function whatsappOff(): AppError {
   return new AppError(503, "WhatsApp isn't connected on this server yet", "WHATSAPP_NOT_CONNECTED");
 }
 
+/** Zernio's answer stays in the server's log; the screen gets its code only. */
 function whatsappFailed(err: unknown): AppError {
-  const detail = err instanceof ZernioError ? `${err.code}: ${err.message}` : err instanceof Error ? err.message : String(err);
-  return new AppError(502, `WhatsApp didn't take it (${detail})`, "WHATSAPP_ERROR");
+  logger.warn({ err }, "Zernio refused a greeting call");
+  const code = err instanceof ZernioError ? err.code : "UNKNOWN";
+  return new AppError(502, `WhatsApp didn't take it (${code})`, "WHATSAPP_ERROR");
 }
+
+/** Each test is a real WhatsApp message Meta charges for: at most one per greeting this often. */
+const TEST_COOLDOWN_MS = 30_000;
 
 async function recordCampaignAudit(db: Queryable, at: Date, action: string, byUserId: string, campaignId: string, details: Record<string, unknown> = {}) {
   await db.query("INSERT INTO audit_log (at, by_user_id, action, campaign_id, details) VALUES ($1, $2, $3, $4, $5::text::jsonb)", [
@@ -394,6 +400,9 @@ export async function sendCampaignTest(deps: GreetingsDeps, viewer: SignedInDto,
   if (!deps.zernio) throw whatsappOff();
   const row = await campaignRow(deps.db, id);
   if (row.template_status !== "APPROVED" || !row.template_name) throw new AppError(409, "WhatsApp hasn't approved this text yet", "NOT_REVIEWED");
+  if (row.last_test_at && deps.now().getTime() - row.last_test_at.getTime() < TEST_COOLDOWN_MS) {
+    throw new AppError(429, "A test just went out; wait a moment", "TEST_TOO_SOON");
+  }
   const phone = await testNumber(deps, viewer);
   const { rows } = await deps.db.query<{ language: string; tokens: MessageToken[]; group_name: string | null }>(
     `SELECT t.language, t.tokens, (SELECT g.name FROM groups g WHERE g.id = ANY($2::uuid[]) LIMIT 1) AS group_name

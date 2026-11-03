@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import express, { type Request, type Response, type Router } from "express";
+import rateLimit from "express-rate-limit";
 import { env } from "../../config/env.js";
 import { logger } from "../../config/logger.js";
 import type { Db, Queryable } from "../../config/pg.js";
@@ -91,9 +92,21 @@ const envDeps: ZernioWebhookDeps = {
   now: () => new Date(),
 };
 
+/** Zernio sends about one receipt per greeting; this is far above that, and keeps a flood of junk off the database. */
+export const WEBHOOK_REQUESTS_PER_MINUTE = 300;
+
 /** Needs the raw body: server.ts mounts express.raw on this path before express.json. */
-export function createZernioWebhookRouter(deps: ZernioWebhookDeps = envDeps): Router {
+export function createZernioWebhookRouter(deps: ZernioWebhookDeps = envDeps, requestsPerMinute = WEBHOOK_REQUESTS_PER_MINUTE): Router {
   const router = express.Router();
+  router.use(
+    rateLimit({
+      windowMs: 60_000,
+      limit: requestsPerMinute,
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: { status: "error", code: "RATE_LIMITED", message: "Too many requests" },
+    }),
+  );
   router.post("/webhook", async (req: Request, res: Response) => {
     const secret = deps.secret();
     const db = await deps.db();
@@ -101,6 +114,7 @@ export function createZernioWebhookRouter(deps: ZernioWebhookDeps = envDeps): Ro
       res.status(503).json({ status: "error", code: "WEBHOOK_OFF", message: "The Zernio webhook isn't set up on this server" });
       return;
     }
+    // The signature first: nothing unsigned is read.
     const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.from("");
     if (!validSignature(raw, req.get("x-zernio-signature"), secret)) {
       res.status(401).json({ status: "error", code: "BAD_SIGNATURE", message: "Invalid signature" });
@@ -113,11 +127,24 @@ export function createZernioWebhookRouter(deps: ZernioWebhookDeps = envDeps): Ro
       res.status(400).json({ status: "error", code: "BAD_BODY", message: "Not JSON" });
       return;
     }
+    // Every Zernio event carries a stable id, the same on every retry: it's how one is applied only once.
+    if (typeof event.id !== "string" || !event.id || event.id.length > 200 || typeof event.event !== "string") {
+      res.status(400).json({ status: "error", code: "BAD_BODY", message: "Not a Zernio event" });
+      return;
+    }
+    const eventId = event.id;
     const accountId = deps.accountId();
     const ours = !accountId || !event.account?.accountId || event.account.accountId === accountId;
     if (!event.test && ours) {
       try {
-        await applyZernioEvent(db, event, deps.now());
+        await db.transaction(async (tx) => {
+          // A retried delivery, or a replay of a captured one, changes nothing the second time.
+          const { rows } = await tx.query(
+            "INSERT INTO zernio_webhook_events (id, event, received_at) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING RETURNING id",
+            [eventId, event.event, deps.now()],
+          );
+          if (rows.length > 0) await applyZernioEvent(tx, event, deps.now());
+        });
       } catch (err) {
         // A 500 makes Zernio retry the delivery later.
         logger.error({ err, eventId: event.id, event: event.event }, "Zernio webhook failed");
