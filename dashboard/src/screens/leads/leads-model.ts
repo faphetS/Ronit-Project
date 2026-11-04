@@ -1,8 +1,24 @@
 import type { Lead, LeadService, LeadStatus } from "../../data/types";
+import { isoDay } from "../../lib/clock";
 import type { StatusTone } from "../../ui/StatusTag";
 
-/** The pipeline in order: the board's columns. */
-export const STATUS_ORDER: readonly LeadStatus[] = ["new", "no-answer", "talking", "details-sent", "registered", "not-relevant"];
+export type BoardColumnKey = "new" | "working" | "no-answer" | "registered";
+
+/**
+ * The board's open columns, in order, and the statuses each holds: "talking" and "details-sent" share one
+ * column, told apart by a tag on the card. The not-relevant leads sit folded at the end.
+ */
+export const BOARD_COLUMNS: ReadonlyArray<{ key: BoardColumnKey; statuses: readonly LeadStatus[] }> = [
+  { key: "new", statuses: ["new"] },
+  { key: "working", statuses: ["talking", "details-sent"] },
+  { key: "no-answer", statuses: ["no-answer"] },
+  { key: "registered", statuses: ["registered"] },
+];
+
+/** The day a lead came in, YYYY-MM-DD in Israel: Monday's "תאריך פנייה", or else the day its row was made. */
+export function arrivedOn(lead: Lead): string {
+  return lead.inquiryOn ?? isoDay(new Date(lead.createdAt));
+}
 
 /** Each status's dot on a StatusTag. */
 export const STATUS_TONE: Record<LeadStatus, StatusTone> = {
@@ -14,15 +30,6 @@ export const STATUS_TONE: Record<LeadStatus, StatusTone> = {
   "not-relevant": "irrelevant",
 };
 
-/** The same dots as plain spans, for the board's column headings. */
-export const STATUS_DOT: Record<LeadStatus, string> = {
-  new: "bg-status-new",
-  "no-answer": "bg-status-warning",
-  talking: "bg-status-talking",
-  "details-sent": "bg-status-sent",
-  registered: "bg-status-registered",
-  "not-relevant": "bg-status-irrelevant",
-};
 
 /** Leads of one service. `service` is null for leads that didn't say. */
 export interface ServiceLeads {

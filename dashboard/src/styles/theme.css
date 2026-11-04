@@ -28,6 +28,9 @@
   --color-status-registered: #5b8753;
   --color-status-irrelevant: #c2b9b0;
   --color-status-warning: #bd4b2e;
+  /* Deeper shades for white text on a filled status (the board's column headings): 4.5:1 and up. */
+  --color-status-talking-deep: #a35d39;
+  --color-status-registered-deep: #4a7343;
 
   --text-display: 44px;
   --text-display--line-height: 1.05;

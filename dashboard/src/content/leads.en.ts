@@ -18,16 +18,37 @@ export const leadsCopy: Widen<typeof he> = {
   separator: " · ",
   noteLine: (note, when) => `${note} · ${when}`,
 
-  view: { label: "View", table: "Table", board: "Board" },
-  filter: "Filters",
-  activeFilters: (count) => (count === 1 ? "1 filter on" : `${count} filters on`),
-
   monday: {
-    label: "The copy from Monday.com",
-    note: "Leads are copied from Monday.com every 2 hours, with their notes. Leads are edited in Monday.",
-    copiedAt: (when) => `Updated ${when}`,
-    notYet: "Not copied yet",
-    details: "Copy details",
+    synced: (when) => `Synced from Monday · ${when}`,
+    notYet: "Not copied from Monday yet",
+  },
+
+  days: {
+    label: "Leads by day",
+    today: "Today",
+    yesterday: "Yesterday",
+    title: (relative, weekday, date) => `${relative ? `${relative} · ` : ""}${weekday}, ${date}`,
+    allDays: "All days",
+    backToToday: "Back to today",
+    earlier: "Earlier days",
+    later: "Later days",
+    calendar: "Month calendar",
+    previousMonth: "Previous month",
+    nextMonth: "Next month",
+    range: (from, to) => `${from} – ${to}`,
+    pickDay: "Pick a day on the calendar",
+    monthTotal: (count) => `${count} leads this month`,
+    unit: (count) => (count === 0 ? "No leads came in" : count === 1 ? "new lead" : "new leads"),
+    openUnit: "open leads",
+    none: "No inquiries came in that day",
+    filtered: (count) => `${count} of them match the filters`,
+    split: {
+      new: (count) => `${count} new`,
+      working: (count) => `${count} in progress`,
+      "no-answer": (count) => `${count} no answer`,
+      registered: (count) => `${count} registered`,
+    },
+    dayLabel: (date, count) => `${date}: ${count === 1 ? "1 lead" : `${count} leads`}`,
   },
 
   filters: {
@@ -65,30 +86,29 @@ export const leadsCopy: Widen<typeof he> = {
 
   search: "Search by name or phone",
 
-  table: {
-    label: "Leads by service",
-    name: "Name and last note",
-    phone: "Phone",
-    source: "Source",
-    status: "Status",
-    updated: "Updated",
-  },
   leadCount: (count) => (count === 1 ? "1 lead" : `${count} leads`),
   archived: "Archive",
 
   board: {
     label: "Leads board by status",
-    empty: "No leads",
+    title: {
+      today: "Today's leads, by status",
+      day: (date) => `Leads from ${date}, by status`,
+      all: "All open leads, by status",
+    },
+    columns: { new: "New", working: "In progress", "no-answer": "No answer", registered: "Registered", "not-relevant": "Not relevant" },
+    empty: "No leads here",
+    more: (count) => `Show ${count} more`,
+    showCards: "Show the cards",
+    hideCards: "Hide the cards",
+    attempts: (count) => (count === 1 ? "1 attempt" : `${count} attempts`),
+    whatsapp: (name) => `WhatsApp ${name}`,
+    call: (name) => `Call ${name}`,
   },
 
   empty: {
     filtered: "No leads match these filters",
     none: "No open leads right now",
-  },
-
-  hint: {
-    title: "Choose a lead from the list",
-    text: "Its details, calls and notes from Monday will show up here.",
   },
 
   detail: {
