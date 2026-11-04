@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "motion/react";
-import { useId, useState, type ReactNode } from "react";
+import { useCallback, useId, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { useCopy, useLocale } from "../../content/locale";
 import type { Lead } from "../../data/types";
@@ -41,12 +41,39 @@ interface LeadsKanbanProps {
 }
 
 /**
+ * Whether the page has scrolled as far as it goes, which brings the whole board into view. Until then the columns stay
+ * still and the wheel moves the page, so a column can't catch the wheel with the board half below the fold. Without a
+ * page to watch, the columns just scroll.
+ */
+function useBoardInView() {
+  const [inView, setInView] = useState(true);
+  const boardRef = useCallback((board: HTMLElement | null) => {
+    const page = board?.closest<HTMLElement>(".overflow-y-auto");
+    const content = board?.parentElement;
+    if (!page || !content) return;
+    const check = () => setInView(page.scrollHeight - page.clientHeight - page.scrollTop < 2);
+    check();
+    page.addEventListener("scroll", check, { passive: true });
+    const sizes = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(check);
+    sizes?.observe(page);
+    sizes?.observe(content);
+    return () => {
+      page.removeEventListener("scroll", check);
+      sizes?.disconnect();
+    };
+  }, []);
+  return { boardRef, inView };
+}
+
+/**
  * The leads by status, one column each: new, in progress (talking or details sent, told apart by a tag), no answer
  * and registered; the not-relevant ones fold into a narrow last column. A card opens the lead; statuses change in Monday.
+ * A long column scrolls inside itself, under its heading, so however many leads there are the board fits the view.
  */
 export function LeadsKanban({ open, closed, selectedId, leadHref }: LeadsKanbanProps) {
   const { leadsCopy: copy } = useCopy();
   const [showClosed, setShowClosed] = useState(false);
+  const { boardRef, inView } = useBoardInView();
 
   if (open.isError || closed.isError) {
     const retry = () => {
@@ -64,6 +91,7 @@ export function LeadsKanban({ open, closed, selectedId, leadHref }: LeadsKanbanP
   const openLeads = open.data;
   return (
     <section
+      ref={boardRef}
       aria-label={copy.board.label}
       aria-busy={open.isUpdating || closed.isUpdating || undefined}
       className="-mx-1 overflow-x-auto px-1 pb-2 [scrollbar-width:thin]"
@@ -77,6 +105,7 @@ export function LeadsKanban({ open, closed, selectedId, leadHref }: LeadsKanbanP
             leads={openLeads.filter((lead) => column.statuses.includes(lead.status))}
             selectedId={selectedId}
             leadHref={leadHref}
+            scrolls={inView}
           />
         ))}
         {showClosed ? (
@@ -86,6 +115,7 @@ export function LeadsKanban({ open, closed, selectedId, leadHref }: LeadsKanbanP
             leads={closed.data}
             selectedId={selectedId}
             leadHref={leadHref}
+            scrolls={inView}
             footer={<ColumnButton onClick={() => setShowClosed(false)}>{copy.board.hideCards}</ColumnButton>}
           />
         ) : (
@@ -102,24 +132,38 @@ interface BoardColumnProps {
   leads: Lead[];
   selectedId?: string;
   leadHref: (id: string) => string;
+  /** Whether the cards scroll now; see useBoardInView. */
+  scrolls: boolean;
   footer?: ReactNode;
 }
 
-function BoardColumn({ name, headClass, leads, selectedId, leadHref, footer }: BoardColumnProps) {
+function BoardColumn({ name, headClass, leads, selectedId, leadHref, scrolls, footer }: BoardColumnProps) {
   const { leadsCopy: copy } = useCopy();
   const headingId = useId();
   const [expanded, setExpanded] = useState(false);
   const shown = expanded ? leads : leads.slice(0, CARD_LIMIT);
   return (
-    <motion.section variants={cardVariants} aria-labelledby={headingId} className="surface-glass flex min-w-0 flex-col gap-2.5 rounded-card p-2.5">
+    // At its tallest, with the page scrolled to its end, the column fits between the top bar and the page's bottom edge.
+    <motion.section
+      variants={cardVariants}
+      aria-labelledby={headingId}
+      className="surface-glass flex max-h-[calc(100dvh-10rem)] min-w-0 flex-col gap-2.5 overflow-hidden rounded-card p-2.5"
+    >
       <ColumnHeading id={headingId} name={name} count={leads.length} headClass={headClass} />
-      <ul className="flex flex-col gap-2.5">
+      {/* The list reaches the column's edges, so cards pass under the heading and their shadows aren't cut off. */}
+      <motion.ul
+        layoutScroll
+        className={cx(
+          "no-scrollbar relative -mx-2.5 -mt-2.5 flex min-h-0 flex-col gap-2.5 px-2.5 pt-2.5 pb-1 empty:hidden last:-mb-2.5 last:pb-2.5",
+          scrolls ? "overflow-y-auto" : "overflow-y-hidden",
+        )}
+      >
         <AnimatePresence initial={false} mode="popLayout">
           {shown.map((lead) => (
             <LeadCard key={lead.id} lead={lead} selected={lead.id === selectedId} href={leadHref(lead.id)} />
           ))}
         </AnimatePresence>
-      </ul>
+      </motion.ul>
       {leads.length === 0 ? <p className="px-2 pb-2 text-caption text-mute">{copy.board.empty}</p> : null}
       {leads.length > shown.length ? <ColumnButton onClick={() => setExpanded(true)}>{copy.board.more(leads.length - shown.length)}</ColumnButton> : null}
       {footer}
@@ -130,7 +174,7 @@ function BoardColumn({ name, headClass, leads, selectedId, leadHref, footer }: B
 function ColumnHeading({ id, name, count, headClass }: { id: string; name: string; count: number; headClass: string }) {
   const { leadsCopy: copy } = useCopy();
   return (
-    <h3 id={id} className={cx("flex h-[42px] items-center gap-2 rounded-2xl px-3.5 text-[15px] font-medium", headClass)}>
+    <h3 id={id} className={cx("flex h-[42px] shrink-0 items-center gap-2 rounded-2xl px-3.5 text-[15px] font-medium", headClass)}>
       <span className="min-w-0 truncate">{name}</span>
       <span className="ms-auto inline-flex h-6 min-w-7 items-center justify-center rounded-full bg-paper/30 px-2 text-caption tabular-nums">
         <span aria-hidden="true">{formatNumber(count)}</span>
@@ -157,7 +201,7 @@ function ColumnButton({ onClick, children }: { onClick: () => void; children: Re
     <button
       type="button"
       onClick={onClick}
-      className="h-11 rounded-[14px] border border-dashed border-status-irrelevant text-small text-copy transition-colors hover:bg-paper/70"
+      className="h-11 shrink-0 rounded-[14px] border border-dashed border-status-irrelevant text-small text-copy transition-colors hover:bg-paper/70"
     >
       {children}
     </button>
