@@ -182,6 +182,20 @@ describe("leads", () => {
     expect(found).toEqual([expect.objectContaining({ name: "רחל לוי", archived: true })]);
     await get(moran, "/leads?status=bogus").expect(400);
   });
+
+  it("counts leads by the day they came in, and lists one day's leads, archived ones too", async () => {
+    expect((await get(moran, "/leads/days").expect(200)).body.data).toEqual([
+      { day: "2026-06-01", count: 1 },
+      { day: "2026-10-28", count: 1 },
+      { day: "2026-10-30", count: 1 },
+    ]);
+    const names = async (query: string) => (await get(moran, `/leads?${query}`).expect(200)).body.data.map((l: { name: string }) => l.name);
+    expect(await names("day=2026-10-28")).toEqual(["יעל פרץ"]);
+    expect(await names("day=2026-06-01")).toEqual(["רחל לוי"]);
+    expect(await names("day=2026-10-29")).toEqual([]);
+    await get(moran, "/leads?day=2026-02-30").expect(400);
+    await get(moran, "/leads?day=yesterday").expect(400);
+  });
 });
 
 describe("customers", () => {

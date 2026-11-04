@@ -7,11 +7,19 @@ import { SECURITY_SWITCHES } from "./users.service.js";
 const LEAD_STATUSES = ["all", "new", "no-answer", "talking", "details-sent", "registered", "not-relevant"] as const;
 const LEAD_SOURCES = ["landing-page", "instagram", "facebook", "whatsapp", "referral"] as const;
 
+/** A real calendar day as YYYY-MM-DD: "2026-02-30" is refused, not rolled over into March. */
+function isDay(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(value);
+}
+
 export const LeadListQuerySchema = z.object({
   status: z.enum(LEAD_STATUSES).optional(),
   service: z.enum(["uman", "challah"]).optional(),
   source: z.enum(LEAD_SOURCES).optional(),
   search: z.string().max(100).optional(),
+  day: z.string().refine(isDay, "Expected a day as YYYY-MM-DD").optional(),
 });
 
 export const CustomerListQuerySchema = z.object({
