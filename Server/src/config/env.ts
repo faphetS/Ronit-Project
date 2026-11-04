@@ -443,6 +443,17 @@ const envSchema = z.object({
   ZERNIO_TEMPLATE_LANGUAGE: z.string().default("he"),
   ZERNIO_API_URL: z.string().url().default("https://zernio.com/api/v1"),
 
+  // --- A Google Sheet of Meta lead-form leads, copied into Monday ---
+  // For forms with no route into Monday of their own (the Hanukkah form, 2026-11): every 10 minutes
+  // the server reads the sheet and adds each new lead to the CRM board's new-leads group, unless the
+  // board already has her phone. Off by default.
+  LEAD_SHEET_ENABLED: z.string().default("false").transform((v) => v === "true"),
+  // The sheet's CSV export link (the sheet is "anyone with the link can view"):
+  // https://docs.google.com/spreadsheets/d/<id>/export?format=csv
+  LEAD_SHEET_CSV_URL: z.preprocess((v) => (v === "" ? undefined : v), z.string().url().optional()),
+  // What the form's leads asked about, for Monday's שירות column.
+  LEAD_SHEET_SERVICE: z.enum(["uman", "challah"]).default("uman"),
+
   // --- The dashboard's copy of Monday (leads, trips, customers) ---
   // Copies Monday into the CRM database every 2 hours from 07:00 to 23:00 Israel time, and
   // allows "sync now" from the dashboard. Read-only on Monday; off by default.

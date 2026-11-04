@@ -20,6 +20,7 @@ import { startMetaCrons } from "./domains/meta/meta.cron.js";
 import { startMondayCrons } from "./domains/monday/monday.cron.js";
 import { startCallsCrons } from "./domains/calls/calls.cron.js";
 import { startCrmAutomations } from "./db/startup.js";
+import { startLeadSheetSync } from "./domains/lead-sheet/lead-sheet.cron.js";
 
 // Resolved relative to this module, not process.cwd(), so it points at
 // Server/public under tsx dev (src/server.ts) and at the sibling ./public
@@ -269,6 +270,7 @@ const server = app.listen(env.PORT, () => {
   startMetaCrons();
   startMondayCrons();
   startCallsCrons();
+  startLeadSheetSync();
   // Never throws: without a CRM database the passport and greeting crons just stay off.
   void startCrmAutomations();
 });
