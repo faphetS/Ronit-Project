@@ -4,7 +4,7 @@ import { useAddCustomerNote, useCustomerMessages, usePassportAccessLog } from ".
 import type { Customer, CustomerMessage, DeliveryStatus, PassportAccessEntry } from "../../data/types";
 import { now } from "../../lib/clock";
 import { cx } from "../../lib/cx";
-import { formatDate, formatTime, maskPhone } from "../../lib/format";
+import { formatDate, formatTime } from "../../lib/format";
 import { Avatar } from "../../ui/Avatar";
 import { Button } from "../../ui/Button";
 import { Icon } from "../../ui/Icon";
@@ -146,7 +146,7 @@ export function DetailsCard({ customer, groupLabel, className }: { customer: Cus
     { key: "group", label: rows.group, value: groupLabel || "·" },
     { key: "source", label: rows.source, value: copy.details.sources[customer.source] },
     { key: "lead", label: rows.lead, value: lead },
-    { key: "phone", label: rows.phone, value: <Ltr>{maskPhone(customer.phone)}</Ltr> },
+    { key: "phone", label: rows.phone, value: <Ltr>{customer.phone}</Ltr> },
   ];
   return (
     <Surface variant="card" aria-labelledby={headingId} className={className}>

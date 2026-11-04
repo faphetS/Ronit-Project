@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { dayAt } from "./clock";
-import { formatDate, formatDayMonth, formatNumber, formatRelative, formatTime, formatWeekday, maskPassport, maskPhone } from "./format";
+import { formatDate, formatDayMonth, formatNumber, formatRelative, formatTime, formatWeekday, maskPassport } from "./format";
 
 const reference = dayAt("2026-10-28", "15:30");
 
@@ -13,9 +13,7 @@ describe("format", () => {
     expect(formatWeekday(dayAt("2026-10-28"))).toBe("רביעי");
   });
 
-  it("masks phone and passport numbers", () => {
-    expect(maskPhone("0542212219")).toBe("054-•••-2219");
-    expect(maskPhone("054-221-2219")).toBe("054-•••-2219");
+  it("masks passport numbers", () => {
     expect(maskPassport("38412921")).toBe("38•••921");
   });
 

@@ -6,7 +6,7 @@ import type { PassportPart } from "../../data/services";
 import type { Customer, Passport, PassportIntake } from "../../data/types";
 import { daysBetween, now } from "../../lib/clock";
 import { cx } from "../../lib/cx";
-import { formatDate, formatTime, maskPassport, maskPhone } from "../../lib/format";
+import { formatDate, formatTime, maskPassport } from "../../lib/format";
 import { PRESS_SCALE, springs } from "../../motion/springs";
 import { Button } from "../../ui/Button";
 import { Icon } from "../../ui/Icon";
@@ -240,7 +240,7 @@ export function PassportCard({ customer, groupLabel, intake, canView, compact = 
     group: { key: "group", label: fields.group, value: groupLabel || "·" },
     issueDate: { key: "issueDate", label: fields.issueDate, value: date(passport.issueDate) },
     expiryDate: { key: "expiryDate", label: fields.expiryDate, value: date(passport.expiryDate) },
-    whatsapp: { key: "whatsapp", label: fields.whatsapp, value: <Ltr>{maskPhone(customer.phone)}</Ltr> },
+    whatsapp: { key: "whatsapp", label: fields.whatsapp, value: <Ltr>{customer.phone}</Ltr> },
   } satisfies Record<string, KeyValueItem>;
   // The boards order the fields differently on the phone, and leave the WhatsApp number to the header there.
   const items: KeyValueItem[] = compact

@@ -5,7 +5,7 @@ import { useGroupParticipants } from "../../data/queries";
 import type { Flight, FlightLeg, GroupParticipant, GroupSummary } from "../../data/types";
 import { dayAt, daysBetween, today } from "../../lib/clock";
 import { cx } from "../../lib/cx";
-import { formatDate, formatDayMonth, formatNumber, formatWeekday, maskPhone } from "../../lib/format";
+import { formatDate, formatDayMonth, formatNumber, formatWeekday } from "../../lib/format";
 import { formatHebrewDate } from "../../lib/hebrew";
 import { Avatar } from "../../ui/Avatar";
 import { CountPill } from "../../ui/CountPill";
@@ -58,7 +58,7 @@ function ContactLine({ person }: { person: GroupParticipant }) {
   const notes = personNotes(person, copy.sep, locale);
   return (
     <>
-      <Ltr>{maskPhone(person.phone)}</Ltr>
+      <Ltr>{person.phone}</Ltr>
       {notes ? `${copy.sep}${notes}` : null}
     </>
   );
@@ -109,7 +109,7 @@ export function ParticipantsCard({ group, className }: GroupProps) {
       isRowHeader: true,
       cell: (row) => <PersonCell name={fullName(row)} initial={row.firstName.charAt(0)} to={`/customers/${row.customerId}`} />,
     },
-    { key: "phone", header: text.columns.phone, cell: (row) => <Ltr>{maskPhone(row.phone)}</Ltr> },
+    { key: "phone", header: text.columns.phone, cell: (row) => <Ltr>{row.phone}</Ltr> },
     ...passportColumns,
     { key: "notes", header: text.columns.notes, wrap: true, className: "text-mute", cell: (row) => personNotes(row, copy.sep, locale) ?? <Blank /> },
   ];

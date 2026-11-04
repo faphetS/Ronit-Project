@@ -4,7 +4,7 @@ import { usePassportIntakes } from "../../data/queries";
 import type { IntakeResult, PassportIntake } from "../../data/types";
 import { now } from "../../lib/clock";
 import { cx } from "../../lib/cx";
-import { formatTime, maskPhone } from "../../lib/format";
+import { formatTime } from "../../lib/format";
 import { Avatar } from "../../ui/Avatar";
 import { Button } from "../../ui/Button";
 import { CountPill } from "../../ui/CountPill";
@@ -37,7 +37,7 @@ function IntakeTile({ intake }: { intake: PassportIntake }) {
         <div className="min-w-0 flex-1">
           <p className="font-medium text-cream">{intake.name}</p>
           <p className="text-caption text-ink-mute">
-            {when} · {intake.result === "matched" ? <Ltr>{maskPhone(intake.phone)}</Ltr> : intake.reason}
+            {when} · {intake.result === "matched" ? <Ltr>{intake.phone}</Ltr> : intake.reason}
           </p>
         </div>
       </div>

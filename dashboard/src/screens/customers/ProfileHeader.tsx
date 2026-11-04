@@ -3,7 +3,6 @@ import { useCopy } from "../../content/locale";
 import type { Customer } from "../../data/types";
 import { now } from "../../lib/clock";
 import { cx } from "../../lib/cx";
-import { maskPhone } from "../../lib/format";
 import { cardVariants } from "../../motion/variants";
 import { Avatar } from "../../ui/Avatar";
 import { Button } from "../../ui/Button";
@@ -113,7 +112,7 @@ export function PhoneProfileHeader({ customer, groupLabel }: HeaderProps) {
       </div>
       <ProfileTags customer={customer} withSince={false} className="gap-1.5" />
       <p className="text-small text-mute">
-        <Ltr>{maskPhone(customer.phone)}</Ltr> · {copy.profile.tags.since(yearOf(customer.since))}
+        <Ltr>{customer.phone}</Ltr> · {copy.profile.tags.since(yearOf(customer.since))}
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <WhatsAppLink phone={customer.phone} size="sm">

@@ -480,7 +480,7 @@ These are approving a greeting, sending a test and closing Monday. Each opens a 
 ## 13. Testing
 
 **Unit (Vitest)**
-- Formatters: he-IL numbers, dd.mm dates, Hebrew dates, masked phones and passports.
+- Formatters: he-IL numbers, dd.mm dates, Hebrew dates, masked passports.
 - Mock services: filters, search, edits.
 - The generator produces the same data from the same seed.
 - Permission matrix rules.

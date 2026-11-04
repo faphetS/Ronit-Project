@@ -37,12 +37,6 @@ export const formatWeekdayLetter = (date: Date, locale: Locale = "he"): string =
 /** "נובמבר 2026", "November 2026". */
 export const formatMonthYear = (date: Date, locale: Locale = "he"): string => DATE_FORMATS[locale].monthYear.format(date);
 
-/** "0542212219" becomes "054-•••-2219". */
-export function maskPhone(phone: string): string {
-  const digits = phone.replace(/\D/g, "");
-  return digits.length < 7 ? digits : `${digits.slice(0, 3)}-•••-${digits.slice(-4)}`;
-}
-
 /** "38412921" becomes "38•••921". */
 export function maskPassport(passport: string): string {
   return passport.length < 6 ? "•••" : `${passport.slice(0, 2)}•••${passport.slice(-3)}`;

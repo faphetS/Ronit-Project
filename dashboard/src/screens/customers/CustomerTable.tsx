@@ -6,7 +6,7 @@ import type { CustomerFilter } from "../../data/services";
 import type { Customer } from "../../data/types";
 import { now } from "../../lib/clock";
 import { cx } from "../../lib/cx";
-import { formatDate, formatTime, maskPassport, maskPhone } from "../../lib/format";
+import { formatDate, formatTime, maskPassport } from "../../lib/format";
 import { springs } from "../../motion/springs";
 import { Button } from "../../ui/Button";
 import { ChipGroup } from "../../ui/ChipGroup";
@@ -68,7 +68,7 @@ export function CustomerTable({ filter, page, onFilterChange, onPageChange, clas
     {
       key: "phone",
       header: copy.table.columns.phone,
-      cell: (customer) => <Ltr>{maskPhone(customer.phone)}</Ltr>,
+      cell: (customer) => <Ltr>{customer.phone}</Ltr>,
     },
     {
       key: "passport",
