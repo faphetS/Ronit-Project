@@ -375,7 +375,7 @@ Content follows the canvas board of the same name.
 - Header: the two-tone count, and one line saying when Monday was last copied.
 - **Leads by day:** the chosen day's count in large type, where its leads came from, and two weeks of days with their counts. A month calendar reaches any day before. Today is chosen unless the address names another day (`?day=YYYY-MM-DD`, or `all`).
   - A lead's day is Monday's "תאריך פנייה", or else the day its row was made, in Israel.
-- **Board:** the chosen day's leads by status, filtered by source and service. Columns: new, in progress (in talks or details sent, told apart by a tag), no answer (with the number of calls), registered; not relevant folds into a narrow last column.
+- **Board:** the chosen day's leads by status, filtered by source and service. Columns: new, in progress (in talks or details sent, told apart by a tag), no answer (with the number of calls), registered; not relevant folds into a narrow last column. A long column scrolls inside itself, under its heading, so the board never outgrows the view; the page moves first, until the whole board is in view.
   - Each card: name, day, service and source, the phone, and WhatsApp and call buttons. Clicking it opens the lead.
   - Status changes happen in Monday; there is no drag and drop.
 - The lead opens in a panel that floats over the board at the end side and stays in view while the page scrolls.
