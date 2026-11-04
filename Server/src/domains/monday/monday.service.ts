@@ -46,7 +46,7 @@ export interface CreateLeadInput extends FormFields {
   name: string;
   phone: string | null;
   service: "uman" | "challah" | null;
-  source: "instagram" | "whatsapp" | "website" | "n8n";
+  source: "instagram" | "whatsapp" | "website" | "n8n" | "lead-sheet";
   /** Overrides the inquiry-date column (default: today, Asia/Jerusalem). Used by
    *  the n8n FB-lead fallback so a delayed drain-create still carries the lead's
    *  original arrival date, not the drain time. */

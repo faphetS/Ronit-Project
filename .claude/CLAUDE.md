@@ -165,6 +165,21 @@ Status of each integration. When a new decision is made, update this section and
 - **n8n FB lead-ad fallback:** `POST /api/monday/lead-fallback` (gated by `verifyMondaySecret`, same `?token=` as lead-ready; body = the n8n *Normalize phone* output validated by `N8nLeadFallbackSchema` — requires `phone972` OR `email`). Enqueues `platform:"n8n"`; `drainN8nRow` dedups by `findLeadByPhone` on CRM then creates with `sourceLabel: env.MONDAY_SOURCE_LABEL_PAID` (ממומן) + the **original** `inquiryDate`. Wired from workflow `IZa9wPTd87J6Ppno` ("Ronit Leads Monday Entry"): `Create Monday item` `onError: continueErrorOutput` → "Send to queue" HTTP node. n8n API access: `N8N_API_KEY`/`N8N_API_URL` in `Server/.env`.
 - **Lead-source tag:** `createLeadRow` stamps מקור ליד (`MONDAY_COL_SOURCE_ID`) with `MONDAY_SOURCE_LABEL_ORGANIC` (אורגני) by default; `sourceLabel`/`inquiryDate` are overridable per call (used only by the n8n drain path).
 
+### Meta lead-form sheet → Monday (built 2026-11-04)
+- **Why:** Facebook leads from Ronit's Hanukkah lead form ("שאלון חנוכה -0.1-copy") had no route into Monday. The n8n "Ronit Leads Monday Entry" flow doesn't cover this form, and only some Instagram ones arrive, through the Instagram chat flow. The form fills a Google Sheet ("new leads ronit 0.2", anyone with the link can view).
+- **How:** [domains/lead-sheet/](Server/src/domains/lead-sheet/).
+  - Every 10 minutes the server reads the sheet's CSV export and goes through each row whose Meta lead id it hasn't handled (`processed_webhooks` source `lead_sheet`).
+  - A row is skipped when it's Meta's test lead or has no phone.
+  - A lead waits 15 minutes after the form is filled, so the Instagram chat flow can add her first.
+  - A lead is added only when the live CRM board doesn't have her phone. That's checked first in the dashboard's copy (free), then in Monday with `findLeadByPhone`.
+  - Monday's phone search matches only the stored format: asking for several formats in one `items_page_by_column_values` call returns nothing, so formats go one per call.
+  - Added with `createLeadRow` to the new-leads group: Uman, ממומן (organic when Meta says so), the form's date as תאריך פנייה. A Monday update holds the form's answers, in the wording of the 26 leads added by hand on 2026-11-03/04, plus "פנייה חוזרת" when she has a card on the old board.
+  - A lead is marked handled before its note, so it's never added twice.
+  - A Monday rate limit stops the run, and the rest wait for the next one.
+- **Checked before going live** with a dry run on the real sheet: 37 rows, 36 already in Monday, 1 test lead, 0 to add.
+- **Env:** `LEAD_SHEET_ENABLED` (default `false`), `LEAD_SHEET_CSV_URL` (the `/export?format=csv` link), `LEAD_SHEET_SERVICE` (`uman`).
+- **A lead created here triggers Monday's `create_item` webhook like any other.** The Uman WhatsApp welcome still only goes to `RONIT_WA_ALLOWED_NUMBERS`.
+
 ### LLM (classification + summarization)
 - **Decision:** Implemented — OpenRouter (default model: `anthropic/claude-haiku-4.5`)
 - **What's done:** Lead classifier in `lib/classify.ts`. Takes message text + optional sender username, calls OpenRouter with Hebrew system prompt, returns `{interested, service, extractedName, extractedPhone, confidence, rawResponse}`. Handles JSON parsing (strips markdown backticks), validates response schema. Services: `uman` (pilgrimage flights) and `challah` (separation events).
