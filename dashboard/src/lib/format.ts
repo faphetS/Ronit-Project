@@ -10,6 +10,8 @@ function dateFormats(intlLocale: string, weekday: "long" | "short") {
     dayMonth: new Intl.DateTimeFormat(intlLocale, { timeZone: TIME_ZONE, day: "2-digit", month: "2-digit" }),
     date: new Intl.DateTimeFormat(intlLocale, { timeZone: TIME_ZONE, day: "2-digit", month: "2-digit", year: "numeric" }),
     weekday: new Intl.DateTimeFormat(intlLocale, { timeZone: TIME_ZONE, weekday }),
+    weekdayLetter: new Intl.DateTimeFormat(intlLocale, { timeZone: TIME_ZONE, weekday: "narrow" }),
+    monthYear: new Intl.DateTimeFormat(intlLocale, { timeZone: TIME_ZONE, month: "long", year: "numeric" }),
   };
 }
 
@@ -28,6 +30,12 @@ export const formatTime = (date: Date): string => timeFormat.format(date);
 export function formatWeekday(date: Date, locale: Locale = "he"): string {
   return DATE_FORMATS[locale].weekday.format(date).replace(/^יום\s+/, "");
 }
+
+/** The weekday as one letter, e.g. "ד׳" or "W", under a day's bar. */
+export const formatWeekdayLetter = (date: Date, locale: Locale = "he"): string => DATE_FORMATS[locale].weekdayLetter.format(date);
+
+/** "נובמבר 2026", "November 2026". */
+export const formatMonthYear = (date: Date, locale: Locale = "he"): string => DATE_FORMATS[locale].monthYear.format(date);
 
 /** "0542212219" becomes "054-•••-2219". */
 export function maskPhone(phone: string): string {

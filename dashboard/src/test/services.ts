@@ -138,6 +138,7 @@ export function createTestServices({ failing = [], signedIn = false }: TestServi
     leads: {
       list: async () => [],
       counts: async () => ({ all: 0, new: 0, "no-answer": 0, talking: 0, "details-sent": 0, registered: 0, "not-relevant": 0 }),
+      days: async () => [],
       get: missing("Lead"),
     },
     customers: {

@@ -1,6 +1,7 @@
 import { useQueryClient, type QueryClient, type QueryKey } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { queryKeys } from "../data/queries";
+import { isoDay, now } from "../lib/clock";
 import type { Services } from "../data/services";
 import { useServices } from "../data/services-context";
 import type { GroupSummary } from "../data/types";
@@ -20,6 +21,13 @@ interface Prefetch {
 function sectionQueries({ overview, leads, customers, groups, greetings, birthdays, users, imports }: Services): Record<RailKey, Prefetch[]> {
   const stats = { queryKey: queryKeys.overview, queryFn: () => overview.stats() };
   const openLeads = { queryKey: queryKeys.leads({}), queryFn: () => leads.list({}) };
+  // The leads page opens on today's board: today's open leads, and the not-relevant ones apart.
+  const today = isoDay(now());
+  const todaysLeads = { queryKey: queryKeys.leads({ day: today }), queryFn: () => leads.list({ day: today }) };
+  const todaysClosed = {
+    queryKey: queryKeys.leads({ day: today, status: "not-relevant" }),
+    queryFn: () => leads.list({ day: today, status: "not-relevant" }),
+  };
   const groupList = { queryKey: queryKeys.groups, queryFn: () => groups.list() };
   const intakes = { queryKey: queryKeys.intakes, queryFn: () => customers.intakes() };
   const campaign = { queryKey: queryKeys.campaign, queryFn: () => greetings.current() };
@@ -29,7 +37,14 @@ function sectionQueries({ overview, leads, customers, groups, greetings, birthda
   const firstCustomers = { filter: filterFromParam(null), page: 1, pageSize: PAGE_SIZE };
   return {
     overview: [stats, { queryKey: queryKeys.activity, queryFn: () => overview.activity() }, openLeads, groupList, intakes, campaign, birthdayOverview],
-    leads: [openLeads, { queryKey: queryKeys.leadCounts, queryFn: () => leads.counts() }, groupList, stats, importRun],
+    leads: [
+      todaysLeads,
+      todaysClosed,
+      { queryKey: queryKeys.leadDays, queryFn: () => leads.days() },
+      { queryKey: queryKeys.leadCounts, queryFn: () => leads.counts() },
+      stats,
+      importRun,
+    ],
     customers: [
       { queryKey: queryKeys.customers(firstCustomers), queryFn: () => customers.list(firstCustomers) },
       { queryKey: queryKeys.customerCounts, queryFn: () => customers.counts() },

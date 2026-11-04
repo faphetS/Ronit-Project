@@ -22,7 +22,10 @@ export const ICONS = {
   search: [{ cx: 11, cy: 11, r: 6.5 }, "m16 16 4 4"],
   bell: ["M6 16v-5a6 6 0 1 1 12 0v5l1.5 2h-15z", "M10 20a2 2 0 0 0 4 0"],
   forward: ["M14 6l-6 6 6 6"],
+  /** The chevron that pairs with "forward": earlier days, the month before. */
+  earlier: ["M10 6l6 6-6 6"],
   back: ["M5 12h14M13 6l6 6-6 6"],
+  calendar: ["M6 5h12a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V8a3 3 0 0 1 3-3z", "M3 10h18M8 3v4M16 3v4"],
   check: ["M5 12.5l4.5 4.5L19 7.5"],
   plus: ["M12 5v14M5 12h14"],
   at: [{ cx: 12, cy: 12, r: 3.5 }, "M15.5 12v1.5a2.5 2.5 0 0 0 5 0V12a8.5 8.5 0 1 0-3.4 6.8"],

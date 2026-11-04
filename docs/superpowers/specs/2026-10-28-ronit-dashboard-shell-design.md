@@ -128,7 +128,7 @@ One route tree serves both shells. `useShell()` returns `desktop` from 1024px wi
 | `/login` | Sign in | composition with the orb card | stacked cards |
 | `/` | Overview | bento grid | stacked cards, groups carousel |
 | `/leads` | Leads | table grouped by trip, filters | grouped list, filter chips |
-| `/leads/:leadId` | Lead detail | side panel over the table | pushed screen |
+| `/leads/:leadId` | Lead detail | panel floating over the board | pushed screen |
 | `/customers` | Customers and passports | WhatsApp inbox and table | inbox and list |
 | `/customers/:customerId` | Customer profile | page | pushed screen |
 | `/groups` and `/groups/:groupId` | Groups and flights | group cards, participants, readiness, flight | selected group, carousel, missing passports |
@@ -371,15 +371,15 @@ Content follows the canvas board of the same name.
 - Glass card: the Hanukkah greeting waiting for approval, with its stage bar.
 - Recent leads table, active groups, WhatsApp passports and the activity feed.
 
-**Leads**
-- Header: the two-tone count, table and board view switch, filters, "ליד חדש".
-- A note that everything came over from Monday.
-- Status chips with counts, and source, group and assignee filters.
-- Table grouped by trip.
-- **Board view:**
-  - Five columns, one per status, holding lead cards (name, trip, last note).
-  - Clicking a card opens the lead detail.
-  - Status changes happen in the detail; there is no drag and drop.
+**Leads** (desktop, reworked 2026-11-04 after the user picked "C2" from a set of options: the most important thing is seeing how many leads came in today or on any other day)
+- Header: the two-tone count, and one line saying when Monday was last copied.
+- **Leads by day:** the chosen day's count in large type, where its leads came from, and two weeks of days with their counts. A month calendar reaches any day before. Today is chosen unless the address names another day (`?day=YYYY-MM-DD`, or `all`).
+  - A lead's day is Monday's "תאריך פנייה", or else the day its row was made, in Israel.
+- **Board:** the chosen day's leads by status, filtered by source and service. Columns: new, in progress (in talks or details sent, told apart by a tag), no answer (with the number of calls), registered; not relevant folds into a narrow last column.
+  - Each card: name, day, service and source, the phone, and WhatsApp and call buttons. Clicking it opens the lead.
+  - Status changes happen in Monday; there is no drag and drop.
+- The lead opens in a panel that floats over the board at the end side and stays in view while the page scrolls.
+- Phones keep the list with status chips and search.
 - Selecting a lead opens its detail:
   - status, contact actions and details
   - status chips

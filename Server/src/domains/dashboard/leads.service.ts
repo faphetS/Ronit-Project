@@ -49,9 +49,21 @@ export interface LeadFilters {
   service?: Service;
   source?: LeadSource;
   search?: string;
+  /** Only the leads that came in on this day (YYYY-MM-DD in Israel), archived ones too. */
+  day?: string;
 }
 
 export type LeadCounts = Record<LeadStatusFilter, number>;
+
+/** How many leads came in on one day. */
+export interface LeadDayDto {
+  /** YYYY-MM-DD, in Israel. */
+  day: string;
+  count: number;
+}
+
+/** The day a lead came in: Monday's "תאריך פנייה", or else the day its row was made, in Israel. */
+const ARRIVED_ON = "coalesce(l.inquiry_on, (l.created_at AT TIME ZONE 'Asia/Jerusalem')::date)";
 
 interface LeadRow {
   id: string;
@@ -118,7 +130,7 @@ const LIST_LIMIT = 500;
 
 /**
  * The open pipeline (not archived, not "not relevant"), newest Monday update first; "not-relevant"
- * lists those instead. A search also finds archived leads, after the open ones.
+ * lists those instead. A search, or a day, also finds archived leads, after the open ones.
  */
 export async function listLeads(db: Queryable, filters: LeadFilters = {}): Promise<LeadDto[]> {
   const where = ["l.removed_at IS NULL"];
@@ -132,6 +144,7 @@ export async function listLeads(db: Queryable, filters: LeadFilters = {}): Promi
   else add((n) => `l.status = $${n}`, status);
   if (filters.service) add((n) => `l.service = $${n}`, filters.service);
   if (filters.source) add((n) => `l.source = $${n}`, filters.source);
+  if (filters.day) add((n) => `${ARRIVED_ON} = $${n}::date`, filters.day);
   const term = filters.search?.trim();
   if (term) {
     values.push(`%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
@@ -143,7 +156,7 @@ export async function listLeads(db: Queryable, filters: LeadFilters = {}): Promi
     } else {
       where.push(byName);
     }
-  } else {
+  } else if (!filters.day) {
     where.push("NOT l.archived");
   }
   const { rows } = await db.query<LeadRow>(
@@ -164,6 +177,15 @@ export async function leadCounts(db: Queryable): Promise<LeadCounts> {
     if (row.status !== "not-relevant") counts.all += row.n;
   }
   return counts;
+}
+
+/** How many leads came in on each day, oldest day first: every lead, archived and not-relevant ones too. */
+export async function leadDays(db: Queryable): Promise<LeadDayDto[]> {
+  const { rows } = await db.query<LeadDayDto>(
+    `SELECT to_char(${ARRIVED_ON}, 'YYYY-MM-DD') AS day, count(*)::int AS count
+     FROM leads l WHERE l.removed_at IS NULL GROUP BY 1 ORDER BY 1`,
+  );
+  return rows;
 }
 
 /** A lead with its Monday notes, newest first. Archived leads too. */

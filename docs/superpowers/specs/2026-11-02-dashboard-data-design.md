@@ -135,7 +135,8 @@ Passports also need the user's own passport access. Everyone signed in can read 
 
 **Routes**
 
-- `leads`: `GET /leads?status&service&source&search`, `GET /leads/counts`, `GET /leads/:id`
+- `leads`: `GET /leads?status&service&source&search&day`, `GET /leads/counts`, `GET /leads/days`, `GET /leads/:id`
+  - `/leads/days` counts every lead (archived and not-relevant ones too) by the day it came in: Monday's "תאריך פנייה", or else the day its row was made, in Israel. `?day=YYYY-MM-DD` lists that day's leads, archived ones too.
 - `customers`: `GET /customers?filter&search&page&pageSize`, `GET /customers/counts`, `GET /customers/intakes`, `GET /customers/:id`, `GET /customers/:id/messages`, `GET /customers/:id/access-log`, `POST /customers/:id/notes`, `POST /customers/:id/passport-views`
 - `groups`: `GET /groups`, `GET /groups/:id`, `GET /groups/:id/participants`
 - `overview`: `GET /overview/stats`, `GET /overview/activity`

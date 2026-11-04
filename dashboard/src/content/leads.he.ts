@@ -22,17 +22,40 @@ export const leadsCopy = {
   /** The last note and when, under a lead on phones. */
   noteLine: (note: string, when: string) => `${note} · ${when}`,
 
-  view: { label: "תצוגה", table: "טבלה", board: "לוח" },
-  filter: "סינון",
-  activeFilters: (count: number) => (count === 1 ? "מסנן אחד פעיל" : `${count} מסננים פעילים`),
-
-  /** The strip under the header: the leads are a copy of Monday, and when it was made. */
+  /** The line under the title: the leads are a copy of Monday, and when it was made. */
   monday: {
-    label: "ההעתקה מ-Monday.com",
-    note: "הלידים מועתקים מ-Monday.com כל שעתיים, עם ההערות. עריכה של ליד נעשית ב-Monday.",
-    copiedAt: (when: string) => `עודכן ${when}`,
-    notYet: "עוד לא הועתק",
-    details: "לפרטי ההעתקה",
+    synced: (when: string) => `מתעדכן מ-Monday · ${when}`,
+    notYet: "עוד לא הועתק מ-Monday",
+  },
+
+  /** The panel above the board: how many leads came in on a day. */
+  days: {
+    label: "לידים לפי יום",
+    today: "היום",
+    yesterday: "אתמול",
+    /** "היום · רביעי, 04.11" */
+    title: (relative: string | null, weekday: string, date: string) => `${relative ? `${relative} · ` : ""}${weekday}, ${date}`,
+    allDays: "כל הימים",
+    backToToday: "חזרה להיום",
+    earlier: "ימים קודמים",
+    later: "ימים מאוחרים יותר",
+    calendar: "לוח חודשי",
+    previousMonth: "החודש הקודם",
+    nextMonth: "החודש הבא",
+    range: (from: string, to: string) => `${from} – ${to}`,
+    pickDay: "בחרי יום בלוח",
+    monthTotal: (count: string) => `${count} לידים בחודש`,
+    unit: (count: number) => (count === 0 ? "לא נכנסו לידים" : count === 1 ? "ליד חדש" : "לידים חדשים"),
+    openUnit: "לידים פתוחים",
+    none: "ביום הזה לא נכנסו פניות",
+    filtered: (count: string) => `${count} מהם בסינון הנוכחי`,
+    split: {
+      new: (count: string) => `${count} חדשים`,
+      working: (count: string) => `${count} בטיפול`,
+      "no-answer": (count: string) => `${count} בלי מענה`,
+      registered: (count: string) => `${count} נרשמו`,
+    },
+    dayLabel: (date: string, count: number) => `${date}: ${count === 1 ? "ליד אחד" : `${count} לידים`}`,
   },
 
   filters: {
@@ -71,32 +94,30 @@ export const leadsCopy = {
 
   search: "חיפוש לפי שם או טלפון",
 
-  table: {
-    label: "רשימת לידים לפי שירות",
-    name: "שם והערה אחרונה",
-    phone: "טלפון",
-    source: "מקור",
-    status: "סטטוס",
-    updated: "עדכון",
-  },
   leadCount: (count: number) => (count === 1 ? "ליד אחד" : `${count} לידים`),
-  /** A lead from the old CRM board, found by a search. */
+  /** A lead from the old CRM board, found by a search or by its day. */
   archived: "ארכיון",
 
   board: {
     label: "לוח לידים לפי סטטוס",
-    empty: "אין לידים",
+    title: {
+      today: "הלידים של היום, לפי סטטוס",
+      day: (date: string) => `הלידים מ-${date}, לפי סטטוס`,
+      all: "כל הלידים הפתוחים, לפי סטטוס",
+    },
+    columns: { new: "חדש", working: "בטיפול", "no-answer": "אין מענה", registered: "נרשמו", "not-relevant": "לא רלוונטי" },
+    empty: "אין לידים כאן",
+    more: (count: number) => `הצגת עוד ${count}`,
+    showCards: "הצגת הכרטיסים",
+    hideCards: "הסתרת הכרטיסים",
+    attempts: (count: number) => (count === 1 ? "ניסיון אחד" : `${count} ניסיונות`),
+    whatsapp: (name: string) => `וואטסאפ ל${name}`,
+    call: (name: string) => `שיחה ל${name}`,
   },
 
   empty: {
     filtered: "אין לידים בסינון הזה",
     none: "אין כרגע לידים פתוחים",
-  },
-
-  /** In the side column on desktop, until a lead is chosen. */
-  hint: {
-    title: "בחרי ליד מהרשימה",
-    text: "כאן יופיעו הפרטים שלו, השיחות וההערות מ-Monday.",
   },
 
   detail: {

@@ -12,6 +12,7 @@ import type {
   GroupSummary,
   HolidayCampaign,
   Lead,
+  LeadDay,
   LeadService,
   LeadSource,
   LeadStatus,
@@ -40,6 +41,8 @@ export interface LeadFilters {
   source?: LeadSource;
   /** Matches the name, or digits in the phone number. A search also finds archived leads. */
   search?: string;
+  /** Only the leads that came in on this day (YYYY-MM-DD in Israel), archived ones too. */
+  day?: string;
 }
 
 export type LeadCounts = Record<LeadStatusFilter, number>;
@@ -138,6 +141,8 @@ export interface LeadsService {
   /** The open pipeline, newest Monday update first. */
   list(filters?: LeadFilters): Promise<Lead[]>;
   counts(): Promise<LeadCounts>;
+  /** How many leads came in on each day, oldest first; days without leads are left out. */
+  days(): Promise<LeadDay[]>;
   /** With its Monday notes. */
   get(id: string): Promise<Lead>;
 }

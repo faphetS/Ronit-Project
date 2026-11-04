@@ -69,6 +69,13 @@ export interface Lead {
   history: LeadEvent[];
 }
 
+/** How many leads came in on one day: by Monday's "תאריך פנייה", or else the day the row was made. */
+export interface LeadDay {
+  /** YYYY-MM-DD, in Israel. */
+  day: string;
+  count: number;
+}
+
 export interface Passport {
   number: string;
   birthDate: string;

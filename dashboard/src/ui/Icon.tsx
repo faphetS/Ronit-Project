@@ -1,8 +1,8 @@
 import { cx } from "../lib/cx";
 import { ICONS, type IconName, type IconShape } from "./icons";
 
-// "forward" and "back" are drawn for Hebrew. In English they point the other way.
-const FLIP_IN_LTR: ReadonlySet<IconName> = new Set<IconName>(["forward", "back"]);
+// "forward", "earlier" and "back" are drawn for Hebrew. In English they point the other way.
+const FLIP_IN_LTR: ReadonlySet<IconName> = new Set<IconName>(["forward", "earlier", "back"]);
 
 interface IconProps {
   name: IconName;

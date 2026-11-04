@@ -29,7 +29,7 @@ export function LeadsPhoneList() {
   const { leadsCopy: copy } = useCopy();
   const url = useLeadsUrl();
   const counts = useLeadCounts();
-  const filters = toLeadFilters(url.state, { status: true, search: true });
+  const filters = toLeadFilters(url.state, { status: true, search: true, day: false });
   const leads = useSettledLeads(filters);
 
   const { update } = url;

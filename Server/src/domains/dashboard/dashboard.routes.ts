@@ -56,7 +56,7 @@ import {
 } from "./greetings.service.js";
 import { getGroup, groupParticipants, listGroups } from "./groups.service.js";
 import { mondayCopyStatus } from "./imports.service.js";
-import { getLead, leadCounts, listLeads } from "./leads.service.js";
+import { getLead, leadCounts, leadDays, listLeads } from "./leads.service.js";
 import { overviewStats, recentActivity } from "./overview.service.js";
 import {
   auditLog,
@@ -151,6 +151,9 @@ export function createDashboardRouter(resolveDeps: AuthDepsResolver, options: Da
   });
   router.get("/leads/counts", requireAccess("leads", "view"), async (_req, res) => {
     sendData(res, await leadCounts(db(res)));
+  });
+  router.get("/leads/days", requireAccess("leads", "view"), async (_req, res) => {
+    sendData(res, await leadDays(db(res)));
   });
   router.get("/leads/:id", requireAccess("leads", "view"), async (req, res) => {
     sendData(res, await getLead(db(res), idParam(req.params.id, "Lead")));

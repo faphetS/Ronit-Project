@@ -32,6 +32,7 @@ export const queryKeys = {
   pendingCode: ["sign-in", "code"] as const,
   leads: (filters: LeadFilters) => ["leads", "list", filters] as const,
   leadCounts: ["leads", "counts"] as const,
+  leadDays: ["leads", "days"] as const,
   lead: (id: string) => ["leads", "detail", id] as const,
   customers: (query: CustomerQuery) => ["customers", "list", query] as const,
   customerCounts: ["customers", "counts"] as const,
@@ -152,6 +153,11 @@ export function useLeads(filters: LeadFilters = {}) {
 export function useLeadCounts() {
   const { leads } = useServices();
   return useQuery({ queryKey: queryKeys.leadCounts, queryFn: () => leads.counts() });
+}
+
+export function useLeadDays() {
+  const { leads } = useServices();
+  return useQuery({ queryKey: queryKeys.leadDays, queryFn: () => leads.days() });
 }
 
 export function useLead(id: string) {
