@@ -71,7 +71,7 @@ describe("display components", () => {
   });
 
   it("keeps LTR runs in order", () => {
-    const { container } = render(<Ltr>054-•••-2219</Ltr>);
+    const { container } = render(<Ltr>0542212219</Ltr>);
     expect(container.querySelector("bdi")).toHaveAttribute("dir", "ltr");
   });
 });

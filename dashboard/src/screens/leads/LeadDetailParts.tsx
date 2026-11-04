@@ -4,7 +4,7 @@ import { useCopy, useLocale } from "../../content/locale";
 import type { Lead } from "../../data/types";
 import { dayAt } from "../../lib/clock";
 import { cx } from "../../lib/cx";
-import { formatDate, formatDayMonth, maskPhone } from "../../lib/format";
+import { formatDate, formatDayMonth } from "../../lib/format";
 import { PRESS_SCALE, springs } from "../../motion/springs";
 import { Avatar } from "../../ui/Avatar";
 import { Icon } from "../../ui/Icon";
@@ -102,7 +102,7 @@ export function LeadFacts({ lead, surface }: { lead: Lead; surface: SurfaceVaria
   const inquiry = lead.inquiryOn ? dayAt(lead.inquiryOn) : new Date(lead.createdAt);
   const lastCall = lead.lastCallOn ? formatDayMonth(dayAt(lead.lastCallOn), locale) : null;
   const items: KeyValueItem[] = [
-    { key: "phone", label: copy.detail.phone, value: <Ltr>{maskPhone(lead.phone)}</Ltr> },
+    { key: "phone", label: copy.detail.phone, value: <Ltr>{lead.phone}</Ltr> },
     { key: "source", label: copy.detail.source, value: copy.sources[lead.source] },
     { key: "service", label: copy.detail.service, value: lead.service ? copy.services[lead.service] : copy.noService },
     { key: "group", label: copy.detail.mondayGroup, value: <bdi>{lead.mondayGroup}</bdi> },

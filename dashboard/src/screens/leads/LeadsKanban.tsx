@@ -5,7 +5,7 @@ import { useCopy, useLocale } from "../../content/locale";
 import type { Lead } from "../../data/types";
 import { dayAt } from "../../lib/clock";
 import { cx } from "../../lib/cx";
-import { formatDayMonth, formatNumber, maskPhone } from "../../lib/format";
+import { formatDayMonth, formatNumber } from "../../lib/format";
 import { fadeOut, springs } from "../../motion/springs";
 import { cardVariants } from "../../motion/variants";
 import { Icon } from "../../ui/Icon";
@@ -252,7 +252,7 @@ function LeadCard({ lead, selected, href }: { lead: Lead; selected: boolean; hre
       ) : null}
       <div className="relative z-10 mt-3 flex items-center justify-between gap-2 border-t border-line pt-2.5">
         <span className="text-small text-copy">
-          <Ltr>{maskPhone(lead.phone)}</Ltr>
+          <Ltr>{lead.phone}</Ltr>
         </span>
         <span className="flex gap-1.5">
           <ContactLink href={whatsappHref(lead.phone)} icon="chat" label={copy.board.whatsapp(lead.name)} newTab />

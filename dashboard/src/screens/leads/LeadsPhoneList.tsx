@@ -5,7 +5,7 @@ import { useCopy, useLocale } from "../../content/locale";
 import { useLeadCounts } from "../../data/queries";
 import type { Lead } from "../../data/types";
 import { now } from "../../lib/clock";
-import { formatNumber, formatRelative, maskPhone } from "../../lib/format";
+import { formatNumber, formatRelative } from "../../lib/format";
 import { fadeOut, springs } from "../../motion/springs";
 import { cardVariants } from "../../motion/variants";
 import { Avatar } from "../../ui/Avatar";
@@ -108,7 +108,7 @@ function TripSection({ title, leads, leadHref }: TripSectionProps) {
                 titleEnd={<StatusTag tone={STATUS_TONE[lead.status]}>{copy.status[lead.status]}</StatusTag>}
                 description={
                   <>
-                    <Ltr>{maskPhone(lead.phone)}</Ltr>
+                    <Ltr>{lead.phone}</Ltr>
                     {copy.separator}
                     {copy.sources[lead.source]}
                   </>
