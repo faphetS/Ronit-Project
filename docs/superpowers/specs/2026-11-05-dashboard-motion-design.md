@@ -45,9 +45,10 @@ The dashboard keeps its own rule of springs only. A spring with no bounce, settl
 - **The visit's first page** keeps its full build-up, as now: cards settle one after another, hero numbers count up, bars grow and meters fill.
 - **On later pages, numbers, bars and meters stand at their values** from the first frame. Only the cards and rows holding them settle.
 - **The desktop reel** keeps spinning as it does: 0.55 s for one section, 0.17 s more for each further one, at most 1.4 s.
-  - The page it heads to holds its content back while it travels.
+  - The page it heads to holds its cards and rows back while it travels.
+  - Its headline stays in place, so the page is never blank on the way.
   - Its content starts to settle 0.15 s before the reel stops, so the page lands as its cards and rows fall into place.
-  - Pages passing by stay as they are: drawn lighter, nothing moving inside them.
+  - Pages passing by stay as they are: drawn lighter, nothing moving inside them. A page that came in passing by stays still even if the reel stops on it.
 - **On phones**, switching tabs uses the same settle in place of today's 12px fade. Pushed screens keep their slide.
 
 ## 5. Rows and cards
@@ -65,10 +66,15 @@ On devices with a mouse only (`@media (hover: hover)`), so a phone's tap never l
 
 | What | Hover | Press |
 |---|---|---|
-| Cards that open something (`LinkCard`, the overview's cards with links) | up 2px, with a soft shadow | 0.98 |
-| Table rows, list rows, kanban cards, inbox tiles | up 1px, with a soft shadow, and the row's tint eases in over 150 ms | 0.98 |
-| Buttons (`Button`, `GooButton`, `IconButton`) | up 1px | 0.96, as now |
-| Chips, tabs, segmented controls | tint only | 0.96, as now |
+| Cards that open something (`LinkCard`) | up 2px, with a soft shadow | 0.98 |
+| Kanban cards | up 1px, with a soft shadow | 0.98 |
+| Table rows | their tint eases in, as now | none |
+| List rows that link or act (`ListRow` with `to` or `onClick`) | a soft rounded tint eases in, a little past the row's edges | none |
+| Buttons (`Button`, `GooButton`, `IconButton`) | up 1px; not when disabled | 0.96, as now |
+| Chips, tabs, segmented controls | tint only, as now | 0.96, as now |
+
+- **Rows don't lift.** Lifting one row would tear the lines between rows.
+- **Inbox tiles hold no single link,** so they only cascade.
 
 - **The shadow is never animated.** It's drawn on a layer of its own, whose opacity fades in.
 - **Link cards** come down from 3px to 2px, so all cards answer alike.
@@ -76,9 +82,14 @@ On devices with a mouse only (`@media (hover: hover)`), so a phone's tap never l
 ## 7. Changes in front of you
 
 - **Numbers that change while you watch** tick from the old value to the new one, on `gentle`. For example, today's lead count after a refresh or a copy from Monday. They never count from zero again.
-- **The kanban:** when a lead's status changes, its card glides from its old column to the new one (a shared `layoutId` per lead).
-- **The month calendars,** on the overview and on the leads page, slide to the next or previous month. That's 16px and a fade, in the direction of travel: in Hebrew, "next" comes from the left.
-- **Loading placeholders** give way to the content, which fades in where they stood instead of being swapped in.
+- **The kanban:** when a lead's status changes, its card fades out of its old column and rises into the new one.
+  - A glide across from column to column isn't possible: each column scrolls on its own, and clips a card that is outside it.
+  - Status changes come from Monday's copy, so this is rare to see live.
+- **The month calendars,** on the overview and on the leads page, slide to the next or previous month. That's 16px and a fade, in the direction of travel: in Hebrew, "next" comes from the left. Opening a calendar doesn't slide it.
+- **Loading placeholders** give way to the content in the same way:
+  - a list's first rows cascade in, whether they come with the page or once their data arrives;
+  - a card that arrives late rises in.
+  - Text swapped inside a card stays as it is. On later pages the data is already loaded, so placeholders rarely show at all.
 - **Already moving, and unchanged:** sheets, the side panel, toasts, the account panel, the tab and chip highlights (`layoutId`), and the liquid rail and tab bar.
 
 ## 8. Smooth, and kind to everyone
@@ -96,9 +107,11 @@ On devices with a mouse only (`@media (hover: hover)`), so a phone's tap never l
 
 - **Unit tests:**
   - the cascade's delays and their 0.5 s cap;
-  - when the reel's settle starts;
-  - a number ticking from its old value rather than zero;
-  - no transform under Reduce Motion.
+  - which rows cascade;
+  - each page mode's labels;
+  - the slide's direction;
+  - which pages build up, settle or stand, on the reel and on phones.
+- **Checked in the demo's frame screenshots,** because jsdom has no Web Animations: when the reel releases a page's content, and a number ticking from its old value.
 - **Existing motion tests** are updated where the rule "later pages stand still" changes: `outlets.test.tsx`, the screens' entrance tests.
 - **By eye**, on sample data: desktop in Hebrew and English, phone, Reduce Motion. Check the frame rate with 4× CPU throttling on the overview, the leads kanban and the customers table.
 
