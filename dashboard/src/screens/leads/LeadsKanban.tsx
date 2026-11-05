@@ -6,8 +6,9 @@ import type { Lead } from "../../data/types";
 import { dayAt } from "../../lib/clock";
 import { cx } from "../../lib/cx";
 import { formatDayMonth, formatNumber } from "../../lib/format";
-import { fadeOut, springs } from "../../motion/springs";
-import { cardVariants } from "../../motion/variants";
+import { useFirstKeys, type RowMotion } from "../../motion/cascade";
+import { CARD_PRESS_SCALE, springs } from "../../motion/springs";
+import { cardVariants, rowVariants } from "../../motion/variants";
 import { Icon } from "../../ui/Icon";
 import type { IconName } from "../../ui/icons";
 import { Ltr } from "../../ui/Ltr";
@@ -69,6 +70,7 @@ function useBoardInView() {
  * The leads by status, one column each: new, in progress (talking or details sent, told apart by a tag), no answer
  * and registered; the not-relevant ones fold into a narrow last column. A card opens the lead; statuses change in Monday.
  * A long column scrolls inside itself, under its heading, so however many leads there are the board fits the view.
+ * Cards cascade in as the page opens; a lead whose status changed fades out of its old column and rises into the new one.
  */
 export function LeadsKanban({ open, closed, selectedId, leadHref }: LeadsKanbanProps) {
   const { leadsCopy: copy } = useCopy();
@@ -142,6 +144,7 @@ function BoardColumn({ name, headClass, leads, selectedId, leadHref, scrolls, fo
   const headingId = useId();
   const [expanded, setExpanded] = useState(false);
   const shown = expanded ? leads : leads.slice(0, CARD_LIMIT);
+  const isFirst = useFirstKeys(leads.map((lead) => lead.id));
   return (
     // At its tallest, with the page scrolled to its end, the column fits between the top bar and the page's bottom edge.
     <motion.section
@@ -158,9 +161,9 @@ function BoardColumn({ name, headClass, leads, selectedId, leadHref, scrolls, fo
           scrolls ? "overflow-y-auto" : "overflow-y-hidden",
         )}
       >
-        <AnimatePresence initial={false} mode="popLayout">
-          {shown.map((lead) => (
-            <LeadCard key={lead.id} lead={lead} selected={lead.id === selectedId} href={leadHref(lead.id)} />
+        <AnimatePresence mode="popLayout">
+          {shown.map((lead, index) => (
+            <LeadCard key={lead.id} lead={lead} selected={lead.id === selectedId} href={leadHref(lead.id)} row={{ index, cascade: isFirst(lead.id) }} />
           ))}
         </AnimatePresence>
       </motion.ul>
@@ -216,18 +219,20 @@ function cardTag(lead: Lead, copy: ReturnType<typeof useCopy>["leadsCopy"]): { t
   return null;
 }
 
-function LeadCard({ lead, selected, href }: { lead: Lead; selected: boolean; href: string }) {
+function LeadCard({ lead, selected, href, row }: { lead: Lead; selected: boolean; href: string; row: RowMotion }) {
   const { leadsCopy: copy } = useCopy();
   const { locale } = useLocale();
   const tag = cardTag(lead, copy);
   return (
     <motion.li
       layout="position"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0, transition: fadeOut }}
-      transition={springs.surface}
-      className={cx("relative rounded-inner p-3.5 shadow-card transition-colors", selected ? "bg-cream ring-1 ring-ink/15 ring-inset" : "bg-paper")}
+      variants={rowVariants}
+      custom={row}
+      exit="exit"
+      transition={{ layout: springs.surface }}
+      whileHover={{ y: -1 }}
+      whileTap={{ scale: CARD_PRESS_SCALE }}
+      className={cx("lift-shadow relative rounded-inner p-3.5 shadow-card transition-colors", selected ? "bg-cream ring-1 ring-ink/15 ring-inset" : "bg-paper")}
     >
       <div className="flex items-baseline justify-between gap-2">
         {/* The name's link covers the card, so a click anywhere opens the lead; the contact buttons sit above it. */}

@@ -28,6 +28,13 @@ export const MUTE_TEXT: Record<SurfaceVariant, string> = {
   ink: "text-ink-mute",
 };
 
+/** A link or button row under the mouse: a soft tint that eases in. */
+export const HOVER_TINT: Record<SurfaceVariant, string> = {
+  card: "hover:bg-sand-light/60",
+  glass: "hover:bg-white/50",
+  ink: "hover:bg-white/6",
+};
+
 /** The focus ring must stay visible on the black card. */
 export const FOCUS_RING: Record<SurfaceVariant, string> = {
   card: "",

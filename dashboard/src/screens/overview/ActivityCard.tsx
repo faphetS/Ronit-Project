@@ -2,6 +2,7 @@ import { useId } from "react";
 import { useCopy, useLocale } from "../../content/locale";
 import { useActivity } from "../../data/queries";
 import { cx } from "../../lib/cx";
+import { useFirstKeys } from "../../motion/cascade";
 import { IconCircle } from "../../ui/IconCircle";
 import { ListRow } from "../../ui/ListRow";
 import { SectionHeader } from "../../ui/SectionHeader";
@@ -37,6 +38,7 @@ export function ActivityCard({ phone, className }: { phone: boolean; className?:
   const headingId = useId();
   const count = phone ? SHOWN.activity.phone : SHOWN.activity.desktop;
   const items = activity.data?.slice(0, count) ?? [];
+  const isFirst = useFirstKeys(items.map((item) => item.id));
   const allToday = items.length > 0 && items.every((item) => isToday(item.at));
   return (
     <Surface variant="card" compact={phone} aria-labelledby={headingId} className={className}>
@@ -46,12 +48,13 @@ export function ActivityCard({ phone, className }: { phone: boolean; className?:
       {activity.data && items.length === 0 ? <EmptyState message={copy.empty} /> : null}
       {items.length > 0 ? (
         <ul>
-          {items.map((item) => {
+          {items.map((item, index) => {
             const { title, detail } = activityText(item, allCopy);
             return (
               <ListRow
                 key={item.id}
                 as="li"
+                row={{ index, cascade: isFirst(item.id) }}
                 leading={<IconCircle icon={ACTIVITY_ICON[item.kind]} />}
                 // Names and trips are stored in Hebrew; <bdi> keeps their order in English too.
                 title={<bdi>{title}</bdi>}

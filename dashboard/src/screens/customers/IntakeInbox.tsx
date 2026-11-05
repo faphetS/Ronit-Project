@@ -1,3 +1,4 @@
+import { motion } from "motion/react";
 import { useId } from "react";
 import { useCopy, useLocale } from "../../content/locale";
 import { usePassportIntakes } from "../../data/queries";
@@ -5,6 +6,8 @@ import type { IntakeResult, PassportIntake } from "../../data/types";
 import { now } from "../../lib/clock";
 import { cx } from "../../lib/cx";
 import { formatTime } from "../../lib/format";
+import { useFirstKeys, type RowMotion } from "../../motion/cascade";
+import { rowVariants } from "../../motion/variants";
 import { Avatar } from "../../ui/Avatar";
 import { Button } from "../../ui/Button";
 import { CountPill } from "../../ui/CountPill";
@@ -26,12 +29,12 @@ const RESULT_TONE: Record<IntakeResult, StatusTone> = {
 };
 
 /** One passport from WhatsApp, as a tile on the black card. */
-function IntakeTile({ intake }: { intake: PassportIntake }) {
+function IntakeTile({ intake, row }: { intake: PassportIntake; row: RowMotion }) {
   const { customersCopy: copy } = useCopy();
   const { locale } = useLocale();
   const when = momentLabel(new Date(intake.receivedAt), now(), locale, copy.when);
   return (
-    <li className="flex flex-col gap-2.5 rounded-inner bg-white/6 p-4">
+    <motion.li variants={rowVariants} custom={row} className="flex flex-col gap-2.5 rounded-inner bg-white/6 p-4">
       <div className="flex items-center gap-3">
         <Avatar initial={initialOf(intake.name)} tone="ink" />
         <div className="min-w-0 flex-1">
@@ -58,7 +61,7 @@ function IntakeTile({ intake }: { intake: PassportIntake }) {
           </Button>
         )}
       </div>
-    </li>
+    </motion.li>
   );
 }
 
@@ -70,6 +73,7 @@ export function IntakeInbox({ className }: { className?: string }) {
   const all = intakes.data;
   const today = all ? intakesOn(all, now()).length : null;
   const waiting = all?.filter((intake) => intake.result === "needs-review").length ?? 0;
+  const isFirst = useFirstKeys(all?.map((intake) => intake.id) ?? []);
   return (
     <Surface variant="ink" aria-labelledby={headingId} className={cx("flex flex-col gap-4", className)}>
       <SectionHeader
@@ -91,8 +95,8 @@ export function IntakeInbox({ className }: { className?: string }) {
       {all && all.length === 0 ? <EmptyState onDark message={copy.inbox.empty} /> : null}
       {all && all.length > 0 ? (
         <ul className="grid grid-cols-2 gap-2.5">
-          {all.map((intake) => (
-            <IntakeTile key={intake.id} intake={intake} />
+          {all.map((intake, index) => (
+            <IntakeTile key={intake.id} intake={intake} row={{ index, cascade: isFirst(intake.id) }} />
           ))}
         </ul>
       ) : null}
@@ -106,6 +110,7 @@ export function IntakeList() {
   const headingId = useId();
   const intakes = usePassportIntakes();
   const today = intakes.data ? intakesOn(intakes.data, now()) : null;
+  const isFirst = useFirstKeys(today?.map((intake) => intake.id) ?? []);
   return (
     <Surface variant="ink" compact aria-labelledby={headingId} className="pb-2">
       <SectionHeader
@@ -120,10 +125,11 @@ export function IntakeList() {
       {today && today.length === 0 ? <EmptyState onDark message={copy.inbox.emptyToday} /> : null}
       {today && today.length > 0 ? (
         <ul className="mt-1.5">
-          {today.map((intake) => (
+          {today.map((intake, index) => (
             <ListRow
               key={intake.id}
               as="li"
+              row={{ index, cascade: isFirst(intake.id) }}
               surface="ink"
               to={intake.customerId ? `/customers/${intake.customerId}` : undefined}
               leading={<Avatar initial={initialOf(intake.name)} tone="ink" />}

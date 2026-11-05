@@ -3,7 +3,9 @@ import { useState, type MouseEvent, type ReactElement, type ReactNode } from "re
 import { usePassing } from "../motion/passing";
 import { useNavigate } from "react-router";
 import { cx } from "../lib/cx";
-import { fadeOut, springs } from "../motion/springs";
+import { useFirstKeys, type RowMotion } from "../motion/cascade";
+import { springs } from "../motion/springs";
+import { rowVariants } from "../motion/variants";
 import { CountPill } from "./CountPill";
 import { Pager } from "./Pager";
 
@@ -55,7 +57,7 @@ interface DataTableProps<Row> {
   selectedKey?: string | null;
   /** Shown instead of the table when there are no rows, usually an EmptyState. */
   empty?: ReactNode;
-  /** Rows fade in and out and the rest glide into place when filters change. On by default. */
+  /** Rows cascade in as the page opens, rise in or fade out as filters change, and the rest glide into place. On by default. */
   animateRows?: boolean;
   /**
    * Rows per page. A longer list gets a pager under the table, and a group split by a page's edge keeps its
@@ -90,8 +92,12 @@ const ALIGN = { start: "text-start", center: "text-center", end: "text-end" } as
 const INTERACTIVE = "a, button, input, select, textarea, label, summary, [role='button'], [role='switch']";
 
 /** The body rows as an array, so AnimatePresence sees each row as its own child. */
-function renderRows<Row>(rows: Row[], { columns, rowKey, selectedKey, onActivate, isClickable, animateRows = true }: TableViewProps<Row>): ReactElement[] {
-  return rows.map((row) => {
+function renderRows<Row>(
+  rows: Row[],
+  { columns, rowKey, selectedKey, onActivate, isClickable, animateRows = true }: TableViewProps<Row>,
+  isFirst: (key: string) => boolean,
+): ReactElement[] {
+  return rows.map((row, index) => {
     const key = rowKey(row);
     const selected = key === selectedKey;
     const clickable = Boolean(onActivate) && isClickable(row);
@@ -127,10 +133,10 @@ function renderRows<Row>(rows: Row[], { columns, rowKey, selectedKey, onActivate
       <motion.tr
         key={key}
         layout="position"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0, transition: fadeOut }}
-        transition={springs.surface}
+        variants={rowVariants}
+        custom={{ index, cascade: isFirst(key) } satisfies RowMotion}
+        exit="exit"
+        transition={{ layout: springs.surface }}
         onClick={onClick}
         className={rowClass}
       >
@@ -148,11 +154,13 @@ function TableView<Row>(props: TableViewProps<Row>) {
   const { label, columns, rows, groups, empty, animateRows = true, page = 1, fade = false, className } = props;
   const visibleGroups = groups?.filter((group) => group.rows.length > 0);
   const hasRows = visibleGroups ? visibleGroups.length > 0 : Boolean(rows?.length);
+  // The rows the table first showed cascade in as its page opens; rows a filter adds later rise in together.
+  const isFirst = useFirstKeys((visibleGroups ? visibleGroups.flatMap((group) => group.rows) : (rows ?? [])).map(props.rowKey));
   if (!hasRows && empty) return <div className={className}>{empty}</div>;
 
-  // Rows already on screen do not animate in; rows that filters add or remove do.
+  // A turned page fades in as a whole; otherwise the rows shown first cascade in and later ones rise in together.
   const body = (bodyRows: Row[]) =>
-    animateRows ? <AnimatePresence initial={false}>{renderRows(bodyRows, props)}</AnimatePresence> : renderRows(bodyRows, props);
+    animateRows ? <AnimatePresence initial={!fade}>{renderRows(bodyRows, props, isFirst)}</AnimatePresence> : renderRows(bodyRows, props, isFirst);
 
   return (
     // Wide tables scroll sideways inside their card.

@@ -1,3 +1,4 @@
+import { motion } from "motion/react";
 import { useId, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { useCopy, useLocale } from "../../content/locale";
@@ -5,6 +6,8 @@ import { useGroups, useMaySee, useParticipantsOf } from "../../data/queries";
 import { addDays, dayAt, isoDay, monthDays, now, shiftMonth } from "../../lib/clock";
 import { cx } from "../../lib/cx";
 import { formatDayMonth, formatMonthYear, formatWeekday, formatWeekdayLetter } from "../../lib/format";
+import { useFirstKeys, type RowMotion } from "../../motion/cascade";
+import { rowVariants } from "../../motion/variants";
 import { Icon } from "../../ui/Icon";
 import type { IconName } from "../../ui/icons";
 import { SectionHeader } from "../../ui/SectionHeader";
@@ -110,6 +113,7 @@ function CalendarView({ phone, className, today, month, picked, onMonth, onPick,
   const all = [...holidays, ...items];
   const byDay = itemsByDay(all);
   const listed = picked ? (byDay.get(picked) ?? []) : comingUp(all, today, SHOWN[phone ? "phone" : "desktop"]);
+  const isFirst = useFirstKeys(listed.map((item) => item.key));
 
   return (
     <Surface variant="card" compact={phone} aria-labelledby={headingId} className={cx("flex flex-col gap-3", className)}>
@@ -140,10 +144,10 @@ function CalendarView({ phone, className, today, month, picked, onMonth, onPick,
         {!loading || picked ? (
           listed.length > 0 ? (
             <ul className="flex flex-col">
-              {listed.map((item) => (
-                <li key={item.key}>
+              {listed.map((item, index) => (
+                <motion.li key={item.key} variants={rowVariants} custom={{ index, cascade: isFirst(item.key) } satisfies RowMotion}>
                   <ItemRow phone={phone} item={item} />
-                </li>
+                </motion.li>
               ))}
             </ul>
           ) : (
