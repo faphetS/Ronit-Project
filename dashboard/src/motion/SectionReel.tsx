@@ -1,11 +1,12 @@
 import { AnimatePresence, motion, usePresence, useReducedMotion } from "motion/react";
-import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode, type RefObject } from "react";
 import { NavigationType, UNSAFE_LocationContext as LocationContext, useLocation, useNavigationType, useOutlet, type Location } from "react-router";
 import { useFirstPage } from "./entrance";
+import type { PageMode } from "./page-motion";
 import { PageEntrance } from "./PageEntrance";
 import { PassingContext } from "./passing";
 import { ScreenPathContext } from "./screen-path";
-import { STAGGER_SECONDS } from "./springs";
+import { SETTLE_LEAD_MS, STAGGER_SECONDS } from "./springs";
 
 /** A section's main page: what the reel shows as it spins past the section. */
 export interface ReelSection {
@@ -24,8 +25,11 @@ interface SectionReelProps {
   className?: string;
 }
 
-/** Where the reel is heading and whether it's still turning, for every page on it, the leaving ones included. */
-const ReelContext = createContext<{ target: number; turning: boolean } | null>(null);
+/**
+ * Where the reel is heading, whether it's still turning, and when it will stop (in performance.now() ms), for every
+ * page on it, the leaving ones included.
+ */
+const ReelContext = createContext<{ target: number; turning: boolean; stopsAt: RefObject<number> } | null>(null);
 
 // One section takes 0.55 s; each further one adds 0.17 s, up to 1.4 s. It gets going at once, then eases to a long,
 // soft stop. The strip moves as one layer, animated by the browser itself, so work in the page can't make it stutter.
@@ -87,6 +91,17 @@ function ReelPage({ index, location, navigationType, entrance, appears, passing,
   const [fades] = useState(appears);
   // The page reads its own address from here: one leaving or passing by keeps the same one, so it doesn't redraw.
   const pinned = useMemo(() => ({ location, navigationType }), [location, navigationType]);
+  // How the content opens is fixed when the page mounts: one that came in passing by stays still if the reel stops on it.
+  const [mode] = useState<PageMode>(() => (entrance ? "build" : passing ? "still" : "settle"));
+  // The reel's stop, mounted while it turns: the content waits, and settles just before the stop.
+  const [released, setReleased] = useState(() => !(mode === "settle" && reel.turning));
+  if (!released && !reel.turning) setReleased(true);
+  const { stopsAt } = reel;
+  useEffect(() => {
+    if (released) return;
+    const timer = setTimeout(() => setReleased(true), Math.max(0, stopsAt.current - performance.now() - SETTLE_LEAD_MS));
+    return () => clearTimeout(timer);
+  }, [released, stopsAt]);
 
   useLayoutEffect(() => {
     const element = ref.current;
@@ -123,7 +138,9 @@ function ReelPage({ index, location, navigationType, entrance, appears, passing,
       <LocationContext value={pinned}>
         <PassingContext value={passing}>
           <ScreenPathContext value={location.pathname}>
-            <PageEntrance entrance={entrance}>{children}</PageEntrance>
+            <PageEntrance mode={mode} held={!released}>
+              {children}
+            </PageEntrance>
           </ScreenPathContext>
         </PassingContext>
       </LocationContext>
@@ -135,8 +152,8 @@ function ReelPage({ index, location, navigationType, entrance, appears, passing,
  * Desktop pages on a reel, like a slot machine's: every section has its place on one strip, in the rail's order.
  * Opening another section spins the strip past the sections in between, fast at first, and eases it to a stop on
  * the one opened; the page left behind spins away as it was. Within a section, the new page fades in where it
- * stands. Only the visit's first page builds up; the others arrive with their content in place. With Reduce Motion
- * the reel jumps straight there.
+ * stands. The visit's first page builds up; any later page's cards and rows settle softly as it lands, released just
+ * before the reel stops. With Reduce Motion the reel jumps straight there.
  *
  * Kept light: the strip is one layer the browser animates by itself; pages leaving or passing by keep their own
  * address, so a page change doesn't redraw them; passing pages draw only what fits on screen; and the ones passed
@@ -154,6 +171,7 @@ export function SectionReel({ pageKey, sectionOf, sections = [], className }: Se
   // Where the strip last stood still (or was sent from), and which spin is the latest.
   const settledAt = useRef(Math.max(section, 0));
   const spin = useRef(0);
+  const stopsAt = useRef(0);
   // The reel's stop, the stretch of places it covers while turning (low to high), and the page it leaves.
   const [reel, setReel] = useState(() => {
     const target = Math.max(section, 0);
@@ -186,11 +204,13 @@ export function SectionReel({ pageKey, sectionOf, sections = [], className }: Se
     const stop = () => {
       if (spin.current === id) setReel((now) => (now.turning ? { ...now, turning: false, low: now.target, high: now.target } : now));
     };
+    stopsAt.current = performance.now();
     if (distance < 0.001 || reduceMotion || typeof element.animate !== "function") {
       stop();
       return;
     }
     const duration = Math.min(MOST_MS, STEP_MS + EXTRA_MS * Math.max(0, distance - 1));
+    stopsAt.current = performance.now() + duration;
     const animation = element.animate([{ transform: `translateY(${-start * 100}%)` }, { transform: `translateY(${-target * 100}%)` }], {
       duration,
       easing: SPIN_EASING,
@@ -211,7 +231,7 @@ export function SectionReel({ pageKey, sectionOf, sections = [], className }: Se
     pages.push({ key: pageKey(passed.path), index, location: passingLocation(passed.path), navigationType: NavigationType.Pop, element: passed.element, passing: true });
   }
 
-  const reelState = useMemo(() => ({ target, turning }), [target, turning]);
+  const reelState = useMemo(() => ({ target, turning, stopsAt }), [target, turning]);
   return (
     <ReelContext value={reelState}>
       <div ref={strip} className="absolute inset-0 will-change-transform">

@@ -4,6 +4,7 @@ import { useContext, useLayoutEffect, useRef } from "react";
 import { describe, expect, it } from "vitest";
 import { renderRoutes } from "../test/router";
 import { MotionRoot } from "./MotionRoot";
+import { usePageMotion } from "./page-motion";
 import { SectionReel } from "./SectionReel";
 import { StackOutlet } from "./StackOutlet";
 
@@ -120,5 +121,59 @@ describe("StackOutlet", () => {
     await act(() => router.navigate(-1));
     expect(await screen.findByRole("heading", { name: "list" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "profile" })).not.toBeInTheDocument();
+  });
+});
+
+/** A page that notes, as it mounts, how its content opens. */
+function Probe({ name, seen }: { name: string; seen: string[] }) {
+  const { mode } = usePageMotion();
+  useLayoutEffect(() => {
+    seen.push(`${name}:${mode}`);
+  }, [name, mode, seen]);
+  return <h1>{name}</h1>;
+}
+
+describe("page motion", () => {
+  it("builds up the first page, settles the next one, and leaves the pages the reel passes still", async () => {
+    const seen: string[] = [];
+    const sections = [MAIN_PAGES[0], { path: "/leads", element: <Probe name="passing" seen={seen} /> }, MAIN_PAGES[2]];
+    const { router } = renderRoutes([
+      {
+        path: "/",
+        element: <SectionReel pageKey={leadsKey} sectionOf={placeOf} sections={sections} />,
+        children: [
+          { index: true, element: <Probe name="home" seen={seen} /> },
+          { path: "groups", element: <Probe name="groups" seen={seen} /> },
+        ],
+      },
+    ]);
+    await screen.findByRole("heading", { name: "home" });
+    await act(() => router.navigate("/groups"));
+    await screen.findByRole("heading", { name: "groups" });
+    expect(seen).toEqual(["home:build", "passing:still", "groups:settle"]);
+  });
+
+  it("settles a phone tab and leaves a pushed screen still", async () => {
+    const seen: string[] = [];
+    const { router } = renderRoutes(
+      [
+        {
+          path: "/",
+          element: <StackOutlet isPushed={(pathname) => pathname.startsWith("/customers/")} />,
+          children: [
+            { path: "customers", element: <Probe name="list" seen={seen} /> },
+            { path: "customers/:id", element: <Probe name="profile" seen={seen} /> },
+            { path: "groups", element: <Probe name="groups" seen={seen} /> },
+          ],
+        },
+      ],
+      "/customers",
+    );
+    await screen.findByRole("heading", { name: "list" });
+    await act(() => router.navigate("/groups"));
+    await screen.findByRole("heading", { name: "groups" });
+    await act(() => router.navigate("/customers/c1"));
+    await screen.findByRole("heading", { name: "profile" });
+    expect(seen).toEqual(["list:build", "groups:settle", "profile:still"]);
   });
 });
