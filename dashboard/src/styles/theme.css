@@ -118,6 +118,27 @@
   box-shadow: var(--shadow-ink);
 }
 
+/* A card that lifts under the mouse. Its deeper shadow is a layer of its own that fades in, so no shadow is animated.
+   It needs no overflow clipping on the card itself (the black card clips, and keeps its own shadow). */
+@utility lift-shadow {
+  position: relative;
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: var(--shadow-card-hover);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 160ms ease;
+  }
+  @media (hover: hover) {
+    &:hover::after {
+      opacity: 1;
+    }
+  }
+}
+
 /* The frosted strip that sits over the gold orb. */
 @utility frost {
   background-color: rgb(245 240 234 / 0.5);

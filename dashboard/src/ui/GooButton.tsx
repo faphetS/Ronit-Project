@@ -93,6 +93,8 @@ export function GooButton({ children, to, href, onClick, type = "button", tone =
   );
   const shared = {
     className: cx("group inline-flex items-center gap-2 font-medium leading-none whitespace-nowrap disabled:opacity-50", shape.text, className),
+    // The whole button lifts 1px while its circle leans out.
+    variants: { rest: { y: 0 }, hover: { y: -1 } },
     initial: "rest",
     whileHover: "hover",
     whileTap: { scale: PRESS_SCALE },

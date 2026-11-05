@@ -34,11 +34,11 @@ export function IconButton({ icon, label, to, onClick, badge, tone = "glass", si
     </>
   );
   return to ? (
-    <MotionLink to={to} aria-label={label} className={classes} whileTap={{ scale: PRESS_SCALE }} transition={springs.ui}>
+    <MotionLink to={to} aria-label={label} className={classes} whileHover={{ y: -1 }} whileTap={{ scale: PRESS_SCALE }} transition={springs.ui}>
       {content}
     </MotionLink>
   ) : (
-    <motion.button type="button" aria-label={label} onClick={onClick} className={classes} whileTap={{ scale: PRESS_SCALE }} transition={springs.ui}>
+    <motion.button type="button" aria-label={label} onClick={onClick} className={classes} whileHover={{ y: -1 }} whileTap={{ scale: PRESS_SCALE }} transition={springs.ui}>
       {content}
     </motion.button>
   );
