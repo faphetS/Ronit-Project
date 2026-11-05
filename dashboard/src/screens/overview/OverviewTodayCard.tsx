@@ -1,14 +1,14 @@
 import type { ReactNode } from "react";
 import { useCopy, useLocale } from "../../content/locale";
-import { useBirthdays, useMaySee, usePassportIntakes } from "../../data/queries";
-import { today } from "../../lib/clock";
+import { useLeads, useMaySee } from "../../data/queries";
+import { isoDay, now, today } from "../../lib/clock";
 import { cx } from "../../lib/cx";
 import { formatDayMonth, formatWeekday } from "../../lib/format";
 import { formatHebrewDate } from "../../lib/hebrew";
 import { GooButton } from "../../ui/GooButton";
 import { OrbCard } from "../../ui/OrbCard";
 import { Skeleton } from "../../ui/states";
-import { birthdayLines, isToday } from "./overview-model";
+import { todaysLeadLines } from "./overview-model";
 import { InlineRetry, LinesSkeleton } from "./OverviewStates";
 
 // Orb sizes and places from the boards: Main (desktop) and Mobile-Home.
@@ -17,52 +17,87 @@ const LAYOUT = {
   phone: { orb: { size: 180, end: 90, top: 38 }, stripBasis: "50%", minHeight: "min-h-[262px]" },
 } as const;
 
-/** The orb card for today: the date, the Hebrew date, today's birthday greetings, and new passports, each for those who may see them. */
-export function OverviewTodayCard({ phone, className }: { phone: boolean; className?: string }) {
-  const { overview: copy } = useCopy();
-  const { locale } = useLocale();
-  const birthdays = useBirthdays();
-  const intakes = usePassportIntakes();
-  const seesBirthdays = useMaySee("greetings");
-  const seesPassports = useMaySee("passports");
-  const layout = LAYOUT[phone ? "phone" : "desktop"];
-  const day = today();
-  const lines = seesBirthdays && birthdays.data ? birthdayLines(birthdays.data.today, copy) : null;
-  const passportsToday = intakes.data ? intakes.data.filter((intake) => isToday(intake.receivedAt)).length : null;
-  const sideText = cx("text-mute", phone ? "text-caption" : "text-small");
+/**
+ * Every lead that came in today: the open ones and the not-relevant ones, under the same queries the leads board
+ * opens with, so the board shows them at once from here.
+ */
+function useTodaysLeads() {
+  const day = isoDay(now());
+  const open = useLeads({ day });
+  const closed = useLeads({ day, status: "not-relevant" });
+  const data = open.data && closed.data ? [...open.data, ...closed.data] : undefined;
+  return {
+    data,
+    isError: data === undefined && (open.isError || closed.isError),
+    refetch: () => {
+      if (open.isError) void open.refetch();
+      if (closed.isError) void closed.refetch();
+    },
+  };
+}
 
-  let passports: ReactNode;
-  if (!seesPassports) {
-    passports = null;
-  } else if (passportsToday !== null) {
-    if (phone) {
-      const [first, second] = copy.passportsTodayLines(passportsToday);
-      passports = (
-        <p className={sideText}>
-          {first}{" "}
-          <br />
-          {second}
-        </p>
-      );
-    } else {
-      passports = (
-        <p className={sideText}>
-          {copy.sideNote}{" "}
-          <br />
-          {copy.passportsNew(passportsToday)}
-        </p>
-      );
-    }
-  } else if (intakes.isError) {
-    passports = <InlineRetry onRetry={() => void intakes.refetch()} />;
-  } else {
-    passports = (
+/** Under the date: how many leads came in today, and from where. */
+function TodaysLeadLines({ phone }: { phone: boolean }) {
+  const { overview: copy } = useCopy();
+  const leads = useTodaysLeads();
+  if (leads.data) {
+    const lines = todaysLeadLines(leads.data, copy);
+    return (
+      <>
+        <p className={cx("font-medium text-ink", phone && "text-small")}>{lines.title}</p>
+        {lines.sources ? <p className={cx("text-mute-2", phone ? "text-caption" : "text-small")}>{lines.sources}</p> : null}
+      </>
+    );
+  }
+  if (leads.isError) return <InlineRetry onRetry={leads.refetch} />;
+  return <LinesSkeleton widths={["w-32", "w-28"]} />;
+}
+
+/** Beside the orb: how many of today's leads still wait for someone, and the way to the leads. */
+function TodaysLeadSide({ phone }: { phone: boolean }) {
+  const { overview: copy } = useCopy();
+  const leads = useTodaysLeads();
+  const sideText = cx("text-mute", phone ? "text-caption" : "text-small");
+  const waiting = leads.data ? todaysLeadLines(leads.data, copy).waiting : null;
+
+  let line: ReactNode = null;
+  if (waiting) {
+    line = phone ? (
+      <p className={sideText}>{waiting}</p>
+    ) : (
+      <p className={sideText}>
+        {copy.sideNote}{" "}
+        <br />
+        {waiting}
+      </p>
+    );
+  } else if (!leads.data && !leads.isError) {
+    line = (
       <div className="flex flex-col items-end gap-2">
         {phone ? null : <p className={sideText}>{copy.sideNote}</p>}
         <Skeleton className="h-3.5 w-24" />
       </div>
     );
   }
+
+  return (
+    <>
+      {line}
+      {/* mt-auto keeps the button at the bottom on a day without leads, when it's alone. */}
+      <GooButton to={phone ? "/leads?status=new" : "/leads"} size="sm" className="mt-auto">
+        {phone ? copy.newLeadsLink : copy.todaysLeadsLink}
+      </GooButton>
+    </>
+  );
+}
+
+/** The orb card for today: the date, the Hebrew date, and today's leads for those who may see leads. */
+export function OverviewTodayCard({ phone, className }: { phone: boolean; className?: string }) {
+  const { overview: copy } = useCopy();
+  const { locale } = useLocale();
+  const seesLeads = useMaySee("leads");
+  const layout = LAYOUT[phone ? "phone" : "desktop"];
+  const day = today();
 
   return (
     <OrbCard
@@ -80,28 +115,10 @@ export function OverviewTodayCard({ phone, className }: { phone: boolean; classN
           </p>
           <p className={cx("text-mute-2", phone ? "mt-1.5 text-caption" : "mt-2 text-small")}>{formatHebrewDate(day, locale)}</p>
           <span className="flex-1" />
-          {!seesBirthdays ? null : lines ? (
-            <>
-              <p className={cx("font-medium text-ink", phone && "text-small")}>{lines.title}</p>
-              {lines.detail ? <p className={cx("text-mute-2", phone ? "text-caption" : "text-small")}>{lines.detail}</p> : null}
-            </>
-          ) : birthdays.isError ? (
-            <InlineRetry onRetry={() => void birthdays.refetch()} />
-          ) : (
-            <LinesSkeleton widths={["w-32", "w-28"]} />
-          )}
+          {seesLeads ? <TodaysLeadLines phone={phone} /> : null}
         </>
       }
-      side={
-        <>
-          {passports}
-          {seesBirthdays ? (
-            <GooButton to="/greetings/birthdays" size="sm">
-              {copy.birthdaysLink}
-            </GooButton>
-          ) : null}
-        </>
-      }
+      side={seesLeads ? <TodaysLeadSide phone={phone} /> : null}
     />
   );
 }

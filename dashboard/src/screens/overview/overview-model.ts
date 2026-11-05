@@ -2,10 +2,11 @@ import { useEffect, useState } from "react";
 import type { Copy, Locale } from "../../content/copy";
 import type {
   ActivityKind,
-  BirthdayEntry,
   CampaignStatus,
   GroupSummary,
   IntakeResult,
+  Lead,
+  LeadSource,
   LeadStatus,
   WeeklyCount,
 } from "../../data/types";
@@ -126,15 +127,20 @@ export function registeredLine(group: GroupSummary, copy: OverviewCopy["groups"]
   return group.capacity === null ? copy.registeredCount(registered) : copy.registered(registered, formatNumber(group.capacity));
 }
 
-/** The two lines about today's birthday greetings in the orb card. */
-export function birthdayLines(entries: readonly BirthdayEntry[], copy: OverviewCopy): { title: string; detail: string | null } {
-  const title = copy.birthdaysToday(entries.length);
-  if (entries.length === 0) return { title, detail: null };
-  if (entries.every((entry) => entry.status === "paused")) return { title, detail: copy.birthdaysPaused };
-  const bySendTime = [...entries].sort((a, b) => a.sendAt.localeCompare(b.sendAt));
-  const due = bySendTime.find((entry) => entry.status === "scheduled");
-  if (due) return { title, detail: copy.birthdaysDue(entries.length, formatTime(new Date(due.sendAt))) };
-  return { title, detail: copy.birthdaysSent(entries.length, formatTime(new Date(bySendTime[0].sendAt))) };
+/**
+ * The orb card's lines about today's leads: how many came in, how many from each source (most first), and how many
+ * are still new, with nobody in touch yet. No sources or waiting line on a day without leads.
+ */
+export function todaysLeadLines(leads: readonly Lead[], copy: OverviewCopy): { title: string; sources: string | null; waiting: string | null } {
+  const title = copy.leadsToday(leads.length);
+  if (leads.length === 0) return { title, sources: null, waiting: null };
+  const sources = (Object.keys(copy.sources) as LeadSource[])
+    .map((source) => ({ source, count: leads.filter((lead) => lead.source === source).length }))
+    .filter((entry) => entry.count > 0)
+    .sort((a, b) => b.count - a.count)
+    .map((entry) => copy.sourceCount(copy.sources[entry.source], entry.count))
+    .join(" · ");
+  return { title, sources, waiting: copy.leadsWaiting(leads.filter((lead) => lead.status === "new").length) };
 }
 
 const RECHECK_MS = 15_000;

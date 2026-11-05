@@ -38,25 +38,22 @@ export const overview = {
   },
   toLeads: "ללידים",
 
-  // The orb card: today.
-  birthdaysLink: "ימי הולדת",
-  birthdaysToday: (count: number) => {
-    if (count === 0) return "אין ימי הולדת היום";
-    return count === 1 ? "ברכת יום הולדת אחת" : `${count} ברכות יום הולדת`;
+  // The orb card: today's leads.
+  leadsToday: (count: number) => {
+    if (count === 0) return "עוד אין לידים היום";
+    return count === 1 ? "ליד אחד היום" : `${count} לידים היום`;
   },
-  /** "יצאו" reads as both "went out" and "will go out". */
-  birthdaysSent: (count: number, time: string) => (count === 1 ? `יצאה אוטומטית ב-${time}` : `יצאו אוטומטית ב-${time}`),
-  birthdaysDue: (count: number, time: string) => (count === 1 ? `תצא אוטומטית ב-${time}` : `יצאו אוטומטית ב-${time}`),
-  birthdaysPaused: "הברכות האוטומטיות כבויות",
-  passportsNew: (count: number) => {
-    if (count === 0) return "אין דרכונים חדשים";
-    return count === 1 ? "דרכון חדש אחד" : `${count} דרכונים חדשים`;
+  /** One source and how many of today's leads came from it: "פייסבוק 3". */
+  sourceCount: (source: string, count: number) => `${source} ${count}`,
+  /** Today's leads still marked new: nobody has been in touch yet. */
+  leadsWaiting: (count: number) => {
+    if (count === 0) return "כולם כבר בטיפול";
+    return count === 1 ? "ליד אחד מחכה לטיפול" : `${count} מחכים לטיפול`;
   },
-  /** The same on phones, over two lines. */
-  passportsTodayLines: (count: number) => {
-    if (count === 0) return ["אין דרכונים", "חדשים היום"] as const;
-    return count === 1 ? (["דרכון אחד", "חדש היום"] as const) : ([`${count} דרכונים`, "חדשים היום"] as const);
-  },
+  /** Desktop: the leads board opens on today. */
+  todaysLeadsLink: "ללידים של היום",
+  /** Phones: the list has no days, so this opens the new ones. */
+  newLeadsLink: "ללידים החדשים",
   couldNotLoad: "לא נטען",
 
   greeting: {

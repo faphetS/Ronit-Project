@@ -37,5 +37,7 @@ describe("OverviewScreen", () => {
     renderApp(routes, { services: await signedInServices() });
     const todayCard = await screen.findByRole("region", { name: "היום" });
     expect(todayCard).toHaveTextContent("י״ז בחשוון תשפ״ז");
+    expect(await within(todayCard).findByText("עוד אין לידים היום")).toBeInTheDocument();
+    expect(within(todayCard).getByRole("link", { name: "ללידים של היום" })).toHaveAttribute("href", "/leads");
   });
 });

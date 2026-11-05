@@ -21,7 +21,8 @@ interface Prefetch {
 function sectionQueries({ overview, leads, customers, groups, greetings, birthdays, users, imports }: Services): Record<RailKey, Prefetch[]> {
   const stats = { queryKey: queryKeys.overview, queryFn: () => overview.stats() };
   const openLeads = { queryKey: queryKeys.leads({}), queryFn: () => leads.list({}) };
-  // The leads page opens on today's board: today's open leads, and the not-relevant ones apart.
+  // The leads page opens on today's board, and the overview's today card counts it: today's open leads, and the
+  // not-relevant ones apart.
   const today = isoDay(now());
   const todaysLeads = { queryKey: queryKeys.leads({ day: today }), queryFn: () => leads.list({ day: today }) };
   const todaysClosed = {
@@ -36,7 +37,7 @@ function sectionQueries({ overview, leads, customers, groups, greetings, birthda
   const importRun = { queryKey: queryKeys.importRun, queryFn: () => imports.latest() };
   const firstCustomers = { filter: filterFromParam(null), page: 1, pageSize: PAGE_SIZE };
   return {
-    overview: [stats, { queryKey: queryKeys.activity, queryFn: () => overview.activity() }, openLeads, groupList, intakes, campaign, birthdayOverview],
+    overview: [stats, { queryKey: queryKeys.activity, queryFn: () => overview.activity() }, openLeads, todaysLeads, todaysClosed, groupList, intakes, campaign],
     leads: [
       todaysLeads,
       todaysClosed,

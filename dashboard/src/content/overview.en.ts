@@ -35,22 +35,17 @@ export const overview: Widen<typeof he> = {
   },
   toLeads: "All leads",
 
-  birthdaysLink: "Birthdays",
-  birthdaysToday: (count) => {
-    if (count === 0) return "No birthdays today";
-    return count === 1 ? "1 birthday greeting" : `${count} birthday greetings`;
+  leadsToday: (count) => {
+    if (count === 0) return "No leads yet today";
+    return count === 1 ? "1 lead today" : `${count} leads today`;
   },
-  birthdaysSent: (_count, time) => `Sent automatically at ${time}`,
-  birthdaysDue: (_count, time) => `Going out automatically at ${time}`,
-  birthdaysPaused: "Automatic greetings are off",
-  passportsNew: (count) => {
-    if (count === 0) return "No new passports";
-    return count === 1 ? "1 new passport" : `${count} new passports`;
+  sourceCount: (source, count) => `${source} ${count}`,
+  leadsWaiting: (count) => {
+    if (count === 0) return "All being handled";
+    return count === 1 ? "1 waiting to be handled" : `${count} waiting to be handled`;
   },
-  passportsTodayLines: (count) => {
-    if (count === 0) return ["No new", "passports today"];
-    return count === 1 ? ["1 new passport", "today"] : [`${count} new passports`, "today"];
-  },
+  todaysLeadsLink: "Today’s leads",
+  newLeadsLink: "New leads",
   couldNotLoad: "Didn’t load",
 
   greeting: {
