@@ -9,6 +9,7 @@ const KEYS = [
   "IG_COMMENT_BLOCKED_REPLY_ENABLED",
   "IG_MSG_COMMENT_REPLY_SENT",
   "IG_MSG_COMMENT_REPLY_BLOCKED",
+  "LEAD_SHEET_CSV_URL",
 ] as const;
 
 const saved: Partial<Record<(typeof KEYS)[number], string | undefined>> = {};
@@ -72,5 +73,18 @@ describe("env — IG comment trip flow", () => {
     });
     expect(env.IG_MSG_COMMENT_REPLY_SENT).toBe("sent override");
     expect(env.IG_MSG_COMMENT_REPLY_BLOCKED).toBe("blocked override");
+  });
+});
+
+describe("env — lead-form sheets", () => {
+  it("LEAD_SHEET_CSV_URL holds any number of links, separated by commas", async () => {
+    expect((await loadEnv()).LEAD_SHEET_CSV_URL).toEqual([]);
+    expect((await loadEnv({ LEAD_SHEET_CSV_URL: "https://a.example/s/export?format=csv" })).LEAD_SHEET_CSV_URL).toEqual([
+      "https://a.example/s/export?format=csv",
+    ]);
+    expect(
+      (await loadEnv({ LEAD_SHEET_CSV_URL: "https://a.example/s/export?format=csv, https://b.example/t/export?format=csv&gid=2" }))
+        .LEAD_SHEET_CSV_URL,
+    ).toEqual(["https://a.example/s/export?format=csv", "https://b.example/t/export?format=csv&gid=2"]);
   });
 });

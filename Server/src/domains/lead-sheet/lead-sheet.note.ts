@@ -8,10 +8,10 @@ const day = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Jerusalem", day: 
 /** 31.10.2026, in Israel. */
 export const israelDate = (at: Date) => day.format(at).replace(/\//g, ".");
 
-/** "שאלון חנוכה -0.1-copy" → "שאלון חנוכה": the form's name without Meta's version and copy marks. */
+/** "שאלון חנוכה -0.1-copy-copy" → "שאלון חנוכה": the form's name without Meta's version and copy marks. */
 export function formLabel(formName: string): string {
   const label = formName
-    .replace(/[-–\s]*copy$/i, "")
+    .replace(/([-–\s]*copy)+$/i, "")
     .replace(/\s*[-–]\s*[\d.]+$/, "")
     .trim();
   return label || formName.trim();
