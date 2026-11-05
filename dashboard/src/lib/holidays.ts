@@ -40,16 +40,21 @@ export interface UpcomingHoliday {
   daysToEve: number;
 }
 
+/** The holiday that falls on `date` (its first day), if any. */
+export function holidayOn(date: Date): HolidayKey | null {
+  const { day: dayOfMonth, month } = hebrewDateParts(date);
+  return RULES.find((r) => r.day === dayOfMonth && r.months.some((m) => sameHebrewMonth(m, month)))?.key ?? null;
+}
+
 /** The next holiday whose eve is today or later. */
 export function nextHoliday(from: Date): UpcomingHoliday {
   for (let offset = 0; offset <= 400; offset += 1) {
     const day = addDays(from, offset);
-    const { day: dayOfMonth, month } = hebrewDateParts(day);
-    const rule = RULES.find((r) => r.day === dayOfMonth && r.months.some((m) => sameHebrewMonth(m, month)));
-    if (!rule) continue;
+    const key = holidayOn(day);
+    if (!key) continue;
     const eve = addDays(day, -1);
     const daysToEve = daysBetween(from, eve);
-    if (daysToEve >= 0) return { key: rule.key, day, eve, daysToEve };
+    if (daysToEve >= 0) return { key, day, eve, daysToEve };
   }
   throw new Error("No holiday within 400 days");
 }

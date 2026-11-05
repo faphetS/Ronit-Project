@@ -5,7 +5,7 @@ import { useMaySee, useOverview } from "../../data/queries";
 import { Headline } from "../../ui/Headline";
 import { ScreenFrame } from "../../ui/ScreenFrame";
 import { ActivityCard } from "./ActivityCard";
-import { GreetingCard } from "./GreetingCard";
+import { CalendarCard } from "./CalendarCard";
 import { GroupsCard, GroupsCarousel } from "./GroupsCards";
 import { KeyNumbers } from "./KeyNumbers";
 import { OverviewTodayCard } from "./OverviewTodayCard";
@@ -23,7 +23,6 @@ export function OverviewScreen() {
   const { overview: copy } = useCopy();
   const phone = useShell() === "phone";
   const stats = useOverview();
-  const greetings = useMaySee("greetings");
   const customers = useMaySee("customers");
   const leads = useMaySee("leads");
   const passports = useMaySee("passports");
@@ -35,7 +34,7 @@ export function OverviewScreen() {
         <Headline title={copy.title} soft={copy.softPhone} size="display-2" className="mx-0.5 mt-1.5 mb-1" />
         <OverviewTodayCard phone />
         <WeekCard phone />
-        {greetings ? <GreetingCard phone /> : null}
+        <CalendarCard phone />
         {customers ? <GroupsCarousel /> : null}
         <ActivityCard phone />
       </ScreenFrame>
@@ -51,7 +50,7 @@ export function OverviewScreen() {
       <div className="grid grid-cols-12 grid-flow-dense gap-5">
         <WeekCard phone={false} className="col-span-7 xl:col-span-5" />
         <OverviewTodayCard phone={false} className="col-span-5 xl:col-span-4" />
-        {greetings ? <GreetingCard phone={false} className="col-span-5 xl:col-span-3" /> : null}
+        <CalendarCard phone={false} className="col-span-5 xl:col-span-3" />
         {leads ? <RecentLeadsCard className="col-span-12 xl:col-span-8" /> : null}
         {customers ? <GroupsCard className="col-span-7 xl:col-span-4" /> : null}
         {passports ? <PassportsCard className="col-span-5 xl:col-span-4" /> : null}

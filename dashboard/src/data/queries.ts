@@ -1,4 +1,4 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient, type QueryKey } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient, type QueryClient, type QueryKey } from "@tanstack/react-query";
 import { now } from "../lib/clock";
 import { accessFor, atLeast, estimateSendMinutes } from "./rules";
 import type {
@@ -247,6 +247,14 @@ export function useGroup(id: string) {
 export function useGroupParticipants(id: string) {
   const { groups } = useServices();
   return useQuery({ queryKey: queryKeys.groupParticipants(id), queryFn: () => groups.participants(id) });
+}
+
+/** The participants of several groups at once, each under its group's own key, so the groups page reuses them. */
+export function useParticipantsOf(ids: readonly string[]) {
+  const { groups } = useServices();
+  return useQueries({
+    queries: ids.map((id) => ({ queryKey: queryKeys.groupParticipants(id), queryFn: () => groups.participants(id) })),
+  });
 }
 
 // ---- Overview ----

@@ -35,49 +35,34 @@ export const overview: Widen<typeof he> = {
   },
   toLeads: "All leads",
 
-  birthdaysLink: "Birthdays",
-  birthdaysToday: (count) => {
-    if (count === 0) return "No birthdays today";
-    return count === 1 ? "1 birthday greeting" : `${count} birthday greetings`;
+  leadsToday: (count) => {
+    if (count === 0) return "No leads yet today";
+    return count === 1 ? "1 lead today" : `${count} leads today`;
   },
-  birthdaysSent: (_count, time) => `Sent automatically at ${time}`,
-  birthdaysDue: (_count, time) => `Going out automatically at ${time}`,
-  birthdaysPaused: "Automatic greetings are off",
-  passportsNew: (count) => {
-    if (count === 0) return "No new passports";
-    return count === 1 ? "1 new passport" : `${count} new passports`;
+  sourceCount: (source, count) => `${source} ${count}`,
+  leadsWaiting: (count) => {
+    if (count === 0) return "All being handled";
+    return count === 1 ? "1 waiting to be handled" : `${count} waiting to be handled`;
   },
-  passportsTodayLines: (count) => {
-    if (count === 0) return ["No new", "passports today"];
-    return count === 1 ? ["1 new passport", "today"] : [`${count} new passports`, "today"];
-  },
+  todaysLeadsLink: "Today’s leads",
+  newLeadsLink: "New leads",
   couldNotLoad: "Didn’t load",
 
-  greeting: {
-    label: (holiday) => `${holiday} greeting`,
-    next: "Next greeting",
-    nextPhone: (date) => `Next greeting · Holiday eve ${date}`,
-    recipients: (count) => `${count} recipients`,
-    when: (date, time) => `Holiday eve · ${date} · ${time}`,
-    status: {
-      draft: "Draft",
-      "in-review": "In WhatsApp review",
-      "awaiting-approval": "Awaiting approval",
-      scheduled: "Scheduled",
-      sending: "Sending",
-      completed: "Sent",
+  calendar: {
+    title: "Calendar",
+    previousMonth: "Previous month",
+    nextMonth: "Next month",
+    comingUp: "Coming up",
+    backToComingUp: "Back to coming up",
+    challahEvent: "Challah event",
+    departs: "Flight leaves",
+    returns: "Flight returns",
+    dayLabel: (date, count) => {
+      if (count === 0) return date;
+      return count === 1 ? `${date}, 1 event` : `${date}, ${count} events`;
     },
-    stages: { write: "Write", review: "Review", approve: "Approve", track: "Send" },
-    approve: "Approve and send",
-    preview: "Preview",
-    previewPhone: "Preview",
-    confirmTitle: (holiday, count) => `Send the ${holiday} greeting to ${count} customers?`,
-    confirmBody: (date, time, messages, minutes) =>
-      `It goes out on the holiday eve, ${date} at ${time}, ${messages} messages every ${minutes} minutes.`,
-    approved: (holiday, date, time) => `${holiday} greeting approved. It goes out on ${date} at ${time}.`,
-    approveFailed: "The approval didn’t go through. Please try again.",
-    none: "No greeting is waiting to go out",
-    toGreetings: "Holiday greetings",
+    nothingThatDay: "Nothing on this day",
+    nothingAhead: "Nothing coming up",
   },
 
   leads: {

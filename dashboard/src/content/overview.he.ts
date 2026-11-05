@@ -1,4 +1,4 @@
-import type { CampaignStage, CampaignStatus, IntakeResult, LeadSource } from "../data/types";
+import type { IntakeResult, LeadSource } from "../data/types";
 
 export const overview = {
   title: "שלום, רונית",
@@ -38,52 +38,42 @@ export const overview = {
   },
   toLeads: "ללידים",
 
-  // The orb card: today.
-  birthdaysLink: "ימי הולדת",
-  birthdaysToday: (count: number) => {
-    if (count === 0) return "אין ימי הולדת היום";
-    return count === 1 ? "ברכת יום הולדת אחת" : `${count} ברכות יום הולדת`;
+  // The orb card: today's leads.
+  leadsToday: (count: number) => {
+    if (count === 0) return "עוד אין לידים היום";
+    return count === 1 ? "ליד אחד היום" : `${count} לידים היום`;
   },
-  /** "יצאו" reads as both "went out" and "will go out". */
-  birthdaysSent: (count: number, time: string) => (count === 1 ? `יצאה אוטומטית ב-${time}` : `יצאו אוטומטית ב-${time}`),
-  birthdaysDue: (count: number, time: string) => (count === 1 ? `תצא אוטומטית ב-${time}` : `יצאו אוטומטית ב-${time}`),
-  birthdaysPaused: "הברכות האוטומטיות כבויות",
-  passportsNew: (count: number) => {
-    if (count === 0) return "אין דרכונים חדשים";
-    return count === 1 ? "דרכון חדש אחד" : `${count} דרכונים חדשים`;
+  /** One source and how many of today's leads came from it: "פייסבוק 3". */
+  sourceCount: (source: string, count: number) => `${source} ${count}`,
+  /** Today's leads still marked new: nobody has been in touch yet. */
+  leadsWaiting: (count: number) => {
+    if (count === 0) return "כולם כבר בטיפול";
+    return count === 1 ? "ליד אחד מחכה לטיפול" : `${count} מחכים לטיפול`;
   },
-  /** The same on phones, over two lines. */
-  passportsTodayLines: (count: number) => {
-    if (count === 0) return ["אין דרכונים", "חדשים היום"] as const;
-    return count === 1 ? (["דרכון אחד", "חדש היום"] as const) : ([`${count} דרכונים`, "חדשים היום"] as const);
-  },
+  /** Desktop: the leads board opens on today. */
+  todaysLeadsLink: "ללידים של היום",
+  /** Phones: the list has no days, so this opens the new ones. */
+  newLeadsLink: "ללידים החדשים",
   couldNotLoad: "לא נטען",
 
-  greeting: {
-    label: (holiday: string) => `ברכת ${holiday}`,
-    next: "הברכה הבאה",
-    nextPhone: (date: string) => `הברכה הבאה · ערב החג ${date}`,
-    recipients: (count: string) => `${count} נמענים`,
-    when: (date: string, time: string) => `ערב החג · ${date} · ${time}`,
-    status: {
-      draft: "טיוטה",
-      "in-review": "בבדיקת WhatsApp",
-      "awaiting-approval": "ממתינה לאישור",
-      scheduled: "מתוזמנת",
-      sending: "בשליחה",
-      completed: "נשלחה",
-    } satisfies Record<CampaignStatus, string>,
-    stages: { write: "כתיבה", review: "בדיקה", approve: "אישור", track: "שליחה" } satisfies Record<CampaignStage, string>,
-    approve: "אישור ושליחה",
-    preview: "תצוגה",
-    previewPhone: "תצוגה מקדימה",
-    confirmTitle: (holiday: string, count: string) => `לשלוח את ברכת ${holiday} ל-${count} לקוחות?`,
-    confirmBody: (date: string, time: string, messages: number, minutes: number) =>
-      `הברכה תצא בערב החג, ${date} ב-${time}, ${messages} הודעות כל ${minutes} דקות.`,
-    approved: (holiday: string, date: string, time: string) => `ברכת ${holiday} אושרה ותצא ב-${date} ב-${time}`,
-    approveFailed: "האישור לא נשמר. אפשר לנסות שוב.",
-    none: "אין כרגע ברכה שמחכה לשליחה",
-    toGreetings: "לברכות לחגים",
+  // The calendar card: challah bookings, flights and holidays. No birthdays: they aren't kept.
+  calendar: {
+    title: "לוח אירועים",
+    previousMonth: "החודש הקודם",
+    nextMonth: "החודש הבא",
+    comingUp: "האירועים הקרובים",
+    backToComingUp: "לאירועים הקרובים",
+    /** A booking without Monday's "סוג האירוע" or "עיר". */
+    challahEvent: "אירוע חלה",
+    departs: "יציאה לטיסה",
+    returns: "חזרה מהטיסה",
+    /** A day in the grid, for screen readers: "08.11, 2 אירועים". */
+    dayLabel: (date: string, count: number) => {
+      if (count === 0) return date;
+      return count === 1 ? `${date}, אירוע אחד` : `${date}, ${count} אירועים`;
+    },
+    nothingThatDay: "אין אירועים ביום הזה",
+    nothingAhead: "אין אירועים קרובים",
   },
 
   leads: {
