@@ -52,3 +52,21 @@ export function weekStart(date: Date): Date {
   const weekday = new Date(utcMidnight(date)).getUTCDay();
   return dayAt(isoDay(addDays(date, -weekday)));
 }
+
+/** A month's days (YYYY-MM-DD) for a calendar whose weeks start on Sunday: null for the blanks before the 1st. `month` is YYYY-MM. */
+export function monthDays(month: string): Array<string | null> {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const firstWeekday = new Date(Date.UTC(year, monthNumber - 1, 1)).getUTCDay();
+  const length = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+  return [
+    ...Array.from({ length: firstWeekday }, () => null),
+    ...Array.from({ length }, (_, index) => `${month}-${String(index + 1).padStart(2, "0")}`),
+  ];
+}
+
+/** The month (YYYY-MM) `months` months after `month`; negative goes back. */
+export function shiftMonth(month: string, months: number): string {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const date = new Date(Date.UTC(year, monthNumber - 1 + months, 1));
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}

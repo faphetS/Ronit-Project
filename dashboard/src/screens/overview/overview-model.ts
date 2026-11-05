@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import type { Copy, Locale } from "../../content/copy";
 import type {
   ActivityKind,
-  CampaignStatus,
   GroupSummary,
   IntakeResult,
   Lead,
@@ -39,15 +38,6 @@ export const INTAKE_TONE: Record<IntakeResult, StatusTone> = {
   matched: "registered",
   "new-card": "sent",
   "needs-review": "warning",
-};
-
-export const CAMPAIGN_TONE: Record<CampaignStatus, StatusTone> = {
-  draft: "neutral",
-  "in-review": "talking",
-  "awaiting-approval": "new",
-  scheduled: "registered",
-  sending: "talking",
-  completed: "registered",
 };
 
 export const ACTIVITY_ICON: Record<ActivityKind, IconName> = {

@@ -7,6 +7,7 @@ import { useServices } from "../data/services-context";
 import type { GroupSummary } from "../data/types";
 import { filterFromParam, PAGE_SIZE } from "../screens/customers/customer-helpers";
 import { selectGroup } from "../screens/groups/groups";
+import { eventGroupsToRead } from "../screens/overview/calendar-model";
 import type { RailKey } from "./sections";
 
 /** How long after sign-in the other sections start loading, so the first screen settles in first. */
@@ -37,7 +38,7 @@ function sectionQueries({ overview, leads, customers, groups, greetings, birthda
   const importRun = { queryKey: queryKeys.importRun, queryFn: () => imports.latest() };
   const firstCustomers = { filter: filterFromParam(null), page: 1, pageSize: PAGE_SIZE };
   return {
-    overview: [stats, { queryKey: queryKeys.activity, queryFn: () => overview.activity() }, openLeads, todaysLeads, todaysClosed, groupList, intakes, campaign],
+    overview: [stats, { queryKey: queryKeys.activity, queryFn: () => overview.activity() }, openLeads, todaysLeads, todaysClosed, groupList, intakes],
     leads: [
       todaysLeads,
       todaysClosed,
@@ -76,10 +77,18 @@ function sectionQueries({ overview, leads, customers, groups, greetings, birthda
  */
 export async function prefetchSection(client: QueryClient, services: Services, key: RailKey): Promise<void> {
   await Promise.all(sectionQueries(services)[key].map((query) => client.prefetchQuery(query)));
+  const groups = client.getQueryData<GroupSummary[]>(queryKeys.groups) ?? [];
+  const participants = (id: string) => client.prefetchQuery({ queryKey: queryKeys.groupParticipants(id), queryFn: () => services.groups.participants(id) });
+  if (key === "overview") {
+    // The overview's calendar opens on this month, with the bookings of every challah month not over yet.
+    const today = isoDay(now());
+    await Promise.all(eventGroupsToRead(groups, today.slice(0, 7), today).map(participants));
+    return;
+  }
   if (key !== "groups") return;
   // The groups page opens on its first group's participants.
-  const first = selectGroup(client.getQueryData<GroupSummary[]>(queryKeys.groups) ?? [], undefined);
-  if (first) await client.prefetchQuery({ queryKey: queryKeys.groupParticipants(first.id), queryFn: () => services.groups.participants(first.id) });
+  const first = selectGroup(groups, undefined);
+  if (first) await participants(first.id);
 }
 
 /** Loads a section's data as the pointer heads for it. */

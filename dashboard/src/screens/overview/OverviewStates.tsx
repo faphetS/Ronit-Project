@@ -65,25 +65,6 @@ export function WeekSkeleton({ phone }: { phone: boolean }) {
   );
 }
 
-/** The greeting card while loading. */
-export function GreetingSkeleton({ phone }: { phone: boolean }) {
-  return (
-    <Busy className="flex flex-1 flex-col gap-3.5">
-      <div className="flex items-center justify-between gap-3">
-        <Skeleton className="h-3.5 w-24" />
-        <Skeleton className="h-7 w-28" />
-      </div>
-      <Skeleton className={phone ? "h-8 w-2/3" : "h-16 w-1/2"} />
-      {phone ? null : <Skeleton className="h-16 w-full" />}
-      <Skeleton className="mt-auto h-1.5 w-full" />
-      <div className="flex gap-2">
-        <Skeleton className="h-[38px] flex-1" />
-        <Skeleton className="h-[38px] w-20" />
-      </div>
-    </Busy>
-  );
-}
-
 /** List rows with an avatar or icon circle, two lines and a short end. */
 export function RowsSkeleton({ rows, circle = "icon", glass = false }: { rows: number; circle?: "icon" | "avatar"; glass?: boolean }) {
   return (

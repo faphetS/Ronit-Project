@@ -40,4 +40,12 @@ describe("OverviewScreen", () => {
     expect(await within(todayCard).findByText("עוד אין לידים היום")).toBeInTheDocument();
     expect(within(todayCard).getByRole("link", { name: "ללידים של היום" })).toHaveAttribute("href", "/leads");
   });
+
+  it("shows this month's calendar with the holidays coming up, in place of the next greeting", async () => {
+    renderApp(routes, { services: await signedInServices() });
+    const calendar = await screen.findByRole("region", { name: "לוח אירועים" });
+    expect(calendar).toHaveTextContent("אוקטובר 2026");
+    expect(await within(calendar).findByText("חנוכה")).toBeInTheDocument();
+    expect(screen.queryByText("הברכה הבאה")).not.toBeInTheDocument();
+  });
 });

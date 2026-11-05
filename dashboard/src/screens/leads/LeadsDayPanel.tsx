@@ -3,7 +3,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { useCopy, useLocale } from "../../content/locale";
 import { useLeadCounts, useLeadDays } from "../../data/queries";
 import type { Lead, LeadSource } from "../../data/types";
-import { addDays, dayAt, isoDay, now } from "../../lib/clock";
+import { addDays, dayAt, isoDay, monthDays, now, shiftMonth } from "../../lib/clock";
 import { cx } from "../../lib/cx";
 import { formatDayMonth, formatMonthYear, formatNumber, formatWeekday, formatWeekdayLetter } from "../../lib/format";
 import { cardVariants } from "../../motion/variants";
@@ -22,23 +22,6 @@ const A_SUNDAY = "2026-11-01";
 
 const shiftDay = (day: string, days: number): string => isoDay(addDays(dayAt(day), days));
 const earlierOf = (a: string, b: string): string => (a < b ? a : b);
-
-/** A month's days for a calendar whose weeks start on Sunday: null for the blanks before the 1st. */
-function monthDays(month: string): Array<string | null> {
-  const [year, monthNumber] = month.split("-").map(Number);
-  const firstWeekday = new Date(Date.UTC(year, monthNumber - 1, 1)).getUTCDay();
-  const length = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
-  return [
-    ...Array.from({ length: firstWeekday }, () => null),
-    ...Array.from({ length }, (_, index) => `${month}-${String(index + 1).padStart(2, "0")}`),
-  ];
-}
-
-function shiftMonth(month: string, months: number): string {
-  const [year, monthNumber] = month.split("-").map(Number);
-  const date = new Date(Date.UTC(year, monthNumber - 1 + months, 1));
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
-}
 
 /** A busier day has a fuller bubble in the calendar. */
 function bubbleTone(count: number): string {

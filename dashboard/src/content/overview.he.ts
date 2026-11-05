@@ -1,4 +1,4 @@
-import type { CampaignStage, CampaignStatus, IntakeResult, LeadSource } from "../data/types";
+import type { IntakeResult, LeadSource } from "../data/types";
 
 export const overview = {
   title: "שלום, רונית",
@@ -56,31 +56,24 @@ export const overview = {
   newLeadsLink: "ללידים החדשים",
   couldNotLoad: "לא נטען",
 
-  greeting: {
-    label: (holiday: string) => `ברכת ${holiday}`,
-    next: "הברכה הבאה",
-    nextPhone: (date: string) => `הברכה הבאה · ערב החג ${date}`,
-    recipients: (count: string) => `${count} נמענים`,
-    when: (date: string, time: string) => `ערב החג · ${date} · ${time}`,
-    status: {
-      draft: "טיוטה",
-      "in-review": "בבדיקת WhatsApp",
-      "awaiting-approval": "ממתינה לאישור",
-      scheduled: "מתוזמנת",
-      sending: "בשליחה",
-      completed: "נשלחה",
-    } satisfies Record<CampaignStatus, string>,
-    stages: { write: "כתיבה", review: "בדיקה", approve: "אישור", track: "שליחה" } satisfies Record<CampaignStage, string>,
-    approve: "אישור ושליחה",
-    preview: "תצוגה",
-    previewPhone: "תצוגה מקדימה",
-    confirmTitle: (holiday: string, count: string) => `לשלוח את ברכת ${holiday} ל-${count} לקוחות?`,
-    confirmBody: (date: string, time: string, messages: number, minutes: number) =>
-      `הברכה תצא בערב החג, ${date} ב-${time}, ${messages} הודעות כל ${minutes} דקות.`,
-    approved: (holiday: string, date: string, time: string) => `ברכת ${holiday} אושרה ותצא ב-${date} ב-${time}`,
-    approveFailed: "האישור לא נשמר. אפשר לנסות שוב.",
-    none: "אין כרגע ברכה שמחכה לשליחה",
-    toGreetings: "לברכות לחגים",
+  // The calendar card: challah bookings, flights and holidays. No birthdays: they aren't kept.
+  calendar: {
+    title: "לוח אירועים",
+    previousMonth: "החודש הקודם",
+    nextMonth: "החודש הבא",
+    comingUp: "האירועים הקרובים",
+    backToComingUp: "לאירועים הקרובים",
+    /** A booking without Monday's "סוג האירוע" or "עיר". */
+    challahEvent: "אירוע חלה",
+    departs: "יציאה לטיסה",
+    returns: "חזרה מהטיסה",
+    /** A day in the grid, for screen readers: "08.11, 2 אירועים". */
+    dayLabel: (date: string, count: number) => {
+      if (count === 0) return date;
+      return count === 1 ? `${date}, אירוע אחד` : `${date}, ${count} אירועים`;
+    },
+    nothingThatDay: "אין אירועים ביום הזה",
+    nothingAhead: "אין אירועים קרובים",
   },
 
   leads: {
