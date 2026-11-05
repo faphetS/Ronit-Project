@@ -32,12 +32,19 @@ function CountingValue({ value }: { value: number }) {
   );
 }
 
+/** A figure that ticks over from its old value when it changes; it never counts from zero. */
+function TickingValue({ value }: { value: number }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const text = useCountUp(value, ref, false);
+  return <motion.span ref={ref}>{text}</motion.span>;
+}
+
 /** A large light figure, like 14, 1,284 or 32/40. Proportional digits, as large numbers read better that way. */
 export function BigNumber({ value, total, size, surface = "card", countUp = false, as: Tag = "p", className }: BigNumberProps) {
   const dark = surface === "ink";
   return (
     <Tag className={cx("leading-[0.95] font-light lining-nums", dark ? "text-cream" : "text-ink", className)} style={{ fontSize: size }}>
-      {countUp && typeof value === "number" ? <CountingValue value={value} /> : typeof value === "number" ? formatNumber(value) : value}
+      {typeof value === "number" ? countUp ? <CountingValue value={value} /> : <TickingValue value={value} /> : value}
       {total === undefined ? null : <span className={dark ? "text-ink-soft" : "text-faint"}>/{typeof total === "number" ? formatNumber(total) : total}</span>}
     </Tag>
   );
