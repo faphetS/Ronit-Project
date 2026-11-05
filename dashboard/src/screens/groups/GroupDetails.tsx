@@ -7,6 +7,7 @@ import { dayAt, daysBetween, today } from "../../lib/clock";
 import { cx } from "../../lib/cx";
 import { formatDate, formatDayMonth, formatNumber, formatWeekday } from "../../lib/format";
 import { formatHebrewDate } from "../../lib/hebrew";
+import { useFirstKeys } from "../../motion/cascade";
 import { Avatar } from "../../ui/Avatar";
 import { CountPill } from "../../ui/CountPill";
 import { CARD_PAGE_SIZE, DataTable, type DataColumn } from "../../ui/DataTable";
@@ -153,6 +154,7 @@ export function MissingPassportsCard({ group }: { group: GroupSummary }) {
   const participants = useGroupParticipants(group.id);
   const text = copy.missing;
   const missing = participants.data?.filter((person) => person.passport === "missing") ?? [];
+  const isFirst = useFirstKeys(missing.map((person) => person.id));
   return (
     <Surface variant="card" compact id={MISSING_SECTION} tabIndex={-1} aria-label={text.title} className="pt-4 pb-2">
       <SectionHeader
@@ -166,10 +168,11 @@ export function MissingPassportsCard({ group }: { group: GroupSummary }) {
       {missing.length > 0 ? (
         <>
           <ul>
-            {missing.map((person) => (
+            {missing.map((person, index) => (
               <ListRow
                 as="li"
                 key={person.id}
+                row={{ index, cascade: isFirst(person.id) }}
                 to={`/customers/${person.customerId}`}
                 leading={<Avatar initial={person.firstName.charAt(0)} />}
                 title={fullName(person)}
@@ -193,6 +196,7 @@ export function ParticipantsList({ group }: { group: GroupSummary }) {
   const text = copy.participants;
   const rows = participants.data ?? [];
   const shown = expanded ? rows : rows.slice(0, PREVIEW_ROWS);
+  const isFirst = useFirstKeys(shown.map((person) => person.id));
   return (
     <Surface variant="card" compact id={PARTICIPANTS_SECTION} tabIndex={-1} aria-label={text.table(plainName(group.shortName))} className="pt-4 pb-2">
       <SectionHeader
@@ -205,10 +209,11 @@ export function ParticipantsList({ group }: { group: GroupSummary }) {
       {participants.data && rows.length === 0 ? <EmptyState message={text.empty} /> : null}
       {shown.length > 0 ? (
         <ul>
-          {shown.map((person) => (
+          {shown.map((person, index) => (
             <ListRow
               as="li"
               key={person.id}
+              row={{ index, cascade: isFirst(person.id) }}
               to={`/customers/${person.customerId}`}
               leading={<Avatar initial={person.firstName.charAt(0)} />}
               title={fullName(person)}

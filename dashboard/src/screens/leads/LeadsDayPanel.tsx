@@ -9,6 +9,7 @@ import { formatDayMonth, formatMonthYear, formatNumber, formatWeekday, formatWee
 import { cardVariants } from "../../motion/variants";
 import { Icon } from "../../ui/Icon";
 import type { IconName } from "../../ui/icons";
+import { MonthSlide } from "../../ui/MonthSlide";
 import { ErrorState, Skeleton } from "../../ui/states";
 import { ALL, TODAY } from "./leads-url";
 
@@ -69,9 +70,18 @@ export function LeadsDayPanel({ day, onDay, shown, filtered }: LeadsDayPanelProp
 
   const [calendar, setCalendar] = useState(false);
   const [month, setMonth] = useState(today.slice(0, 7));
+  // Which way the month last changed, so its days slide in from that side; 0 as the calendar opens.
+  const [direction, setDirection] = useState<-1 | 0 | 1>(0);
   const toggleCalendar = () => {
-    if (!calendar) setMonth((anchor ?? today).slice(0, 7));
+    if (!calendar) {
+      setMonth((anchor ?? today).slice(0, 7));
+      setDirection(0);
+    }
     setCalendar(!calendar);
+  };
+  const stepMonth = (step: -1 | 1) => {
+    setDirection(step);
+    setMonth(shiftMonth(month, step));
   };
   const pick = (date: string) => {
     onDay(date === today ? TODAY : date);
@@ -110,7 +120,7 @@ export function LeadsDayPanel({ day, onDay, shown, filtered }: LeadsDayPanelProp
   let body;
   if (days.isError && !days.data) body = <ErrorState onRetry={() => void days.refetch()} />;
   else if (!days.data) body = <Skeleton className="h-[172px] w-full rounded-2xl" />;
-  else if (calendar) body = <MonthGrid month={month} today={today} selected={selected} countOf={countOf} onPick={pick} />;
+  else if (calendar) body = <MonthGrid month={month} direction={direction} today={today} selected={selected} countOf={countOf} onPick={pick} />;
   else body = <DayStrip start={start} today={today} selected={selected} countOf={countOf} onPick={pick} />;
 
   return (
@@ -148,8 +158,8 @@ export function LeadsDayPanel({ day, onDay, shown, filtered }: LeadsDayPanelProp
             ) : null}
             {calendar ? (
               <>
-                <StepButton icon="earlier" label={copy.days.previousMonth} disabled={month <= firstDay.slice(0, 7)} onClick={() => setMonth(shiftMonth(month, -1))} />
-                <StepButton icon="forward" label={copy.days.nextMonth} disabled={month >= today.slice(0, 7)} onClick={() => setMonth(shiftMonth(month, 1))} />
+                <StepButton icon="earlier" label={copy.days.previousMonth} disabled={month <= firstDay.slice(0, 7)} onClick={() => stepMonth(-1)} />
+                <StepButton icon="forward" label={copy.days.nextMonth} disabled={month >= today.slice(0, 7)} onClick={() => stepMonth(1)} />
               </>
             ) : (
               <>
@@ -224,7 +234,7 @@ function DayStrip({ start, today, selected, countOf, onPick }: DaysProps & { sta
 }
 
 /** A month, each day with its count. Days to come can't be picked. */
-function MonthGrid({ month, today, selected, countOf, onPick }: DaysProps & { month: string }) {
+function MonthGrid({ month, direction, today, selected, countOf, onPick }: DaysProps & { month: string; direction: -1 | 0 | 1 }) {
   const { leadsCopy: copy } = useCopy();
   const { locale } = useLocale();
   const dates = monthDays(month);
@@ -236,7 +246,7 @@ function MonthGrid({ month, today, selected, countOf, onPick }: DaysProps & { mo
           <span key={index}>{formatWeekdayLetter(dayAt(shiftDay(A_SUNDAY, index)), locale)}</span>
         ))}
       </div>
-      <div className="grid grid-cols-7 gap-1">
+      <MonthSlide month={month} direction={direction} className="grid grid-cols-7 gap-1">
         {dates.map((date, index) => {
           if (!date) return <span key={`blank-${index}`} />;
           const count = countOf(date);
@@ -271,7 +281,7 @@ function MonthGrid({ month, today, selected, countOf, onPick }: DaysProps & { mo
             </button>
           );
         })}
-      </div>
+      </MonthSlide>
       <p className="text-small text-mute">{copy.days.monthTotal(formatNumber(total))}</p>
     </div>
   );

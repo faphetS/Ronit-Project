@@ -2,6 +2,7 @@ import { useId } from "react";
 import { useCopy } from "../../content/locale";
 import { usePassportIntakes } from "../../data/queries";
 import { formatNumber, formatTime } from "../../lib/format";
+import { useFirstKeys } from "../../motion/cascade";
 import { Avatar } from "../../ui/Avatar";
 import { ListRow } from "../../ui/ListRow";
 import { SectionHeader } from "../../ui/SectionHeader";
@@ -20,6 +21,7 @@ export function PassportsCard({ className }: { className?: string }) {
   const headingId = useId();
   const all = intakes.data ?? [];
   const todays = all.filter((intake) => isToday(intake.receivedAt));
+  const isFirst = useFirstKeys(todays.map((intake) => intake.id));
   const waiting = all.filter((intake) => intake.result === "needs-review").length;
   return (
     <Surface variant="glass" aria-labelledby={headingId} className={className}>
@@ -42,10 +44,11 @@ export function PassportsCard({ className }: { className?: string }) {
           </p>
           {todays.length > 0 ? (
             <ul>
-              {todays.slice(0, SHOWN.passports).map((intake) => (
+              {todays.slice(0, SHOWN.passports).map((intake, index) => (
                 <ListRow
                   key={intake.id}
                   as="li"
+                  row={{ index, cascade: isFirst(intake.id) }}
                   surface="glass"
                   to={intake.customerId ? `/customers/${intake.customerId}` : undefined}
                   leading={<Avatar initial={initialOf(intake.name)} tone="glass" />}

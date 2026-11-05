@@ -5,6 +5,7 @@ import { useCustomers, useGroups } from "../../data/queries";
 import type { CustomerFilter } from "../../data/services";
 import type { Customer } from "../../data/types";
 import { now } from "../../lib/clock";
+import { useFirstKeys } from "../../motion/cascade";
 import { springs } from "../../motion/springs";
 import { cardVariants } from "../../motion/variants";
 import { Avatar } from "../../ui/Avatar";
@@ -36,6 +37,7 @@ export function CustomerList({ filter, page, search, onFilterChange, onPageChang
   const top = useRef<HTMLDivElement>(null);
   const list = useCustomers({ filter, search: search || undefined, page, pageSize: PAGE_SIZE });
   const groups = useGroups();
+  const isFirst = useFirstKeys(list.data?.items.map((customer) => customer.id) ?? []);
   const { waitingToday } = useFilterCounts();
   const reference = now();
 
@@ -44,7 +46,7 @@ export function CustomerList({ filter, page, search, onFilterChange, onPageChang
     top.current?.scrollIntoView({ block: "start", behavior: reduceMotion ? "auto" : "smooth" });
   };
 
-  const row = (customer: Customer) => {
+  const row = (customer: Customer, index: number) => {
     const state = passportState(customer.passport, reference);
     const passport = customer.passport;
     const tag =
@@ -65,6 +67,7 @@ export function CustomerList({ filter, page, search, onFilterChange, onPageChang
       <ListRow
         key={customer.id}
         as="li"
+        row={{ index, cascade: isFirst(customer.id) }}
         to={`/customers/${customer.id}`}
         leading={<Avatar initial={initialOf(customer.firstName)} />}
         title={fullName(customer)}

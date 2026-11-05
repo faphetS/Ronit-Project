@@ -5,21 +5,26 @@ import { useEntrance } from "../motion/entrance";
 import { springs } from "../motion/springs";
 
 /**
- * A number as text that counts up from zero once, the first time its element comes into view (spec section 8), on the
- * visit's first page. Later changes, and later pages, show it at once. Without IntersectionObserver (as in tests) or
- * with Reduce Motion it never counts.
+ * A number as text. On the visit's first page a hero number (`fromZero`) counts up from zero once, the first time its
+ * element comes into view (spec section 8). After that, and on later pages, a new value ticks over from the old one.
+ * Without IntersectionObserver (as in tests) or with Reduce Motion it never moves.
  */
-export function useCountUp(value: number, ref: RefObject<Element | null>): MotionValue<string> {
+export function useCountUp(value: number, ref: RefObject<Element | null>, fromZero = true): MotionValue<string> {
   const reduceMotion = useReducedMotion();
   const entrance = useEntrance();
-  const [startsAtZero] = useState(() => entrance && !reduceMotion && typeof IntersectionObserver !== "undefined");
+  const [startsAtZero] = useState(() => fromZero && entrance && !reduceMotion && typeof IntersectionObserver !== "undefined");
   const counted = useRef(!startsAtZero);
   const current = useMotionValue(startsAtZero ? 0 : value);
 
   useEffect(() => {
     if (counted.current) {
-      current.set(value);
-      return;
+      // A new value while it's on screen ticks over from the old one; it never counts from zero again.
+      if (reduceMotion || current.get() === value) {
+        current.set(value);
+        return;
+      }
+      const ticking = animate(current, value, springs.gentle);
+      return () => ticking.stop();
     }
     const element = ref.current;
     if (!element) return;
@@ -35,7 +40,7 @@ export function useCountUp(value: number, ref: RefObject<Element | null>): Motio
       observer.disconnect();
       running?.stop();
     };
-  }, [value, current, ref]);
+  }, [value, current, ref, reduceMotion]);
 
   return useTransform(current, (latest) => formatNumber(Math.round(latest)));
 }

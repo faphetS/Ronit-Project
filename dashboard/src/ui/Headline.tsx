@@ -1,6 +1,6 @@
 import { motion } from "motion/react";
 import { cx } from "../lib/cx";
-import { cardVariants } from "../motion/variants";
+import { headlineVariants } from "../motion/variants";
 
 type HeadlineSize = "display" | "display-2" | "display-3";
 
@@ -24,7 +24,7 @@ interface HeadlineProps {
 export function Headline({ title, soft, size = "display", level = 1, onDark = false, className }: HeadlineProps) {
   const Tag = level === 1 ? motion.h1 : motion.h2;
   return (
-    <Tag variants={cardVariants} className={cx(SIZE_CLASS[size], "font-light", onDark ? "text-cream" : "text-ink", className)}>
+    <Tag variants={headlineVariants} className={cx(SIZE_CLASS[size], "font-light", onDark ? "text-cream" : "text-ink", className)}>
       {title}{" "}
       {soft ? (
         <>

@@ -55,13 +55,22 @@ export function Button({ children, variant = "solid", size = "md", icon, onDark 
   );
   if (to) {
     return (
-      <MotionLink to={to} className={classes} whileTap={{ scale: PRESS_SCALE }} transition={springs.ui}>
+      <MotionLink to={to} className={classes} whileHover={{ y: -1 }} whileTap={{ scale: PRESS_SCALE }} transition={springs.ui}>
         {content}
       </MotionLink>
     );
   }
   return (
-    <motion.button ref={ref} type={type} onClick={onClick} disabled={disabled} className={classes} whileTap={{ scale: PRESS_SCALE }} transition={springs.ui}>
+    <motion.button
+      ref={ref}
+      type={type}
+      onClick={onClick}
+      disabled={disabled}
+      className={classes}
+      whileHover={disabled ? undefined : { y: -1 }}
+      whileTap={{ scale: PRESS_SCALE }}
+      transition={springs.ui}
+    >
       {content}
     </motion.button>
   );

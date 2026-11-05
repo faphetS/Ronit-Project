@@ -6,8 +6,9 @@ import { useLeadCounts } from "../../data/queries";
 import type { Lead } from "../../data/types";
 import { now } from "../../lib/clock";
 import { formatNumber, formatRelative } from "../../lib/format";
-import { fadeOut, springs } from "../../motion/springs";
-import { cardVariants } from "../../motion/variants";
+import { useFirstKeys, type RowMotion } from "../../motion/cascade";
+import { springs } from "../../motion/springs";
+import { cardVariants, rowVariants } from "../../motion/variants";
 import { Avatar } from "../../ui/Avatar";
 import { CountPill } from "../../ui/CountPill";
 import { Field } from "../../ui/Field";
@@ -79,6 +80,7 @@ function TripSection({ title, leads, leadHref }: TripSectionProps) {
   const { locale } = useLocale();
   const headingId = useId();
   const reference = now();
+  const isFirst = useFirstKeys(leads.map((lead) => lead.id));
   return (
     <motion.section variants={cardVariants} aria-labelledby={headingId} className="flex flex-col gap-2">
       <SectionHeader
@@ -89,15 +91,15 @@ function TripSection({ title, leads, leadHref }: TripSectionProps) {
         className="px-1 pt-1"
       />
       <ul className="surface-card rounded-card-phone px-4 py-1.5">
-        <AnimatePresence initial={false} mode="popLayout">
-          {leads.map((lead) => (
+        <AnimatePresence mode="popLayout">
+          {leads.map((lead, index) => (
             <motion.li
               key={lead.id}
               layout="position"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0, transition: fadeOut }}
-              transition={springs.surface}
+              variants={rowVariants}
+              custom={{ index, cascade: isFirst(lead.id) } satisfies RowMotion}
+              exit="exit"
+              transition={{ layout: springs.surface }}
               className="border-t border-line first:border-t-0"
             >
               <ListRow

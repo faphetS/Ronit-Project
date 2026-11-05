@@ -1,3 +1,4 @@
+import { motion } from "motion/react";
 import { useId, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { useCopy, useLocale } from "../../content/locale";
@@ -5,7 +6,10 @@ import { useGroups, useMaySee, useParticipantsOf } from "../../data/queries";
 import { addDays, dayAt, isoDay, monthDays, now, shiftMonth } from "../../lib/clock";
 import { cx } from "../../lib/cx";
 import { formatDayMonth, formatMonthYear, formatWeekday, formatWeekdayLetter } from "../../lib/format";
+import { useFirstKeys, type RowMotion } from "../../motion/cascade";
+import { rowVariants } from "../../motion/variants";
 import { Icon } from "../../ui/Icon";
+import { MonthSlide } from "../../ui/MonthSlide";
 import type { IconName } from "../../ui/icons";
 import { SectionHeader } from "../../ui/SectionHeader";
 import { Surface } from "../../ui/Surface";
@@ -36,6 +40,8 @@ interface CalendarState {
   today: string;
   /** The shown month, YYYY-MM. */
   month: string;
+  /** Which way the month last changed, for the days' slide: 0 until it does. */
+  direction: -1 | 0 | 1;
   /** A day picked in the grid, whose items the list shows instead of what's coming up. */
   picked: string | null;
   onMonth: (month: string) => void;
@@ -57,14 +63,17 @@ export function CalendarCard({ phone, className }: { phone: boolean; className?:
   const seesGroups = useMaySee("customers");
   const today = isoDay(now());
   const [month, setMonth] = useState(today.slice(0, 7));
+  const [direction, setDirection] = useState<-1 | 0 | 1>(0);
   const [picked, setPicked] = useState<string | null>(null);
   const state: CalendarState = {
     phone,
     className,
     today,
     month,
+    direction,
     picked,
     onMonth: (next) => {
+      setDirection(next > month ? 1 : -1);
       setMonth(next);
       setPicked(null);
     },
@@ -95,7 +104,7 @@ function CalendarWithGroups(state: CalendarState) {
   return <CalendarView {...state} items={items} loading={loading} onRetry={onRetry} />;
 }
 
-function CalendarView({ phone, className, today, month, picked, onMonth, onPick, items, loading, onRetry }: CalendarState & CalendarData) {
+function CalendarView({ phone, className, today, month, direction, picked, onMonth, onPick, items, loading, onRetry }: CalendarState & CalendarData) {
   const { overview, holidayNames } = useCopy();
   const copy = overview.calendar;
   const { locale } = useLocale();
@@ -110,6 +119,7 @@ function CalendarView({ phone, className, today, month, picked, onMonth, onPick,
   const all = [...holidays, ...items];
   const byDay = itemsByDay(all);
   const listed = picked ? (byDay.get(picked) ?? []) : comingUp(all, today, SHOWN[phone ? "phone" : "desktop"]);
+  const isFirst = useFirstKeys(listed.map((item) => item.key));
 
   return (
     <Surface variant="card" compact={phone} aria-labelledby={headingId} className={cx("flex flex-col gap-3", className)}>
@@ -125,7 +135,7 @@ function CalendarView({ phone, className, today, month, picked, onMonth, onPick,
         }
         flush
       />
-      <MonthGrid phone={phone} month={month} today={today} picked={picked} byDay={byDay} onPick={onPick} />
+      <MonthGrid phone={phone} month={month} direction={direction} today={today} picked={picked} byDay={byDay} onPick={onPick} />
       <div className="flex flex-col gap-1.5 border-t border-line pt-3">
         <div className="flex items-center justify-between gap-2">
           <p className="text-caption text-mute">{picked ? `${formatWeekday(dayAt(picked), locale)} ${formatDayMonth(dayAt(picked), locale)}` : copy.comingUp}</p>
@@ -140,10 +150,10 @@ function CalendarView({ phone, className, today, month, picked, onMonth, onPick,
         {!loading || picked ? (
           listed.length > 0 ? (
             <ul className="flex flex-col">
-              {listed.map((item) => (
-                <li key={item.key}>
+              {listed.map((item, index) => (
+                <motion.li key={item.key} variants={rowVariants} custom={{ index, cascade: isFirst(item.key) } satisfies RowMotion}>
                   <ItemRow phone={phone} item={item} />
-                </li>
+                </motion.li>
               ))}
             </ul>
           ) : (
@@ -159,6 +169,7 @@ function CalendarView({ phone, className, today, month, picked, onMonth, onPick,
 function MonthGrid({
   phone,
   month,
+  direction,
   today,
   picked,
   byDay,
@@ -166,6 +177,7 @@ function MonthGrid({
 }: {
   phone: boolean;
   month: string;
+  direction: -1 | 0 | 1;
   today: string;
   picked: string | null;
   byDay: Map<string, CalendarItem[]>;
@@ -181,7 +193,7 @@ function MonthGrid({
           <span key={index}>{formatWeekdayLetter(addDays(dayAt(A_SUNDAY), index), locale)}</span>
         ))}
       </div>
-      <div className="grid grid-cols-7 gap-y-0.5">
+      <MonthSlide month={month} direction={direction} className="grid grid-cols-7 gap-y-0.5">
         {monthDays(month).map((day, index) => {
           if (!day) return <span key={`blank-${index}`} />;
           const dayItems = byDay.get(day) ?? [];
@@ -219,7 +231,7 @@ function MonthGrid({
             </button>
           );
         })}
-      </div>
+      </MonthSlide>
     </div>
   );
 }
