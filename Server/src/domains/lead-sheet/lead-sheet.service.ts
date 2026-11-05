@@ -1,12 +1,13 @@
 import { logger } from "../../config/logger.js";
 import type { Queryable } from "../../config/pg.js";
+import { MondayRateLimitError } from "../monday/monday.client.js";
 import { toMsisdn } from "../whatsapp/whatsapp.gateway.js";
 import { leadNoteHtml, type OldCard } from "./lead-sheet.note.js";
 import { sheetLeads, type SheetLead } from "./lead-sheet.parse.js";
 
 /**
- * Copies Meta lead-form leads from a Google Sheet into Monday's CRM board, for forms that have no
- * route into Monday of their own (Ronit's Hanukkah form, 2026-11). Each lead is added once, to the
+ * Copies Meta lead-form leads from Google Sheets (a tab per form) into Monday's CRM board, for forms that
+ * have no route into Monday of their own (Ronit's Hanukkah forms, 2026-11). Each lead is added once, to the
  * new-leads group, unless the CRM board already has her phone (the Instagram chat flow brings
  * many of the Instagram ones by itself). Monday stays the source; the dashboard copies it from there.
  */
@@ -59,7 +60,26 @@ async function oldCardInCopy(db: Queryable, phone: string): Promise<OldCard | nu
   return rows[0] ? { board: rows[0].board.trim(), since: rows[0].since } : null;
 }
 
-/** One pass over the sheet. Stops at the first Monday error (a rate limit): the rest wait for the next run. */
+/**
+ * Runs `sync` for each sheet (one per lead form), in order. A sheet that fails, say one nobody can open any more,
+ * doesn't stop the others; the first failure is thrown once they're done, so the job still reports it. A Monday rate
+ * limit stops at once, since every sheet after it would hit the same limit.
+ */
+export async function forEachSheet(urls: readonly string[], sync: (url: string, sheet: number) => Promise<void>): Promise<void> {
+  const failures: unknown[] = [];
+  for (const [index, url] of urls.entries()) {
+    try {
+      await sync(url, index + 1);
+    } catch (err) {
+      if (err instanceof MondayRateLimitError) throw err;
+      logger.warn({ err, sheet: index + 1 }, "Lead sheet: one sheet failed; the others still ran");
+      failures.push(err);
+    }
+  }
+  if (failures.length > 0) throw failures[0];
+}
+
+/** One pass over a sheet. Stops at the first Monday error (a rate limit): the rest wait for the next run. */
 export async function syncLeadSheet(deps: LeadSheetDeps): Promise<SheetSyncResult> {
   const leads = sheetLeads(await deps.fetchCsv());
   const result: SheetSyncResult = { leads: leads.length, added: [], alreadyInMonday: 0, skipped: 0, waiting: 0 };

@@ -177,7 +177,11 @@ Status of each integration. When a new decision is made, update this section and
   - A lead is marked handled before its note, so it's never added twice.
   - A Monday rate limit stops the run, and the rest wait for the next one.
 - **Checked before going live** with a dry run on the real sheet: 37 rows, 36 already in Monday, 1 test lead, 0 to add.
-- **Env:** `LEAD_SHEET_ENABLED` (default `false`), `LEAD_SHEET_CSV_URL` (the `/export?format=csv` link), `LEAD_SHEET_SERVICE` (`uman`).
+- **Several forms (2026-11-05):** a second Hanukkah form, "שאלון חנוכה -0.1-copy-copy", fills its own tab in another sheet ("ronit CRM"), with a third question. The server now reads a list of sheet tabs.
+  - Meta's lead ids are the same everywhere, so a lead in two sheets is handled once.
+  - A tab that fails to load doesn't stop the others; a Monday rate limit stops the run.
+  - The "ronit CRM" sheet's first tab holds the summer Tu B'Av form (June–July, with its phone in a question column), and it is deliberately not read.
+- **Env:** `LEAD_SHEET_ENABLED` (default `false`), `LEAD_SHEET_CSV_URL` (each form tab's `/export?format=csv&gid=<tab id>` link, separated by commas), `LEAD_SHEET_SERVICE` (`uman`).
 - **A lead created here triggers Monday's `create_item` webhook like any other.** The Uman WhatsApp welcome still only goes to `RONIT_WA_ALLOWED_NUMBERS`.
 
 ### LLM (classification + summarization)

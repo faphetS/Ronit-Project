@@ -8,7 +8,7 @@ import { createTestDb, TEST_DB_TIMEOUT_MS, type TestDb } from "../../db/test-db.
 import { MondayRateLimitError } from "../monday/monday.client.js";
 import { formLabel, leadNoteHtml } from "./lead-sheet.note.js";
 import { localPhone, parseCsv, sheetLeads, type SheetLead } from "./lead-sheet.parse.js";
-import { SETTLE_MS, syncLeadSheet, type LeadSheetDeps } from "./lead-sheet.service.js";
+import { forEachSheet, SETTLE_MS, syncLeadSheet, type LeadSheetDeps } from "./lead-sheet.service.js";
 
 const HEADER = [
   "id",
@@ -74,6 +74,17 @@ describe("reading the sheet", () => {
     expect(leads[2]).toMatchObject({ leadId: "333", test: true, phone: null });
   });
 
+  it("reads every question between Meta's columns and the contact ones, however many the form asks", () => {
+    const header = [...HEADER];
+    header.splice(14, 0, "מה_גורם_לך_לרצות_להצטרף_למסע?");
+    const row = metaRow("444", "2026-11-04T15:01:00-05:00", "fb", "A", "+972521111111");
+    row.splice(14, 0, "אהבה");
+    const [lead] = sheetLeads([header, row].map((cells) => cells.map(csvCell).join(",")).join("\r\n"));
+    expect(lead.answers).toHaveLength(3);
+    expect(lead.answers[2]).toEqual({ question: "מה גורם לך לרצות להצטרף למסע?", answer: "אהבה" });
+    expect(lead).toMatchObject({ fullName: "A", phone: "0521111111" });
+  });
+
   it("writes Israeli numbers as 05…, keeps others, and drops what isn't a number", () => {
     expect(localPhone("+972 52-123-4567")).toBe("0521234567");
     expect(localPhone("00972521234567")).toBe("0521234567");
@@ -102,6 +113,7 @@ const LEAD: SheetLead = {
 describe("the note", () => {
   it("says where she came from, when (Israel time), her answers, and her old card", () => {
     expect(formLabel("שאלון חנוכה -0.1-copy")).toBe("שאלון חנוכה");
+    expect(formLabel("שאלון חנוכה -0.1-copy-copy")).toBe("שאלון חנוכה");
     expect(formLabel("Lead form")).toBe("Lead form");
     expect(leadNoteHtml(LEAD, { board: "רונית -CRM ישן", since: new Date("2026-06-15T16:33:00Z") })).toBe(
       '<div dir="rtl" style="text-align: right">' +
@@ -114,6 +126,35 @@ describe("the note", () => {
         ].join("<br>") +
         "</div>",
     );
+  });
+});
+
+describe("forEachSheet", () => {
+  it("goes through every sheet, past one that fails, and reports that failure at the end", async () => {
+    const ran: number[] = [];
+    const unreadable = new Error("The lead sheet answered 404");
+    await expect(
+      forEachSheet(["first", "broken", "third"], async (url, sheet) => {
+        ran.push(sheet);
+        if (url === "broken") throw unreadable;
+      }),
+    ).rejects.toBe(unreadable);
+    expect(ran).toEqual([1, 2, 3]);
+  });
+
+  it("stops at a Monday rate limit, since the next sheet would hit it too", async () => {
+    const ran: number[] = [];
+    await expect(
+      forEachSheet(["first", "second"], async (_url, sheet) => {
+        ran.push(sheet);
+        throw new MondayRateLimitError("daily", 3600, "DAILY_LIMIT_EXCEEDED");
+      }),
+    ).rejects.toBeInstanceOf(MondayRateLimitError);
+    expect(ran).toEqual([1]);
+  });
+
+  it("does nothing without sheets", async () => {
+    await expect(forEachSheet([], async () => undefined)).resolves.toBeUndefined();
   });
 });
 
