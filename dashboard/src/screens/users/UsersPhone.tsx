@@ -104,25 +104,22 @@ function AdminLinks() {
             ) : null
           }
         />
+        {/* Only a password the office set can be changed here; without one, the row just says so. */}
         {me ? (
           <ListRow
             as="li"
-            onClick={() => setChangingPassword(true)}
+            onClick={me.hasPassword ? () => setChangingPassword(true) : undefined}
             leading={<IconCircle icon="key" />}
             title={copy.account.password}
             description={me.hasPassword ? nav.accountMenu.passwordSet : nav.accountMenu.passwordNotSet}
-            chevron
+            chevron={me.hasPassword}
           />
         ) : null}
         <ListRow as="li" to="/greetings/holidays#history" leading={<IconCircle icon="history" />} title={copy.account.history} chevron />
         <ListRow as="li" onClick={leave} leading={<IconCircle icon="signOut" />} title={copy.account.signOut} />
       </ul>
-      <Sheet
-        open={changingPassword}
-        onClose={() => setChangingPassword(false)}
-        title={me?.hasPassword ? copy.password.title : copy.password.setTitle}
-      >
-        {changingPassword && me ? <OwnPasswordForm hasPassword={me.hasPassword} onPaper onDone={() => setChangingPassword(false)} /> : null}
+      <Sheet open={changingPassword} onClose={() => setChangingPassword(false)} title={copy.password.title}>
+        {changingPassword ? <OwnPasswordForm onPaper onDone={() => setChangingPassword(false)} /> : null}
       </Sheet>
     </Surface>
   );

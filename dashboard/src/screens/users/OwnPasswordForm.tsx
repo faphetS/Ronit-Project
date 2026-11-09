@@ -10,16 +10,18 @@ import { useToast } from "../../ui/toast-context";
 export const PASSWORD_MIN = 8;
 
 interface OwnPasswordFormProps {
-  /** With a password already, the current one comes first. Without one (they came in with Google), they set their first. */
-  hasPassword: boolean;
   size?: "md" | "sm";
   /** On white cards (the phone's sheet), not glass. */
   onPaper?: boolean;
   onDone: () => void;
 }
 
-/** Your own password, from the account panel on desktop and the account screen on phones. */
-export function OwnPasswordForm({ hasPassword, size = "md", onPaper = false, onDone }: OwnPasswordFormProps) {
+/**
+ * Your own password, from the account panel on desktop and the account screen on phones: the
+ * current one, then the new one. Only for people who have one: a first password is the office's
+ * to set.
+ */
+export function OwnPasswordForm({ size = "md", onPaper = false, onDone }: OwnPasswordFormProps) {
   const { usersCopy } = useCopy();
   const copy = usersCopy.password;
   const change = useChangeOwnPassword();
@@ -34,13 +36,13 @@ export function OwnPasswordForm({ hasPassword, size = "md", onPaper = false, onD
       setProblem(copy.short);
       return;
     }
-    if (hasPassword && !current) {
+    if (!current) {
       setProblem(copy.wrong);
       return;
     }
     setProblem("");
     change.mutate(
-      { current: hasPassword ? current : undefined, next },
+      { current, next },
       {
         onSuccess: () => {
           toast.show({ message: copy.saved });
@@ -56,21 +58,19 @@ export function OwnPasswordForm({ hasPassword, size = "md", onPaper = false, onD
 
   return (
     <form onSubmit={submit} noValidate className="flex flex-col gap-2">
-      {hasPassword ? (
-        <Field
-          label={copy.current}
-          icon="lock"
-          name="current-password"
-          type="password"
-          autoComplete="current-password"
-          dir="ltr"
-          spellCheck={false}
-          size={size}
-          onPaper={onPaper}
-          value={current}
-          onChange={setCurrent}
-        />
-      ) : null}
+      <Field
+        label={copy.current}
+        icon="lock"
+        name="current-password"
+        type="password"
+        autoComplete="current-password"
+        dir="ltr"
+        spellCheck={false}
+        size={size}
+        onPaper={onPaper}
+        value={current}
+        onChange={setCurrent}
+      />
       <Field
         label={copy.next}
         icon="key"

@@ -359,28 +359,59 @@ async function findByLogin(q: Queryable, login: string): Promise<PasswordUserRow
 }
 
 /**
- * Checks a password as one try. The try is claimed before the check, so parallel guesses
- * can't go past five; the fifth wrong one in a row locks password sign-in for 15 minutes,
- * and while it's locked no try is checked at all. The lock has its own count, so Google still
- * gets the person in. A right password starts the count again.
+ * Where password tries are counted. A browser remembered for the person keeps its own count,
+ * so five wrong passwords from a stranger, which lock the account's count, don't keep the
+ * person out on their own devices.
  */
-export async function tryPassword(q: Queryable, userId: string, passwordHash: string, password: string, now: Date): Promise<boolean> {
-  const { rows } = await q.query<{ password_failures: number }>(
-    `UPDATE staff_users
-     SET password_failures = CASE WHEN password_failures + 1 >= $2 THEN 0 ELSE password_failures + 1 END,
-         password_locked_until = CASE WHEN password_failures + 1 >= $2 THEN $3 ELSE password_locked_until END
-     WHERE id = $1 AND (password_locked_until IS NULL OR password_locked_until <= $4)
-     RETURNING password_failures`,
-    [userId, MAX_FAILED_SIGN_INS, minutesAfter(now, LOCK_MINUTES), now],
-  );
+export type PasswordCounter = { on: "account" } | { on: "device"; tokenHash: string };
+
+/** The counter for a request: its browser's own, when that browser is remembered for the person. */
+export async function passwordCounter(q: Queryable, userId: string, deviceToken: string | null, now: Date): Promise<PasswordCounter> {
+  if (deviceToken === null || !(await isTrustedDevice(q, deviceToken, userId, now))) return { on: "account" };
+  return { on: "device", tokenHash: hashToken(deviceToken) };
+}
+
+const CLAIM_TRY = `SET password_failures = CASE WHEN password_failures + 1 >= $2 THEN 0 ELSE password_failures + 1 END,
+         password_locked_until = CASE WHEN password_failures + 1 >= $2 THEN $3 ELSE password_locked_until END`;
+const NOT_LOCKED = "(password_locked_until IS NULL OR password_locked_until <= $4)";
+
+/**
+ * Checks a password as one try. The try is claimed before the check, so parallel guesses
+ * can't go past five; the fifth wrong one in a row locks password sign-in for 15 minutes on
+ * that counter, and while it's locked no try is checked at all. The lock has its own count, so
+ * Google still gets the person in. A right password starts that count again.
+ */
+export async function tryPassword(
+  q: Queryable,
+  userId: string,
+  passwordHash: string,
+  password: string,
+  now: Date,
+  counter: PasswordCounter = { on: "account" },
+): Promise<boolean> {
+  const values = [userId, MAX_FAILED_SIGN_INS, minutesAfter(now, LOCK_MINUTES), now];
+  const { rows } =
+    counter.on === "account"
+      ? await q.query<{ password_failures: number }>(`UPDATE staff_users ${CLAIM_TRY} WHERE id = $1 AND ${NOT_LOCKED} RETURNING password_failures`, values)
+      : await q.query<{ password_failures: number }>(
+          `UPDATE staff_devices ${CLAIM_TRY} WHERE user_id = $1 AND token_hash = $5 AND trusted_until > $4 AND ${NOT_LOCKED} RETURNING password_failures`,
+          [...values, counter.tokenHash],
+        );
   if (!rows[0]) throw tooManyAttempts();
   if (await verifyPassword(password, passwordHash)) {
-    await q.query("UPDATE staff_users SET password_failures = 0, password_locked_until = NULL WHERE id = $1", [userId]);
+    if (counter.on === "account") {
+      await q.query("UPDATE staff_users SET password_failures = 0, password_locked_until = NULL WHERE id = $1", [userId]);
+    } else {
+      await q.query("UPDATE staff_devices SET password_failures = 0, password_locked_until = NULL WHERE user_id = $1 AND token_hash = $2", [
+        userId,
+        counter.tokenHash,
+      ]);
+    }
     return true;
   }
   // The count only drops back to 0 on the try that set the lock.
   if (rows[0].password_failures === 0) {
-    await recordAudit(q, now, "password-locked", userId);
+    await recordAudit(q, now, "password-locked", userId, counter.on === "device" ? { device: true } : {});
     throw tooManyAttempts();
   }
   return false;
@@ -399,7 +430,8 @@ export async function signInWithPassword(
     throw invalidLogin();
   }
   if (isLocked(user, now)) throw tooManyAttempts();
-  if (!(await tryPassword(deps.db, user.id, user.password_hash, input.password, now))) throw invalidLogin();
+  const counter = await passwordCounter(deps.db, user.id, device.deviceToken, now);
+  if (!(await tryPassword(deps.db, user.id, user.password_hash, input.password, now, counter))) throw invalidLogin();
   return continueSignIn(deps, user, { remember: input.remember, returnTo: safeReturnTo(input.returnTo) }, device, now);
 }
 

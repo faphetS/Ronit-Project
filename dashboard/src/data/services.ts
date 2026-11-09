@@ -256,8 +256,8 @@ export interface UsersService {
   changeAccess(userId: string, input: AccessInput): Promise<UserDirectory>;
   /** An admin changes someone's username or sets a new password, which signs them out elsewhere; answers with the team. */
   changeSignIn(userId: string, change: SignInChange): Promise<UserDirectory>;
-  /** Your own password: the current one first when you have one. Your other sessions end. */
-  changeOwnPassword(input: { current?: string; next: string }): Promise<void>;
+  /** Your own password, the current one first; a first password is the office's to set. Your other sessions end. */
+  changeOwnPassword(input: { current: string; next: string }): Promise<void>;
   security(): Promise<SecuritySettings>;
   updateSecurity(key: SecuritySwitch, enabled: boolean): Promise<SecuritySettings>;
   /** Sensitive actions, newest first. */

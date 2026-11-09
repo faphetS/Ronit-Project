@@ -71,7 +71,6 @@ export const usersCopy = {
   /** Your own password, from the account panel. */
   password: {
     title: "סיסמה",
-    setTitle: "הגדרת סיסמה",
     current: "הסיסמה הנוכחית",
     next: "סיסמה חדשה",
     rule: "8 תווים לפחות. המכשירים האחרים שלך יתנתקו, והמכשיר הזה נשאר מחובר.",

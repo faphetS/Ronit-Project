@@ -12,4 +12,10 @@ ALTER TABLE staff_users
   ADD COLUMN password_failures integer NOT NULL DEFAULT 0,
   ADD COLUMN password_locked_until timestamptz,
   ADD CONSTRAINT staff_users_username_format CHECK (username ~ '^[a-z][a-z0-9._-]{2,31}$');
+
+-- A browser remembered for the person counts its own wrong passwords: a stranger's guesses,
+-- which lock the account's count, don't keep the person out on their own devices.
+ALTER TABLE staff_devices
+  ADD COLUMN password_failures integer NOT NULL DEFAULT 0,
+  ADD COLUMN password_locked_until timestamptz;
 `;

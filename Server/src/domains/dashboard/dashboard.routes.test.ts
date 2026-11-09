@@ -361,7 +361,17 @@ describe("users and access", () => {
         expect.objectContaining({ action: "password-set", byUserId: ronit.id, userName: "ronit", own: true }),
       ]),
     );
+    // A first password is the office's to set.
+    expect((await post(shira, "/users/me/password", { current: "anything", next: "shira-pass-1" }).expect(400)).body.code).toBe("NO_PASSWORD");
   }, 30_000);
+
+  it("caps password and username changes per session", async () => {
+    const server = app();
+    for (let i = 0; i < 10; i++) await post(ronit, `/users/${moran.id}/sign-in`, { username: `moran${i}` }, server).expect(200);
+    expect((await post(ronit, `/users/${moran.id}/sign-in`, { username: "moran-x" }, server).expect(429)).body.code).toBe("TOO_MANY_ATTEMPTS");
+    // Another session has its own count.
+    await post(shira, "/users/me/password", { current: "anything", next: "shira-pass-1" }, server).expect(400);
+  });
 
   it("lets people rename themselves, and admins flip the security switches", async () => {
     expect((await post(moran, "/users/me", { name: " מורן לוי " }).expect(200)).body.data).toMatchObject({ name: "מורן לוי", initial: "מ" });

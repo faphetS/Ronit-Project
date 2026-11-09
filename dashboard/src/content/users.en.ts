@@ -62,7 +62,6 @@ export const usersCopy: Widen<typeof he> = {
   },
   password: {
     title: "Password",
-    setTitle: "Set a password",
     current: "Current password",
     next: "New password",
     rule: "At least 8 characters. Your other devices get signed out; this one stays signed in.",

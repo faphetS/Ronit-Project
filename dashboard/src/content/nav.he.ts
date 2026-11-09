@@ -40,7 +40,7 @@ export const nav = {
     password: "סיסמה",
     /** Beside "סיסמה": whether you can sign in with one yet. */
     passwordSet: "מוגדרת",
-    passwordNotSet: "לא מוגדרת",
+    passwordNotSet: "המשרד מגדיר",
     signOut: "התנתקות",
     name: "שם מלא",
     email: "אימייל",

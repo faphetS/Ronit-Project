@@ -540,20 +540,23 @@ describe("usernames and passwords", { timeout: 30_000 }, () => {
     expect((await viaPassword("ronit", "שמונה-תווים")).step).toBe("code-sent");
   });
 
-  it("changing your own password needs the current one, and ends your other sessions", async () => {
+  it("changing your own password needs the current one, ends your other sessions, and emails you", async () => {
     const { userId } = await registerWithPassword();
     const here = await signedInWithPassword();
     tick(60);
     const elsewhere = await signedInWithPassword();
-    await expect(changeOwnPassword(deps(), userId, here.sessionToken, { current: "wrong-one", next: "my-new-password" })).rejects.toMatchObject({
+    const session = { sessionToken: here.sessionToken, deviceToken: null };
+    await expect(changeOwnPassword(deps(), userId, session, { current: "wrong-one", next: "my-new-password" })).rejects.toMatchObject({
       code: "WRONG_PASSWORD",
       statusCode: 400,
     });
-    await expect(changeOwnPassword(deps(), userId, here.sessionToken, { next: "my-new-password" })).rejects.toMatchObject({ code: "WRONG_PASSWORD" });
-    await expect(changeOwnPassword(deps(), userId, here.sessionToken, { current: PASSWORD, next: "short" })).rejects.toMatchObject({ code: "WEAK_PASSWORD" });
-    await changeOwnPassword(deps(), userId, here.sessionToken, { current: PASSWORD, next: "my-new-password" });
+    await expect(changeOwnPassword(deps(), userId, session, { current: PASSWORD, next: "short" })).rejects.toMatchObject({ code: "WEAK_PASSWORD" });
+    await changeOwnPassword(deps(), userId, session, { current: PASSWORD, next: "my-new-password" });
     await expect(authenticate(deps(), here.sessionToken)).resolves.toMatchObject({ user: { role: "admin" } });
     await expect(authenticate(deps(), elsewhere.sessionToken)).rejects.toMatchObject({ code: "UNAUTHENTICATED" });
+    expect(mail.at(-1)).toMatchObject({ to: "ronit@example.com", subject: "הסיסמה שלך למערכת של אור הצדיק עודכנה" });
+    expect(mail.at(-1)?.text).toContain("הסיסמה שלך למערכת הניהול של אור הצדיק שונתה.");
+    expect(mail.at(-1)?.text).not.toContain("my-new-password");
     await expect(viaPassword("ronit", PASSWORD)).rejects.toMatchObject({ code: "INVALID_LOGIN" });
     expect((await viaPassword("ronit", "my-new-password")).step).toBe("code-sent");
   });
@@ -561,17 +564,49 @@ describe("usernames and passwords", { timeout: 30_000 }, () => {
   it("wrong current passwords count toward the lock", async () => {
     const { userId } = await registerWithPassword();
     const { sessionToken } = await signedInWithPassword();
-    const change = () => changeOwnPassword(deps(), userId, sessionToken, { current: "wrong-one", next: "my-new-password" });
+    const change = () => changeOwnPassword(deps(), userId, { sessionToken, deviceToken: null }, { current: "wrong-one", next: "my-new-password" });
     for (let i = 0; i < 4; i++) await expect(change()).rejects.toMatchObject({ code: "WRONG_PASSWORD" });
     await expect(change()).rejects.toMatchObject({ code: "TOO_MANY_ATTEMPTS" });
     await expect(viaPassword("ronit", PASSWORD)).rejects.toMatchObject({ code: "TOO_MANY_ATTEMPTS" });
   });
 
-  it("someone who came in with Google sets a first password without a current one", async () => {
+  it("a first password needs an admin: a signed-in browser can't give the account one", async () => {
     const { userId } = await register();
     const { sessionToken } = await signedIn();
-    await changeOwnPassword(deps(), userId, sessionToken, { next: "first-password" });
-    expect((await viaPassword("ronit@example.com", "first-password")).step).toBe("code-sent");
+    await expect(changeOwnPassword(deps(), userId, { sessionToken, deviceToken: null }, { current: "anything", next: "first-password" })).rejects.toMatchObject({
+      code: "NO_PASSWORD",
+      statusCode: 400,
+    });
+    await expect(viaPassword("ronit@example.com", "first-password")).rejects.toMatchObject({ code: "INVALID_LOGIN" });
+  });
+
+  it("an admin's new password emails the person, without the password", async () => {
+    const { userId } = await registerWithPassword();
+    await setSignIn({ ...accounts(), mailer }, userId, { password: "set-by-the-office" });
+    expect(mail.at(-1)).toMatchObject({ to: "ronit@example.com", subject: "הסיסמה שלך למערכת של אור הצדיק עודכנה" });
+    expect(mail.at(-1)?.text).toContain("המשרד הגדיר לך סיסמה חדשה");
+    expect(mail.at(-1)?.html).not.toContain("set-by-the-office");
+    // A username change alone sends nothing.
+    const sent = mail.length;
+    await setSignIn({ ...accounts(), mailer }, userId, { username: "ronit.b" });
+    expect(mail).toHaveLength(sent);
+  });
+
+  it("a browser remembered for the person keeps its own count, so a stranger's guesses don't lock them out there", async () => {
+    await registerWithPassword();
+    const { deviceToken } = await signedInWithPassword({ remember: true });
+    // A stranger, with no remembered browser, locks the account's count.
+    for (let i = 0; i < 4; i++) await expect(viaPassword("ronit", "wrong-password")).rejects.toMatchObject({ code: "INVALID_LOGIN" });
+    await expect(viaPassword("ronit", "wrong-password")).rejects.toMatchObject({ code: "TOO_MANY_ATTEMPTS" });
+    await expect(viaPassword("ronit", PASSWORD)).rejects.toMatchObject({ code: "TOO_MANY_ATTEMPTS" });
+    // Ronit's own browser still gets in, straight to a session.
+    expect((await viaPassword("ronit", PASSWORD, { remember: true, device: deviceToken })).step).toBe("signed-in");
+    // Her browser's own count locks it after five wrong ones.
+    for (let i = 0; i < 4; i++) await expect(viaPassword("ronit", "wrong-password", { remember: true, device: deviceToken })).rejects.toMatchObject({ code: "INVALID_LOGIN" });
+    await expect(viaPassword("ronit", "wrong-password", { remember: true, device: deviceToken })).rejects.toMatchObject({ code: "TOO_MANY_ATTEMPTS" });
+    await expect(viaPassword("ronit", PASSWORD, { remember: true, device: deviceToken })).rejects.toMatchObject({ code: "TOO_MANY_ATTEMPTS" });
+    // A browser cookie that isn't remembered for her counts on the account.
+    await expect(viaPassword("ronit", PASSWORD, { device: "made-up-device" })).rejects.toMatchObject({ code: "TOO_MANY_ATTEMPTS" });
   });
 
   it("removing someone frees their username and drops their password", async () => {

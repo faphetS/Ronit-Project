@@ -421,7 +421,7 @@ export async function changeAccess(deps: Pick<AuthDeps, "db" | "now">, viewer: S
  * now stands.
  */
 export async function changeSignIn(
-  deps: Pick<AuthDeps, "db" | "now">,
+  deps: Pick<AuthDeps, "db" | "now" | "mailer">,
   viewer: SignedInDto,
   userId: string,
   change: SignInChange,

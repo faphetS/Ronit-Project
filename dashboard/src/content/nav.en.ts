@@ -39,7 +39,7 @@ export const nav: Widen<typeof he> = {
     language: "Language",
     password: "Password",
     passwordSet: "Set",
-    passwordNotSet: "Not set",
+    passwordNotSet: "Set by the office",
     maskPassports: "Hide passport numbers",
     signOut: "Sign out",
     name: "Full name",

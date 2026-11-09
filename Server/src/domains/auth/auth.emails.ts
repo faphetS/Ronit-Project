@@ -41,6 +41,21 @@ export function signInCodeEmail({ name, code }: { name: string; code: string }):
 }
 
 /**
+ * Sent when a password is set or changed: by the office, or by the person. If they didn't make
+ * or ask for the change, they know to tell the office.
+ */
+export function passwordChangedEmail({ name, byOffice }: { name: string; byOffice: boolean }): EmailContent {
+  const what = byOffice ? "המשרד הגדיר לך סיסמה חדשה למערכת הניהול של אור הצדיק." : "הסיסמה שלך למערכת הניהול של אור הצדיק שונתה.";
+  return {
+    subject: "הסיסמה שלך למערכת של אור הצדיק עודכנה",
+    text: `שלום ${name},\n\n${what}\n\nאם לא ביקשת את השינוי, כדאי לפנות למשרד מיד.`,
+    html: layout(`<p style="margin:0 0 12px">שלום ${escapeHtml(name)},</p>
+<p style="margin:0">${what}</p>
+<p style="margin:16px 0 0">אם לא ביקשת את השינוי, כדאי לפנות למשרד מיד.</p>`),
+  };
+}
+
+/**
  * Sent when the office registers someone: where to go, and the ways in. With a password it
  * names the username (or the email) to type, but never the password: the office passes that
  * on by hand. Without one, Google is the way in, as before.

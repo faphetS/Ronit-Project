@@ -524,7 +524,7 @@ export function useChangeOwnPassword() {
   const { users } = useServices();
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (input: { current?: string; next: string }) => users.changeOwnPassword(input),
+    mutationFn: (input: { current: string; next: string }) => users.changeOwnPassword(input),
     onSettled: async () => {
       await client.invalidateQueries({ queryKey: queryKeys.users });
       await client.invalidateQueries({ queryKey: queryKeys.audit });

@@ -72,8 +72,8 @@ export const SignInChangeSchema = z
   .strict()
   .refine((change) => change.username !== undefined || Boolean(change.password), "Nothing to change");
 
-/** Your own password: the current one (when you have one), then the new one. */
-export const OwnPasswordSchema = z.object({ current: PASSWORD_INPUT.optional(), next: PASSWORD_INPUT }).strict();
+/** Your own password: the current one, then the new one. */
+export const OwnPasswordSchema = z.object({ current: PASSWORD_INPUT.min(1), next: PASSWORD_INPUT }).strict();
 
 export const AccessSchema = z.object({ role: z.enum(ROLES), passportAccess: z.boolean() }).strict();
 

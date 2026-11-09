@@ -179,8 +179,8 @@ function ProfileView({ name, email, phone, onBack }: { name: string; email: stri
   );
 }
 
-/** Your own password: the current one first when you have one, else your first. Saved, it goes back to the settings. */
-function PasswordView({ hasPassword, onBack }: { hasPassword: boolean; onBack: () => void }) {
+/** Your own password: the current one, then the new one. Saved, it goes back to the settings. */
+function PasswordView({ onBack }: { onBack: () => void }) {
   const { nav, usersCopy } = useCopy();
   return (
     <div className="flex flex-col gap-3 p-2.5">
@@ -188,9 +188,9 @@ function PasswordView({ hasPassword, onBack }: { hasPassword: boolean; onBack: (
         <button type="button" onClick={onBack} aria-label={nav.back} className={cx("grid size-9 place-items-center rounded-full text-ink", PRESSABLE)}>
           <Icon name="back" size={18} />
         </button>
-        <h2 className="text-[15px] font-semibold text-ink">{hasPassword ? usersCopy.password.title : usersCopy.password.setTitle}</h2>
+        <h2 className="text-[15px] font-semibold text-ink">{usersCopy.password.title}</h2>
       </div>
-      <OwnPasswordForm hasPassword={hasPassword} size="sm" onDone={onBack} />
+      <OwnPasswordForm size="sm" onDone={onBack} />
     </div>
   );
 }
@@ -293,9 +293,16 @@ export function AccountMenu() {
         <div className={STILL_ROW}>
           <RowBody icon="globe" label={copy.language} trailing={<LanguageToggle label={copy.language} />} first />
         </div>
-        <button type="button" onClick={() => setView("password")} disabled={!me} className={ROW}>
-          <RowBody icon="key" label={copy.password} value={me ? (me.hasPassword ? copy.passwordSet : copy.passwordNotSet) : undefined} trailing={<Chevron />} />
-        </button>
+        {/* Only a password the office set can be changed here; without one, the row just says so. */}
+        {me?.hasPassword ? (
+          <button type="button" onClick={() => setView("password")} className={ROW}>
+            <RowBody icon="key" label={copy.password} value={copy.passwordSet} trailing={<Chevron />} />
+          </button>
+        ) : me ? (
+          <div className={STILL_ROW}>
+            <RowBody icon="key" label={copy.password} value={copy.passwordNotSet} />
+          </div>
+        ) : null}
         {masked === undefined ? null : (
           <div className={STILL_ROW}>
             <RowBody
@@ -352,7 +359,7 @@ export function AccountMenu() {
                     {view === "profile" ? (
                       <ProfileView name={name} email={email} phone={me?.whatsappPhone ?? ""} onBack={() => setView("settings")} />
                     ) : view === "password" ? (
-                      <PasswordView hasPassword={me?.hasPassword ?? false} onBack={() => setView("settings")} />
+                      <PasswordView onBack={() => setView("settings")} />
                     ) : (
                       settings
                     )}

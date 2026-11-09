@@ -4,8 +4,8 @@ import { AppError, NotFoundError } from "../../lib/errors.js";
 import type { Mailer } from "../../lib/mailer.js";
 import { hashPassword, PASSWORD_MAX, PASSWORD_MIN, passwordLength } from "../../lib/passwords.js";
 import { hashToken } from "../../lib/tokens.js";
-import { inviteEmail } from "./auth.emails.js";
-import { normalizeEmail, recordAudit, tryPassword, type AuthDeps, type Role } from "./auth.service.js";
+import { inviteEmail, passwordChangedEmail } from "./auth.emails.js";
+import { normalizeEmail, passwordCounter, recordAudit, tryPassword, type AuthDeps, type Role } from "./auth.service.js";
 
 /**
  * Registering dashboard accounts and looking after them: from the dashboard's users screen, and
@@ -36,6 +36,20 @@ const USERNAME = /^[a-z][a-z0-9._-]{2,31}$/;
 
 const usernameTaken = () => new AppError(409, "That username is taken", "USERNAME_TAKEN");
 const wrongPassword = () => new AppError(400, "The current password is wrong", "WRONG_PASSWORD");
+const noPassword = () => new AppError(400, "There's no password to change: the office sets the first one", "NO_PASSWORD");
+
+/**
+ * Tells the owner their password was set or changed, so a change they didn't make doesn't go
+ * unnoticed. After the change is saved; a failed email doesn't undo it.
+ */
+async function tellOwner(mailer: Mailer | null | undefined, owner: { email: string; name: string }, byOffice: boolean): Promise<void> {
+  if (!mailer) return;
+  try {
+    await mailer.send({ to: owner.email, ...passwordChangedEmail({ name: owner.name, byOffice }) });
+  } catch (err) {
+    logger.warn({ err }, "password-changed email failed");
+  }
+}
 
 /** "Ronit " is "ronit"; "" is no username. A username never has "@", so it can't pass for an email. */
 export function cleanUsername(value: string | null | undefined): string | null {
@@ -179,13 +193,13 @@ export interface SignInChange {
 }
 
 /**
- * An admin changes someone's username, or gives them a new password when they forget it. A new
- * password signs the person out everywhere, the same as resetting sign-in, so an old one that
- * leaked stops working at once. An admin doing it on their own account keeps the session
- * they're in (`keepSessionToken`).
+ * An admin changes someone's username, or gives them a new password (a first one, or when they
+ * forget it). A new password signs the person out everywhere, the same as resetting sign-in,
+ * so an old one that leaked stops working at once, and the person gets an email about it. An
+ * admin doing it on their own account keeps the session they're in (`keepSessionToken`).
  */
 export async function setSignIn(
-  deps: Pick<AccountDeps, "db" | "now">,
+  deps: Pick<AccountDeps, "db" | "now"> & { mailer?: Mailer | null },
   userId: string,
   change: SignInChange,
   byUserId: string | null = null,
@@ -194,10 +208,10 @@ export async function setSignIn(
   const now = deps.now();
   const username = change.username === undefined ? undefined : cleanUsername(change.username);
   const passwordHash = change.password ? await newPasswordHash(change.password) : null;
-  await deps.db
+  const owner = await deps.db
     .transaction(async (tx) => {
-      const { rows } = await tx.query<{ username: string | null }>(
-        "SELECT username FROM staff_users WHERE id = $1 AND disabled_at IS NULL FOR UPDATE",
+      const { rows } = await tx.query<{ username: string | null; email: string; name: string }>(
+        "SELECT username, email, name FROM staff_users WHERE id = $1 AND disabled_at IS NULL FOR UPDATE",
         [userId],
       );
       if (!rows[0]) throw new NotFoundError("Staff user");
@@ -212,44 +226,51 @@ export async function setSignIn(
         else await signOutEverywhere(tx, userId, now);
         await recordAudit(tx, now, "password-set", byUserId, { userId, own: userId === byUserId });
       }
+      return rows[0];
     })
     .catch((err: unknown) => {
       throw isUniqueViolation(err) ? usernameTaken() : err;
     });
+  if (passwordHash) await tellOwner(deps.mailer, owner, userId !== byUserId);
 }
 
 /** setSignIn from the server console, by email. */
-export async function setSignInByEmail(deps: Pick<AccountDeps, "db" | "now">, email: string, change: SignInChange): Promise<void> {
+export async function setSignInByEmail(deps: AccountDeps, email: string, change: SignInChange): Promise<void> {
   await setSignIn(deps, await userIdByEmail(deps.db, email), change);
 }
 
 /**
- * Someone changes their own password from the account panel. When they have one, the current
- * password comes first, and a wrong one counts toward the lock; without one (they came in with
- * Google) they set their first. Their other sessions end; the one in use stays.
+ * Someone changes their own password from the account panel: the current one first, and a
+ * wrong one counts toward the lock (on this browser's own count when it's remembered for
+ * them). Only a password the office set can be changed here: a first password needs an admin,
+ * so a borrowed signed-in browser can't give an account a password of its own. Their other
+ * sessions end, the one in use stays, and they get an email about it.
  */
 export async function changeOwnPassword(
-  deps: Pick<AuthDeps, "db" | "now">,
+  deps: Pick<AuthDeps, "db" | "now"> & { mailer?: Mailer | null },
   userId: string,
-  sessionToken: string,
-  input: { current?: string; next: string },
+  session: { sessionToken: string; deviceToken: string | null },
+  input: { current: string; next: string },
 ): Promise<void> {
   const now = deps.now();
   // Before any try is spent on the current password.
   checkNewPassword(input.next);
-  const { rows } = await deps.db.query<{ password_hash: string | null }>(
-    "SELECT password_hash FROM staff_users WHERE id = $1 AND disabled_at IS NULL",
+  const { rows } = await deps.db.query<{ password_hash: string | null; email: string; name: string }>(
+    "SELECT password_hash, email, name FROM staff_users WHERE id = $1 AND disabled_at IS NULL",
     [userId],
   );
-  if (!rows[0]) throw new NotFoundError("Staff user");
-  const stored = rows[0].password_hash;
-  if (stored && !(input.current && (await tryPassword(deps.db, userId, stored, input.current, now)))) throw wrongPassword();
+  const owner = rows[0];
+  if (!owner) throw new NotFoundError("Staff user");
+  if (!owner.password_hash) throw noPassword();
+  const counter = await passwordCounter(deps.db, userId, session.deviceToken, now);
+  if (!(await tryPassword(deps.db, userId, owner.password_hash, input.current, now, counter))) throw wrongPassword();
   const passwordHash = await hashPassword(input.next);
   await deps.db.transaction(async (tx) => {
     await savePassword(tx, userId, passwordHash, now);
-    await signOutElsewhere(tx, userId, sessionToken, now);
+    await signOutElsewhere(tx, userId, session.sessionToken, now);
     await recordAudit(tx, now, "password-set", userId, { userId, own: true });
   });
+  await tellOwner(deps.mailer, owner, false);
 }
 
 /** Closes the account: no sign-in, and every session ended. */
