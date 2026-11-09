@@ -4,8 +4,8 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/api/auth/(.*)", "destination": "https://api.ronitbarash.site/api/auth/$1" },
-    { "source": "/api/dashboard/(.*)", "destination": "https://api.ronitbarash.site/api/dashboard/$1" },
+    { "source": "/api/auth/(.*)", "destination": "https://srv2142532.hstgr.cloud/api/auth/$1" },
+    { "source": "/api/dashboard/(.*)", "destination": "https://srv2142532.hstgr.cloud/api/dashboard/$1" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
