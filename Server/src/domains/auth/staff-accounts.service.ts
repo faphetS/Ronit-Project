@@ -218,6 +218,11 @@ export async function setSignIn(
     });
 }
 
+/** setSignIn from the server console, by email. */
+export async function setSignInByEmail(deps: Pick<AccountDeps, "db" | "now">, email: string, change: SignInChange): Promise<void> {
+  await setSignIn(deps, await userIdByEmail(deps.db, email), change);
+}
+
 /**
  * Someone changes their own password from the account panel. When they have one, the current
  * password comes first, and a wrong one counts toward the lock; without one (they came in with
