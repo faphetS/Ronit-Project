@@ -3,16 +3,18 @@ import type { Db, Queryable } from "../../config/pg.js";
 import { AppError } from "../../lib/errors.js";
 import { pkceChallenge, type GoogleIdentity, type GoogleSignIn } from "../../lib/google-oidc.js";
 import type { Mailer } from "../../lib/mailer.js";
+import { burnPasswordCheck, verifyPassword } from "../../lib/passwords.js";
 import { openSecret, sealSecret } from "../../lib/secret-box.js";
 import { hashToken, newToken } from "../../lib/tokens.js";
 import { signInCodeEmail } from "./auth.emails.js";
 
 /**
- * Staff sign-in for the dashboard: "Continue with Google" for a registered email, then a
- * 6-digit code by email on a device that isn't remembered, then a server-side session. The
- * HTTP layer (auth.controller.ts) turns the tokens returned here into HttpOnly cookies;
- * nothing here knows about HTTP.
- * Design: docs/superpowers/specs/2026-11-02-staff-sign-in-design.md
+ * Staff sign-in for the dashboard: a username (or email) and password, or "Continue with
+ * Google" for a registered email; then a 6-digit code by email on a device that isn't
+ * remembered, then a server-side session. The HTTP layer (auth.controller.ts) turns the tokens
+ * returned here into HttpOnly cookies; nothing here knows about HTTP.
+ * Design: docs/superpowers/specs/2026-11-02-staff-sign-in-design.md and
+ * docs/superpowers/specs/2026-11-09-password-sign-in-design.md
  */
 
 export type Role = "admin" | "office" | "sales";
@@ -65,7 +67,8 @@ export type SignedInOutcome = {
   returnTo: string;
 };
 
-export type GoogleOutcome = SignedInOutcome | { step: "code-sent"; challengeToken: string; returnTo: string };
+/** After Google or a password: signed in, or the emailed code is next. */
+export type SignInOutcome = SignedInOutcome | { step: "code-sent"; challengeToken: string; returnTo: string };
 
 export const SESSION_HOURS = 12;
 export const REMEMBERED_SESSION_DAYS = 30;
@@ -88,6 +91,8 @@ export const tooManyAttempts = () => new AppError(429, "Too many attempts — tr
 const googleFailed = (why: string) => new AppError(400, `Google sign-in didn't complete: ${why}`, "GOOGLE_FAILED");
 const googleCancelled = () => new AppError(400, "Google sign-in was cancelled", "GOOGLE_CANCELLED");
 const notRegistered = () => new AppError(403, "This Google account isn't registered", "NOT_REGISTERED");
+/** One answer for an unknown username, an account without a password and a wrong password. */
+const invalidLogin = () => new AppError(401, "Wrong username or password", "INVALID_LOGIN");
 const invalidCode = () => new AppError(401, "Wrong code", "INVALID_CODE");
 const challengeExpired = () => new AppError(401, "This sign-in step expired — sign in again", "CHALLENGE_EXPIRED");
 const resendTooSoon = () => new AppError(429, "A new code can be sent a minute after the last one", "RESEND_TOO_SOON");
@@ -262,7 +267,7 @@ export async function finishGoogleSignIn(
   deps: AuthDeps,
   input: { googleStep: string | null; state: string | null; code: string | null; error: string | null },
   device: DeviceContext,
-): Promise<GoogleOutcome> {
+): Promise<SignInOutcome> {
   const now = deps.now();
   if (input.error === "access_denied") throw googleCancelled();
   const step = openGoogleStep(deps, input.googleStep, now);
@@ -280,9 +285,22 @@ async function continueAfterGoogle(
   options: { remember: boolean; returnTo: string },
   device: DeviceContext,
   now: Date,
-): Promise<GoogleOutcome> {
+): Promise<SignInOutcome> {
+  return continueSignIn(deps, await registeredUser(deps, identity, now), options, device, now);
+}
+
+/**
+ * After Google or a password: a session straight away on a remembered device (or with the
+ * two-step switch off), otherwise the emailed code first.
+ */
+async function continueSignIn(
+  deps: AuthDeps,
+  user: UserRow,
+  options: { remember: boolean; returnTo: string },
+  device: DeviceContext,
+  now: Date,
+): Promise<SignInOutcome> {
   const { remember, returnTo } = options;
-  const user = await registeredUser(deps, identity, now);
   if (isLocked(user, now)) throw tooManyAttempts();
 
   const { rows } = await deps.db.query<{ two_step_required: boolean }>("SELECT two_step_required FROM security_settings");
@@ -314,7 +332,7 @@ export async function finishGoogleButton(
   deps: AuthDeps,
   input: { googleNonce: string | null; credential: string; remember: boolean; returnTo: string },
   device: DeviceContext,
-): Promise<GoogleOutcome> {
+): Promise<SignInOutcome> {
   const now = deps.now();
   if (!input.googleNonce) throw googleFailed("no sign-in in progress on this browser");
   let step: { nonce: string; startedAt: number };
@@ -326,6 +344,63 @@ export async function finishGoogleButton(
   if (now.getTime() - step.startedAt > GOOGLE_BUTTON_MINUTES * 60_000) throw googleFailed("the sign-in screen was open too long");
   const identity = await deps.google.verifyCredential({ credential: input.credential, nonce: step.nonce });
   return continueAfterGoogle(deps, identity, { remember: input.remember, returnTo: safeReturnTo(input.returnTo) }, device, now);
+}
+
+// ---- Username (or email) and password ----
+
+type PasswordUserRow = UserRow & { password_hash: string | null };
+
+/** A login with "@" is an email; anything else is a username. Both are stored in lower case. */
+async function findByLogin(q: Queryable, login: string): Promise<PasswordUserRow | null> {
+  const value = login.trim().toLowerCase();
+  const column = value.includes("@") ? "email" : "username";
+  const { rows } = await q.query<PasswordUserRow>(`SELECT ${USER_COLUMNS}, password_hash FROM staff_users WHERE ${column} = $1`, [value]);
+  return rows[0] ?? null;
+}
+
+/**
+ * Checks a password as one try. The try is claimed before the check, so parallel guesses
+ * can't go past five; the fifth wrong one in a row locks password sign-in for 15 minutes,
+ * and while it's locked no try is checked at all. The lock has its own count, so Google still
+ * gets the person in. A right password starts the count again.
+ */
+export async function tryPassword(q: Queryable, userId: string, passwordHash: string, password: string, now: Date): Promise<boolean> {
+  const { rows } = await q.query<{ password_failures: number }>(
+    `UPDATE staff_users
+     SET password_failures = CASE WHEN password_failures + 1 >= $2 THEN 0 ELSE password_failures + 1 END,
+         password_locked_until = CASE WHEN password_failures + 1 >= $2 THEN $3 ELSE password_locked_until END
+     WHERE id = $1 AND (password_locked_until IS NULL OR password_locked_until <= $4)
+     RETURNING password_failures`,
+    [userId, MAX_FAILED_SIGN_INS, minutesAfter(now, LOCK_MINUTES), now],
+  );
+  if (!rows[0]) throw tooManyAttempts();
+  if (await verifyPassword(password, passwordHash)) {
+    await q.query("UPDATE staff_users SET password_failures = 0, password_locked_until = NULL WHERE id = $1", [userId]);
+    return true;
+  }
+  // The count only drops back to 0 on the try that set the lock.
+  if (rows[0].password_failures === 0) {
+    await recordAudit(q, now, "password-locked", userId);
+    throw tooManyAttempts();
+  }
+  return false;
+}
+
+/** The username (or email) and password: then, as after Google, a session or the emailed code. */
+export async function signInWithPassword(
+  deps: AuthDeps,
+  input: { login: string; password: string; remember: boolean; returnTo: string },
+  device: DeviceContext,
+): Promise<SignInOutcome> {
+  const now = deps.now();
+  const user = await findByLogin(deps.db, input.login);
+  if (!user || user.disabled_at || !user.password_hash) {
+    await burnPasswordCheck(input.password);
+    throw invalidLogin();
+  }
+  if (isLocked(user, now)) throw tooManyAttempts();
+  if (!(await tryPassword(deps.db, user.id, user.password_hash, input.password, now))) throw invalidLogin();
+  return continueSignIn(deps, user, { remember: input.remember, returnTo: safeReturnTo(input.returnTo) }, device, now);
 }
 
 function newCode(): string {

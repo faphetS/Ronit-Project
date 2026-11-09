@@ -21,5 +21,17 @@ describe("inviteEmail", () => {
     expect(email.text).toContain("https://app.example.com\n");
     expect(email.text).toContain("shira@gmail.com");
     expect(email.html).toContain('href="https://app.example.com"');
+    expect(email.text).not.toContain("סיסמה");
+  });
+
+  it("with a password, names the username to type but never a password", () => {
+    const email = inviteEmail({ name: "שירה", email: "shira@gmail.com", username: "shira", withPassword: true, dashboardUrl: "https://app.example.com" });
+    expect(email.text).toContain("שם המשתמש shira והסיסמה שתקבלו מהמשרד");
+    expect(email.text).toContain("shira@gmail.com");
+    expect(email.html).toContain('<span dir="ltr">shira</span>');
+    // Without a username, the email is what they type.
+    expect(inviteEmail({ name: "שירה", email: "shira@gmail.com", withPassword: true, dashboardUrl: "https://app.example.com" }).text).toContain(
+      "שם המשתמש shira@gmail.com",
+    );
   });
 });

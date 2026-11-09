@@ -231,6 +231,28 @@ describe("/api/auth", () => {
     expect((await request(app).get("/api/auth/code").expect(401)).body.code).toBe("CHALLENGE_EXPIRED");
   });
 
+  it("takes a username and password through the emailed code, and refuses a wrong one", async () => {
+    await inviteStaff(
+      { db, dashboardUrl: DASHBOARD, mailer: null, now: () => new Date("2026-11-02T09:00:00Z") },
+      { email: "shira@example.com", name: "שירה", role: "office", passportAccess: false, whatsappPhone: null, username: "shira", password: "shira-pass-1" },
+    );
+    const app = testApp();
+    const jar = new Jar();
+    const post = (body: object) => request(app).post("/api/auth/password").set("Origin", DASHBOARD).set("Cookie", jar.header()).send(body);
+    expect((await post({ login: "shira", password: "wrong-pass" }).expect(401)).body.code).toBe("INVALID_LOGIN");
+    expect((await post({ login: "nobody", password: "shira-pass-1" }).expect(401)).body.code).toBe("INVALID_LOGIN");
+    expect((await post({ login: "", password: "shira-pass-1" }).expect(400)).body.code).toBe("VALIDATION_ERROR");
+    expect((await request(app).post("/api/auth/password").send({ login: "shira", password: "shira-pass-1" }).expect(403)).body.code).toBe("ORIGIN_NOT_ALLOWED");
+
+    const answered = await post({ login: "Shira", password: "shira-pass-1", remember: true, returnTo: "/leads" }).expect(200);
+    jar.take(answered);
+    expect(answered.body).toEqual({ status: "ok", step: "code-required" });
+    expect(jar.has("__Host-oh_challenge")).toBe(true);
+    const code = /\d{6}/.exec(mail.at(-1)?.subject ?? "")?.[0];
+    const verified = await request(app).post("/api/auth/verify").set("Origin", DASHBOARD).set("Cookie", jar.header()).send({ code }).expect(200);
+    expect(verified.body).toMatchObject({ step: "signed-in", returnTo: "/leads", user: { name: "שירה", role: "office" } });
+  }, 30_000);
+
   it("limits code attempts per IP", async () => {
     const app = testApp({ signInLimit: 2 });
     const attempt = () => request(app).post("/api/auth/verify").set("Origin", DASHBOARD).send({ code: "123456" });

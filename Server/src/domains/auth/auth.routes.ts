@@ -7,6 +7,7 @@ import {
   getGoogleNonce,
   getSession,
   postGoogleCredential,
+  postPassword,
   postResendCode,
   postSignOut,
   postVerifyCode,
@@ -19,7 +20,7 @@ import {
   withAuthDeps,
   type AuthDepsResolver,
 } from "./auth.middleware.js";
-import { GoogleCredentialSchema, VerifyCodeSchema } from "./auth.validator.js";
+import { GoogleCredentialSchema, PasswordSignInSchema, VerifyCodeSchema } from "./auth.validator.js";
 
 function noStore(_req: Request, res: Response, next: NextFunction): void {
   res.set("Cache-Control", "no-store");
@@ -32,6 +33,8 @@ export function createAuthRouter(resolveDeps: AuthDepsResolver, options: { signI
   const limiter = signInLimiter(options.signInLimit);
 
   router.use(noStore, withAuthDeps(resolveDeps), requireDashboardOrigin);
+  // The username (or email) and password.
+  router.post("/password", limiter, validate({ body: PasswordSignInSchema }), postPassword);
   // Google's own button: a nonce first, then the ID token it hands back.
   router.get("/google/nonce", getGoogleNonce);
   router.post("/google/credential", limiter, validate({ body: GoogleCredentialSchema }), postGoogleCredential);

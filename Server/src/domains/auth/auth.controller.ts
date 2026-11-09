@@ -21,14 +21,22 @@ import {
   finishGoogleSignIn,
   pendingCode,
   resendCode,
+  signInWithPassword,
   signOut,
   startGoogleButton,
   startGoogleSignIn,
   verifyCode,
   type DeviceContext,
   type SignedInOutcome,
+  type SignInOutcome,
 } from "./auth.service.js";
-import { GoogleCallbackQuerySchema, GoogleStartQuerySchema, type GoogleCredentialBody, type VerifyCodeBody } from "./auth.validator.js";
+import {
+  GoogleCallbackQuerySchema,
+  GoogleStartQuerySchema,
+  type GoogleCredentialBody,
+  type PasswordSignInBody,
+  type VerifyCodeBody,
+} from "./auth.validator.js";
 
 function deviceOf(req: Pick<Request, "cookies" | "ip" | "get">): DeviceContext {
   return { deviceToken: readCookie(req, DEVICE_COOKIE), ip: req.ip ?? null, userAgent: req.get("user-agent") ?? null };
@@ -38,6 +46,17 @@ function setSignedInCookies(res: Response, outcome: SignedInOutcome): void {
   setSessionCookie(res, outcome.sessionToken, outcome.remember);
   setDeviceCookie(res, outcome.deviceToken);
   clearAuthCookie(res, CHALLENGE_COOKIE);
+}
+
+/** The JSON answer after Google's button or a password: signed in, or the emailed code is next. */
+function answerSignIn(res: Response, outcome: SignInOutcome): void {
+  if (outcome.step === "signed-in") {
+    setSignedInCookies(res, outcome);
+    res.json({ status: "ok", step: "signed-in", ...outcome.signedIn, returnTo: outcome.returnTo });
+    return;
+  }
+  setChallengeCookie(res, outcome.challengeToken);
+  res.json({ status: "ok", step: "code-required" });
 }
 
 /** "Continue with Google": a browser navigation, answered with a redirect to Google. */
@@ -98,13 +117,12 @@ export async function postGoogleCredential(req: Request<unknown, unknown, Google
     deviceOf(req),
   );
   clearAuthCookie(res, GOOGLE_NONCE_COOKIE);
-  if (outcome.step === "signed-in") {
-    setSignedInCookies(res, outcome);
-    res.json({ status: "ok", step: "signed-in", ...outcome.signedIn, returnTo: outcome.returnTo });
-    return;
-  }
-  setChallengeCookie(res, outcome.challengeToken);
-  res.json({ status: "ok", step: "code-required" });
+  answerSignIn(res, outcome);
+}
+
+/** The username (or email) and password: signed in, or the emailed code is next. */
+export async function postPassword(req: Request<unknown, unknown, PasswordSignInBody>, res: Response): Promise<void> {
+  answerSignIn(res, await signInWithPassword(authDeps(res), req.body, deviceOf(req)));
 }
 
 /** Where the waiting code was sent, partly hidden. */

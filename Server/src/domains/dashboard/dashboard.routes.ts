@@ -7,6 +7,7 @@ import { validate } from "../../middleware/validate.js";
 import { hashToken } from "../../lib/tokens.js";
 import { SESSION_COOKIE, readCookie } from "../auth/auth.cookies.js";
 import { authDeps, authDepsFromEnv, requireDashboardOrigin, requireStaff, withAuthDeps, type AuthDepsResolver } from "../auth/auth.middleware.js";
+import { changeOwnPassword } from "../auth/staff-accounts.service.js";
 import { needsTemplates } from "../greetings/outbox.sender.js";
 import { greetingsChannelFromEnv } from "../greetings/greetings.channels.js";
 import { zernioFromEnv, type ZernioClient } from "../greetings/zernio.client.js";
@@ -34,10 +35,12 @@ import {
   InviteSchema,
   LeadListQuerySchema,
   NoteSchema,
+  OwnPasswordSchema,
   PassportViewSchema,
   PermissionChangeSchema,
   ProfileSchema,
   SecuritySchema,
+  SignInChangeSchema,
 } from "./dashboard.validator.js";
 import {
   approveCampaign,
@@ -62,6 +65,7 @@ import {
   auditLog,
   changeAccess,
   changePermission,
+  changeSignIn,
   directory,
   invite,
   permissions,
@@ -253,6 +257,11 @@ export function createDashboardRouter(resolveDeps: AuthDepsResolver, options: Da
   router.post("/users/me", validate({ body: ProfileSchema }), async (req, res) => {
     sendData(res, await updateProfile(db(res), staffOf(req), req.body, now(res)));
   });
+  // Your own password; requireStaff has checked the session cookie, so it's there.
+  router.post("/users/me/password", validate({ body: OwnPasswordSchema }), async (req, res) => {
+    await changeOwnPassword(authDeps(res), staffOf(req).user.id, readCookie(req, SESSION_COOKIE) ?? "", req.body);
+    sendData(res, null);
+  });
   router.get("/users/permissions", async (_req, res) => {
     sendData(res, await permissions(db(res)));
   });
@@ -273,6 +282,10 @@ export function createDashboardRouter(resolveDeps: AuthDepsResolver, options: Da
   });
   router.post("/users/:id/access", requireAccess("users", "full"), validate({ body: AccessSchema }), async (req, res) => {
     sendData(res, await changeAccess(authDeps(res), staffOf(req), idParam(req.params.id, "Staff user"), req.body));
+  });
+  router.post("/users/:id/sign-in", requireAccess("users", "full"), validate({ body: SignInChangeSchema }), async (req, res) => {
+    const userId = idParam(req.params.id, "Staff user");
+    sendData(res, await changeSignIn(authDeps(res), staffOf(req), userId, req.body, readCookie(req, SESSION_COOKIE)));
   });
   router.post("/users/:id/remove", requireAccess("users", "full"), async (req, res) => {
     await removeUser(authDeps(res), staffOf(req), idParam(req.params.id, "Staff user"));

@@ -1,7 +1,7 @@
 import type { Queryable } from "../../config/pg.js";
 import { AppError, NotFoundError, ValidationError } from "../../lib/errors.js";
 import { recordAudit, type AuthDeps, type Role, type SignedInDto } from "../auth/auth.service.js";
-import { disableStaffIn, inviteStaff } from "../auth/staff-accounts.service.js";
+import { disableStaffIn, inviteStaff, setSignIn, type SignInChange } from "../auth/staff-accounts.service.js";
 import { isValidMsisdn, toMsisdn } from "../whatsapp/whatsapp.gateway.js";
 import { localPhone } from "./dashboard.format.js";
 import { isFixed, permissionTable, type AccessLevel, type PermissionArea, type PermissionRowDto } from "./dashboard.access.js";
@@ -16,6 +16,10 @@ export interface UserAccountDto {
   passportAccess: boolean;
   /** Only admins see other people's emails. */
   email: string;
+  /** What they type instead of the email; "" when none. Shown like the email. */
+  username: string;
+  /** Whether they can sign in with a password. Shown like the email; false otherwise. */
+  hasPassword: boolean;
   lastSignInAt: string | null;
   /** Active once they've signed in: every new device then needs the emailed code. */
   twoStep: "active" | "not-set";
@@ -26,6 +30,9 @@ export interface UserAccountDto {
 export interface UserInviteDto {
   id: string;
   email: string;
+  /** "" when none. */
+  username: string;
+  hasPassword: boolean;
   role: Role;
   passportAccess: boolean;
   sentAt: string;
@@ -44,15 +51,19 @@ interface StaffRow {
   name: string;
   role: Role;
   passport_access: boolean;
-  linked: boolean;
+  joined: boolean;
+  username: string | null;
+  has_password: boolean;
   last_sign_in_at: Date | null;
   created_at: Date;
   invited_by: string | null;
   whatsapp_phone: string | null;
 }
 
+// Someone has joined once they've signed in, either way; until then they're a pending invite.
 const STAFF_SELECT = `
-  SELECT u.id, u.email, u.name, u.role, u.passport_access, u.google_sub IS NOT NULL AS linked, u.last_sign_in_at, u.created_at, u.whatsapp_phone,
+  SELECT u.id, u.email, u.name, u.role, u.passport_access, (u.google_sub IS NOT NULL OR u.last_sign_in_at IS NOT NULL) AS joined,
+    u.username, u.password_hash IS NOT NULL AS has_password, u.last_sign_in_at, u.created_at, u.whatsapp_phone,
     (SELECT a.by_user_id FROM audit_log a WHERE a.action = 'staff-invited' AND a.details->>'userId' = u.id::text
      ORDER BY a.at DESC LIMIT 1) AS invited_by
   FROM staff_users u`;
@@ -65,6 +76,8 @@ function toAccount(row: StaffRow, showEmail: boolean, own = false): UserAccountD
     role: row.role,
     passportAccess: row.passport_access,
     email: showEmail ? row.email : "",
+    username: showEmail ? (row.username ?? "") : "",
+    hasPassword: showEmail && row.has_password,
     lastSignInAt: row.last_sign_in_at?.toISOString() ?? null,
     twoStep: row.last_sign_in_at ? "active" : "not-set",
     whatsappPhone: own ? localPhone(row.whatsapp_phone) : "",
@@ -75,6 +88,8 @@ function toInvite(row: StaffRow): UserInviteDto {
   return {
     id: row.id,
     email: row.email,
+    username: row.username ?? "",
+    hasPassword: row.has_password,
     role: row.role,
     passportAccess: row.passport_access,
     sentAt: row.created_at.toISOString(),
@@ -86,8 +101,8 @@ function toInvite(row: StaffRow): UserInviteDto {
 export async function directory(db: Queryable, viewer: SignedInDto, admin: boolean): Promise<UserDirectoryDto> {
   const { rows } = await db.query<StaffRow>(`${STAFF_SELECT} WHERE u.disabled_at IS NULL ORDER BY u.created_at, u.name`);
   return {
-    users: rows.filter((row) => row.linked).map((row) => toAccount(row, admin || row.id === viewer.user.id, row.id === viewer.user.id)),
-    invites: admin ? rows.filter((row) => !row.linked).map(toInvite) : [],
+    users: rows.filter((row) => row.joined).map((row) => toAccount(row, admin || row.id === viewer.user.id, row.id === viewer.user.id)),
+    invites: admin ? rows.filter((row) => !row.joined).map(toInvite) : [],
   };
 }
 
@@ -217,8 +232,12 @@ export type AuditEntryDto = AuditBase &
     /** Someone set their WhatsApp number for tests ("" when they cleared it). */
     | { action: "staff-phone-changed"; userId: string; userName: string; phone: string }
     | { action: "security-change"; setting: SecuritySwitch; enabled: boolean }
-    | { action: "new-device-sign-in" | "sign-in-locked" | "monday-copy" }
+    | { action: "new-device-sign-in" | "sign-in-locked" | "password-locked" | "monday-copy" }
     | { action: "staff-invited" | "staff-removed"; userId: string; userName: string }
+    /** A password was set: by an admin, or `own` when people changed their own. */
+    | { action: "password-set"; userId: string; userName: string; own: boolean }
+    /** "" when the username was taken off. */
+    | { action: "username-changed"; userId: string; userName: string; username: string }
     | { action: "staff-access-changed"; userId: string; userName: string; role: Role; passportAccess: boolean }
     | { action: "permission-change"; role: Role; area: PermissionArea; access: AccessLevel }
     | { action: "sign-in-refused"; email: string }
@@ -234,7 +253,10 @@ const LOGGED = [
   "security-change",
   "new-device-sign-in",
   "sign-in-locked",
+  "password-locked",
   "sign-in-refused",
+  "password-set",
+  "username-changed",
   "monday-copy",
   "staff-invited",
   "staff-disabled",
@@ -288,8 +310,15 @@ export async function auditLog(db: Queryable): Promise<AuditEntryDto[]> {
         return [{ ...base, action: "security-change", setting: detail("setting") as SecuritySwitch, enabled: detail("enabled") === true }];
       case "new-device-sign-in":
       case "sign-in-locked":
+      case "password-locked":
       case "monday-copy":
         return [{ ...base, action: row.action }];
+      case "password-set":
+        return [{ ...base, action: "password-set", userId: String(detail("userId") ?? ""), userName: row.target_name ?? "", own: detail("own") === true }];
+      case "username-changed":
+        return [
+          { ...base, action: "username-changed", userId: String(detail("userId") ?? ""), userName: row.target_name ?? "", username: String(detail("username") ?? "") },
+        ];
       case "staff-invited":
       case "staff-disabled":
         return [{ ...base, action: row.action === "staff-invited" ? "staff-invited" : "staff-removed", userId: String(detail("userId") ?? ""), userName: row.target_name ?? "" }];
@@ -321,13 +350,25 @@ export interface InviteInput {
   name: string;
   role: Role;
   passportAccess: boolean;
+  /** Optional: what they type instead of the email. */
+  username?: string;
+  /** Optional: a first password the office passes on by hand. */
+  password?: string;
 }
 
 /** Registers the account and emails the invite. Sales never get passport access. */
 export async function invite(deps: AuthDeps, viewer: SignedInDto, input: InviteInput): Promise<{ invite: UserInviteDto; emailed: boolean }> {
   const { userId, emailed } = await inviteStaff(
     deps,
-    { email: input.email, name: input.name, role: input.role, passportAccess: input.role !== "sales" && input.passportAccess, whatsappPhone: null },
+    {
+      email: input.email,
+      name: input.name,
+      role: input.role,
+      passportAccess: input.role !== "sales" && input.passportAccess,
+      whatsappPhone: null,
+      username: input.username,
+      password: input.password,
+    },
     viewer.user.id,
   );
   const { rows } = await deps.db.query<StaffRow>(`${STAFF_SELECT} WHERE u.id = $1`, [userId]);
@@ -371,6 +412,22 @@ export async function changeAccess(deps: Pick<AuthDeps, "db" | "now">, viewer: S
       before: { role: before.role, passportAccess: before.passport_access },
     });
   });
+  return directory(deps.db, viewer, true);
+}
+
+/**
+ * An admin changes someone's username, or sets a new password, which signs them out
+ * everywhere. On your own account, the session you're in stays. Answers with the team as it
+ * now stands.
+ */
+export async function changeSignIn(
+  deps: Pick<AuthDeps, "db" | "now">,
+  viewer: SignedInDto,
+  userId: string,
+  change: SignInChange,
+  sessionToken: string | null,
+): Promise<UserDirectoryDto> {
+  await setSignIn(deps, userId, change, viewer.user.id, userId === viewer.user.id ? sessionToken : null);
   return directory(deps.db, viewer, true);
 }
 
