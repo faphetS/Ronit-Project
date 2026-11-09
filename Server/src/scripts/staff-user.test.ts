@@ -15,7 +15,25 @@ describe("parseStaffArgs", () => {
       role: "admin",
       passportAccess: true,
       whatsappPhone: "972501234567",
+      username: null,
+      passwordFromStdin: false,
     });
+  });
+
+  it("reads a username, and a password that comes on standard input", () => {
+    expect(
+      parseStaffArgs(["invite", "--email", "office@example.com", "--name", "Office", "--role", "office", "--username", " office ", "--password-stdin"]),
+    ).toMatchObject({ username: "office", passwordFromStdin: true });
+    expect(parseStaffArgs(["set-sign-in", "--email", "office@example.com", "--password-stdin"])).toEqual({
+      command: "set-sign-in",
+      email: "office@example.com",
+      username: undefined,
+      passwordFromStdin: true,
+    });
+    expect(parseStaffArgs(["set-sign-in", "--email", "office@example.com", "--username", ""])).toMatchObject({ username: "", passwordFromStdin: false });
+    // Nothing to change, and no password on the command line.
+    expect(() => parseStaffArgs(["set-sign-in", "--email", "office@example.com"])).toThrow(/Usage/);
+    expect(() => parseStaffArgs(["set-sign-in", "--email", "office@example.com", "--password", "secret"])).toThrow();
   });
 
   it("defaults to no passport access and no phone", () => {

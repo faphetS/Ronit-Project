@@ -24,9 +24,30 @@ import { auditTitle, auditWho, directoryRows, formatWhen, RECENT_ACTIONS, ROLES,
 
 /** The edit form's starting point for a row of the users table. */
 function accessTarget(row: DirectoryRow, meId: string | undefined): AccessTarget {
-  return row.kind === "user"
-    ? { id: row.user.id, name: row.user.name, role: row.user.role, passportAccess: row.user.passportAccess, self: row.user.id === meId, invite: false }
-    : { id: row.invite.id, name: row.invite.email, role: row.invite.role, passportAccess: row.invite.passportAccess, self: false, invite: true };
+  if (row.kind === "user") {
+    const { user } = row;
+    return {
+      id: user.id,
+      name: user.name,
+      role: user.role,
+      passportAccess: user.passportAccess,
+      username: user.username,
+      hasPassword: user.hasPassword,
+      self: user.id === meId,
+      invite: false,
+    };
+  }
+  const { invite } = row;
+  return {
+    id: invite.id,
+    name: invite.email,
+    role: invite.role,
+    passportAccess: invite.passportAccess,
+    username: invite.username,
+    hasPassword: invite.hasPassword,
+    self: false,
+    invite: true,
+  };
 }
 
 /** Everyone with an account, then the invites nobody accepted yet. Admins edit and remove from here. */

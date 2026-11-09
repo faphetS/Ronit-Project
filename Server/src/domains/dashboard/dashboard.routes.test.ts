@@ -325,6 +325,54 @@ describe("users and access", () => {
     ]);
   });
 
+  it("lets admins give usernames and passwords, and people change their own", async () => {
+    // At the invite: a username and a first password. The answer says there is one, never what it is.
+    const sent = (
+      await post(ronit, "/users/invites", { email: "tal@example.com", name: "טל", role: "office", username: " Tal ", password: "first-pass-1" }).expect(201)
+    ).body.data;
+    expect(sent.invite).toMatchObject({ username: "tal", hasPassword: true });
+    expect(JSON.stringify(sent)).not.toContain("first-pass-1");
+    expect(mail.at(-1)?.text).toContain("שם המשתמש tal");
+    expect((await post(ronit, "/users/invites", { email: "x@example.com", name: "x", role: "office", username: "tal" }).expect(409)).body.code).toBe("USERNAME_TAKEN");
+    expect((await post(ronit, "/users/invites", { email: "y@example.com", name: "y", role: "office", password: "short" }).expect(400)).body.code).toBe("WEAK_PASSWORD");
+    expect((await post(ronit, "/users/invites", { email: "z@example.com", name: "z", role: "office", username: "z" }).expect(400)).body.code).toBe("INVALID_USERNAME");
+
+    // Admins set someone's username and password; the new password signs them out.
+    expect((await post(shira, `/users/${moran.id}/sign-in`, { password: "new-pass-123" }).expect(403)).body.code).toBe("NO_ACCESS");
+    await post(ronit, `/users/${moran.id}/sign-in`, {}).expect(400);
+    const team = (await post(ronit, `/users/${moran.id}/sign-in`, { username: "moran", password: "new-pass-123" }).expect(200)).body.data;
+    expect(team.users.find((u: { id: string }) => u.id === moran.id)).toMatchObject({ username: "moran", hasPassword: true });
+    await get(moran, "/leads").expect(401);
+    // Like the email, only admins see other people's usernames.
+    const limited = (await get(shira, "/users").expect(200)).body.data;
+    expect(limited.users.find((u: { name: string }) => u.name === "moran")).toMatchObject({ username: "", hasPassword: false });
+
+    // On your own account, the session you're in stays.
+    await post(ronit, `/users/${ronit.id}/sign-in`, { password: "ronit-pass-1" }).expect(200);
+    expect((await post(ronit, "/users/me/password", { current: "wrong-pass", next: "ronit-pass-2" }).expect(400)).body.code).toBe("WRONG_PASSWORD");
+    await post(ronit, "/users/me/password", { current: "ronit-pass-1", next: "ronit-pass-2" }).expect(200);
+    expect((await get(ronit, "/users").expect(200)).body.data.users[0]).toMatchObject({ name: "ronit", hasPassword: true });
+
+    const log = (await get(ronit, "/users/audit").expect(200)).body.data;
+    expect(log).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ action: "username-changed", byUserId: ronit.id, userName: "moran", username: "moran" }),
+        expect.objectContaining({ action: "password-set", byUserId: ronit.id, userName: "moran", own: false }),
+        expect.objectContaining({ action: "password-set", byUserId: ronit.id, userName: "ronit", own: true }),
+      ]),
+    );
+    // A first password is the office's to set.
+    expect((await post(shira, "/users/me/password", { current: "anything", next: "shira-pass-1" }).expect(400)).body.code).toBe("NO_PASSWORD");
+  }, 30_000);
+
+  it("caps password and username changes per session", async () => {
+    const server = app();
+    for (let i = 0; i < 10; i++) await post(ronit, `/users/${moran.id}/sign-in`, { username: `moran${i}` }, server).expect(200);
+    expect((await post(ronit, `/users/${moran.id}/sign-in`, { username: "moran-x" }, server).expect(429)).body.code).toBe("TOO_MANY_ATTEMPTS");
+    // Another session has its own count.
+    await post(shira, "/users/me/password", { current: "anything", next: "shira-pass-1" }, server).expect(400);
+  });
+
   it("lets people rename themselves, and admins flip the security switches", async () => {
     expect((await post(moran, "/users/me", { name: " מורן לוי " }).expect(200)).body.data).toMatchObject({ name: "מורן לוי", initial: "מ" });
     await post(moran, "/users/me", { name: "x", email: "other@example.com" }).expect(400);

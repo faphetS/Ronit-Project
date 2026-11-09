@@ -52,12 +52,28 @@ export const CampaignPatchSchema = z
 
 export const SecuritySchema = z.object({ setting: z.enum(SECURITY_SWITCHES), enabled: z.boolean() });
 
+// Usernames and passwords are only bounded here; their rules (and the errors the dashboard
+// shows for them) live in staff-accounts.service.ts.
+const USERNAME_INPUT = z.string().trim().max(64);
+const PASSWORD_INPUT = z.string().max(256);
+
 export const InviteSchema = z.object({
   email: z.string().trim().email().max(200),
   name: z.string().trim().min(1).max(80),
   role: z.enum(ROLES),
   passportAccess: z.boolean().default(false),
+  username: USERNAME_INPUT.optional(),
+  password: PASSWORD_INPUT.optional(),
 });
+
+/** An admin's change to someone's sign-in: the username ("" takes it off), a new password, or both. */
+export const SignInChangeSchema = z
+  .object({ username: USERNAME_INPUT.optional(), password: PASSWORD_INPUT.optional() })
+  .strict()
+  .refine((change) => change.username !== undefined || Boolean(change.password), "Nothing to change");
+
+/** Your own password: the current one, then the new one. */
+export const OwnPasswordSchema = z.object({ current: PASSWORD_INPUT.min(1), next: PASSWORD_INPUT }).strict();
 
 export const AccessSchema = z.object({ role: z.enum(ROLES), passportAccess: z.boolean() }).strict();
 

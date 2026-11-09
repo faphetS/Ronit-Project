@@ -411,6 +411,10 @@ export type TwoStepStatus = "active" | "not-set";
 
 export interface UserAccount extends StaffUser {
   email: string;
+  /** What they type instead of the email; "" when none. Like the email, only admins see other people's. */
+  username: string;
+  /** Whether they can sign in with a password. Like the email, only admins see other people's. */
+  hasPassword: boolean;
   /** Null until the first sign-in. */
   lastSignInAt: string | null;
   twoStep: TwoStepStatus;
@@ -422,6 +426,9 @@ export interface UserAccount extends StaffUser {
 export interface UserInvite {
   id: string;
   email: string;
+  /** "" when none. */
+  username: string;
+  hasPassword: boolean;
   role: Role;
   passportAccess: boolean;
   sentAt: string;
@@ -477,8 +484,12 @@ export type AuditEntry = AuditBase &
     /** Someone set their WhatsApp number for tests; "" when they cleared it. */
     | { action: "staff-phone-changed"; userId: string; userName: string; phone: string }
     | { action: "security-change"; setting: SecuritySwitch; enabled: boolean }
-    /** A sign-in from a new device; an account locked after wrong codes; a copy from Monday asked for now. */
-    | { action: "new-device-sign-in" | "sign-in-locked" | "monday-copy" }
+    /** A sign-in from a new device; an account locked after wrong codes, or after wrong passwords; a copy from Monday asked for now. */
+    | { action: "new-device-sign-in" | "sign-in-locked" | "password-locked" | "monday-copy" }
+    /** A password was set: by an admin, or `own` when people changed their own. */
+    | { action: "password-set"; userId: string; userName: string; own: boolean }
+    /** Someone's username changed; "" when it was taken off. */
+    | { action: "username-changed"; userId: string; userName: string; username: string }
     | { action: "staff-invited" | "staff-removed"; userId: string; userName: string }
     /** Someone's role or passport access changed: what they have now. */
     | { action: "staff-access-changed"; userId: string; userName: string; role: Role; passportAccess: boolean }

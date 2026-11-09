@@ -37,11 +37,15 @@ export const nav = {
     import: "העתקה מ-Monday",
     language: "שפה",
     maskPassports: "הסתרת מספרי דרכון",
+    password: "סיסמה",
+    /** Beside "סיסמה": whether you can sign in with one yet. */
+    passwordSet: "מוגדרת",
+    passwordNotSet: "המשרד מגדיר",
     signOut: "התנתקות",
     name: "שם מלא",
     email: "אימייל",
     /** Under the email in your own details: it's the Google account you sign in with, so it can't change here. */
-    emailNote: "המייל של חשבון Google שאיתו נכנסים. כדי להחליף אותו, מנהלת מזמינה את המייל החדש.",
+    emailNote: "לכאן מגיעים קודי הכניסה, וזה גם חשבון ה-Google שאיתו אפשר להיכנס. כדי להחליף אותו, מנהלת מזמינה את המייל החדש.",
     phone: "מספר וואטסאפ",
     phoneNote: "בדיקות של ברכות מגיעות למספר הזה.",
     phoneInvalid: "המספר לא נראה כמו מספר נייד.",

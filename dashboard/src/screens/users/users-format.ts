@@ -65,6 +65,12 @@ export function auditTitle(entry: AuditEntry, usersCopy: UsersCopy, holidayNames
       return copy.newDevice;
     case "sign-in-locked":
       return copy.signInLocked;
+    case "password-locked":
+      return copy.passwordLocked;
+    case "password-set":
+      return entry.own ? copy.passwordChangedOwn(entry.userName) : copy.passwordSet(entry.userName);
+    case "username-changed":
+      return copy.usernameChanged(entry.userName, entry.username);
     case "sign-in-refused":
       return copy.signInRefused(entry.email);
     case "staff-invited":

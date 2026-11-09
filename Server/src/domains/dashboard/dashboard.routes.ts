@@ -5,8 +5,9 @@ import type { Db } from "../../config/pg.js";
 import { AppError } from "../../lib/errors.js";
 import { validate } from "../../middleware/validate.js";
 import { hashToken } from "../../lib/tokens.js";
-import { SESSION_COOKIE, readCookie } from "../auth/auth.cookies.js";
+import { DEVICE_COOKIE, SESSION_COOKIE, readCookie } from "../auth/auth.cookies.js";
 import { authDeps, authDepsFromEnv, requireDashboardOrigin, requireStaff, withAuthDeps, type AuthDepsResolver } from "../auth/auth.middleware.js";
+import { changeOwnPassword } from "../auth/staff-accounts.service.js";
 import { needsTemplates } from "../greetings/outbox.sender.js";
 import { greetingsChannelFromEnv } from "../greetings/greetings.channels.js";
 import { zernioFromEnv, type ZernioClient } from "../greetings/zernio.client.js";
@@ -34,10 +35,12 @@ import {
   InviteSchema,
   LeadListQuerySchema,
   NoteSchema,
+  OwnPasswordSchema,
   PassportViewSchema,
   PermissionChangeSchema,
   ProfileSchema,
   SecuritySchema,
+  SignInChangeSchema,
 } from "./dashboard.validator.js";
 import {
   approveCampaign,
@@ -62,6 +65,7 @@ import {
   auditLog,
   changeAccess,
   changePermission,
+  changeSignIn,
   directory,
   invite,
   permissions,
@@ -97,6 +101,24 @@ function dashboardLimiter(limit: number) {
       return session ? `session:${hashToken(session)}` : `ip:${ipKeyGenerator(req.ip ?? "")}`;
     },
     message: { status: "error", code: "RATE_LIMITED", message: "Too many requests" },
+  });
+}
+
+/**
+ * Password changes per session in 15 minutes. Each one runs a deliberately slow hash or two,
+ * so a signed-in session can't loop them and keep the server's hashing busy for everyone.
+ */
+export const PASSWORD_CHANGES_PER_WINDOW = 10;
+
+function passwordChangeLimiter() {
+  return rateLimit({
+    windowMs: 15 * 60_000,
+    limit: PASSWORD_CHANGES_PER_WINDOW,
+    standardHeaders: true,
+    legacyHeaders: false,
+    // requireStaff has run: every request here has a session.
+    keyGenerator: (req) => `session:${hashToken(readCookie(req, SESSION_COOKIE) ?? "")}`,
+    message: { status: "error", code: "TOO_MANY_ATTEMPTS", message: "Too many password changes — try again in 15 minutes" },
   });
 }
 
@@ -253,6 +275,13 @@ export function createDashboardRouter(resolveDeps: AuthDepsResolver, options: Da
   router.post("/users/me", validate({ body: ProfileSchema }), async (req, res) => {
     sendData(res, await updateProfile(db(res), staffOf(req), req.body, now(res)));
   });
+  // Your own password; requireStaff has checked the session cookie, so it's there.
+  const passwordChanges = passwordChangeLimiter();
+  router.post("/users/me/password", passwordChanges, validate({ body: OwnPasswordSchema }), async (req, res) => {
+    const session = { sessionToken: readCookie(req, SESSION_COOKIE) ?? "", deviceToken: readCookie(req, DEVICE_COOKIE) };
+    await changeOwnPassword(authDeps(res), staffOf(req).user.id, session, req.body);
+    sendData(res, null);
+  });
   router.get("/users/permissions", async (_req, res) => {
     sendData(res, await permissions(db(res)));
   });
@@ -273,6 +302,10 @@ export function createDashboardRouter(resolveDeps: AuthDepsResolver, options: Da
   });
   router.post("/users/:id/access", requireAccess("users", "full"), validate({ body: AccessSchema }), async (req, res) => {
     sendData(res, await changeAccess(authDeps(res), staffOf(req), idParam(req.params.id, "Staff user"), req.body));
+  });
+  router.post("/users/:id/sign-in", requireAccess("users", "full"), passwordChanges, validate({ body: SignInChangeSchema }), async (req, res) => {
+    const userId = idParam(req.params.id, "Staff user");
+    sendData(res, await changeSignIn(authDeps(res), staffOf(req), userId, req.body, readCookie(req, SESSION_COOKIE)));
   });
   router.post("/users/:id/remove", requireAccess("users", "full"), async (req, res) => {
     await removeUser(authDeps(res), staffOf(req), idParam(req.params.id, "Staff user"));

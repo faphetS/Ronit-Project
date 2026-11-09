@@ -40,16 +40,56 @@ export function signInCodeEmail({ name, code }: { name: string; code: string }):
   };
 }
 
-/** Sent when the office registers someone: where to go, and with which Google account. */
-export function inviteEmail({ name, email, dashboardUrl }: { name: string; email: string; dashboardUrl: string }): EmailContent {
+/**
+ * Sent when a password is set or changed: by the office, or by the person. If they didn't make
+ * or ask for the change, they know to tell the office.
+ */
+export function passwordChangedEmail({ name, byOffice }: { name: string; byOffice: boolean }): EmailContent {
+  const what = byOffice ? "המשרד הגדיר לך סיסמה חדשה למערכת הניהול של אור הצדיק." : "הסיסמה שלך למערכת הניהול של אור הצדיק שונתה.";
+  return {
+    subject: "הסיסמה שלך למערכת של אור הצדיק עודכנה",
+    text: `שלום ${name},\n\n${what}\n\nאם לא ביקשת את השינוי, כדאי לפנות למשרד מיד.`,
+    html: layout(`<p style="margin:0 0 12px">שלום ${escapeHtml(name)},</p>
+<p style="margin:0">${what}</p>
+<p style="margin:16px 0 0">אם לא ביקשת את השינוי, כדאי לפנות למשרד מיד.</p>`),
+  };
+}
+
+/**
+ * Sent when the office registers someone: where to go, and the ways in. With a password it
+ * names the username (or the email) to type, but never the password: the office passes that
+ * on by hand. Without one, Google is the way in, as before.
+ */
+export function inviteEmail({
+  name,
+  email,
+  username = null,
+  withPassword = false,
+  dashboardUrl,
+}: {
+  name: string;
+  email: string;
+  username?: string | null;
+  withPassword?: boolean;
+  dashboardUrl: string;
+}): EmailContent {
   const url = dashboardUrl.replace(/\/+$/, "");
+  const login = username ?? email;
+  const passwordText = withPassword ? `נכנסים עם שם המשתמש ${login} והסיסמה שתקבלו מהמשרד, או בלחיצה על "המשך עם Google" עם ${email}.` : null;
+  const passwordHtml = withPassword
+    ? `<p style="margin:0">נכנסים עם שם המשתמש <span dir="ltr">${escapeHtml(login)}</span> והסיסמה שתקבלו מהמשרד.</p>
+<p style="margin:12px 0 0">או בלחיצה על "המשך עם Google" עם <span dir="ltr">${escapeHtml(email)}</span>.</p>`
+    : `<p style="margin:0">בוחרים "המשך עם Google" ונכנסים עם <span dir="ltr">${escapeHtml(email)}</span>.</p>`;
   return {
     subject: "נפתח לך חשבון במערכת של אור הצדיק",
-    text: `שלום ${name},\n\nנפתח לך חשבון במערכת הניהול של אור הצדיק.\n\nלכניסה: ${url}\nבוחרים "המשך עם Google" ונכנסים עם ${email}.\nבכניסה ממכשיר חדש יגיע לכאן קוד בן 6 ספרות.`,
+    text:
+      `שלום ${name},\n\nנפתח לך חשבון במערכת הניהול של אור הצדיק.\n\nלכניסה: ${url}\n` +
+      `${passwordText ?? `בוחרים "המשך עם Google" ונכנסים עם ${email}.`}\n` +
+      "בכניסה ממכשיר חדש יגיע לכאן קוד בן 6 ספרות.",
     html: layout(`<p style="margin:0 0 12px">שלום ${escapeHtml(name)},</p>
 <p style="margin:0 0 20px">נפתח לך חשבון במערכת הניהול של אור הצדיק.</p>
 <p style="margin:0 0 20px;text-align:center"><a href="${escapeHtml(url)}" style="display:inline-block;background:#1c1a18;color:#f4efe6;text-decoration:none;border-radius:999px;padding:12px 28px;font-weight:bold">כניסה למערכת</a></p>
-<p style="margin:0">בוחרים "המשך עם Google" ונכנסים עם <span dir="ltr">${escapeHtml(email)}</span>.</p>
+${passwordHtml}
 <p style="margin:12px 0 0">בכניסה ממכשיר חדש יגיע לכאן קוד בן 6 ספרות.</p>`),
   };
 }

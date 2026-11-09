@@ -12,6 +12,7 @@ import type {
   PermissionChange,
   ProfilePatch,
   SignedIn,
+  SignInChange,
 } from "./services";
 import { useServices } from "./services-context";
 import type {
@@ -110,7 +111,20 @@ export function useGoogleCredential() {
   });
 }
 
-/** The code waiting after Google, read fresh each time the code step opens. */
+/** The username (or email) and password. Signing in on a remembered device puts the session straight into the cache. */
+export function usePasswordSignIn() {
+  const { session } = useServices();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ login, password, remember, returnTo }: { login: string; password: string; remember: boolean; returnTo: string }) =>
+      session.password(login, password, { remember, returnTo }),
+    onSuccess: (result) => {
+      if (result.step === "signed-in") client.setQueryData(queryKeys.session, result.signedIn);
+    },
+  });
+}
+
+/** The code waiting after Google or a password, read fresh each time the code step opens. */
 export function usePendingCode(enabled: boolean) {
   const { session } = useServices();
   return useQuery({ queryKey: queryKeys.pendingCode, queryFn: () => session.pendingCode(), enabled, retry: false, staleTime: 0, gcTime: 0 });
@@ -487,6 +501,33 @@ export function useChangeAccess() {
       await client.invalidateQueries({ queryKey: queryKeys.users });
       await client.invalidateQueries({ queryKey: queryKeys.audit });
       if (userId === signedInUserId(client)) await client.invalidateQueries({ queryKey: queryKeys.session });
+    },
+  });
+}
+
+/** An admin changes someone's username or sets a new password; the team list and the log pick it up. */
+export function useChangeSignIn() {
+  const { users } = useServices();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, change }: { userId: string; change: SignInChange }) => users.changeSignIn(userId, change),
+    onSuccess: (directory) => client.setQueryData(queryKeys.users, directory),
+    onSettled: async () => {
+      await client.invalidateQueries({ queryKey: queryKeys.users });
+      await client.invalidateQueries({ queryKey: queryKeys.audit });
+    },
+  });
+}
+
+/** Your own password; the team list (which says whether you have one) and the log pick it up. */
+export function useChangeOwnPassword() {
+  const { users } = useServices();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { current: string; next: string }) => users.changeOwnPassword(input),
+    onSettled: async () => {
+      await client.invalidateQueries({ queryKey: queryKeys.users });
+      await client.invalidateQueries({ queryKey: queryKeys.audit });
     },
   });
 }

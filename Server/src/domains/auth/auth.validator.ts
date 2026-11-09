@@ -26,6 +26,16 @@ export const GoogleCredentialSchema = z.object({
 
 export type GoogleCredentialBody = z.infer<typeof GoogleCredentialSchema>;
 
+/** The username (or email) and password, with the screen's choices. The rules live in the service. */
+export const PasswordSignInSchema = z.object({
+  login: z.string().trim().min(1).max(200),
+  password: z.string().min(1).max(256),
+  remember: z.boolean().default(false),
+  returnTo: z.string().max(300).default("/"),
+});
+
+export type PasswordSignInBody = z.infer<typeof PasswordSignInSchema>;
+
 export const VerifyCodeSchema = z.object({
   // People type "123 456" when they copy it with a space.
   code: z
