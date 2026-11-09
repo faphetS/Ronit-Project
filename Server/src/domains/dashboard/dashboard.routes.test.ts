@@ -365,6 +365,13 @@ describe("users and access", () => {
     expect((await post(shira, "/users/me/password", { current: "anything", next: "shira-pass-1" }).expect(400)).body.code).toBe("NO_PASSWORD");
   }, 30_000);
 
+  it("shows a special account without the code as two-step off", async () => {
+    await db.query("UPDATE staff_users SET two_step_exempt = true WHERE id = $1", [moran.id]);
+    const team = (await get(ronit, "/users").expect(200)).body.data;
+    expect(team.users.find((u: { id: string }) => u.id === moran.id)).toMatchObject({ twoStep: "off" });
+    expect(team.users.find((u: { id: string }) => u.id === shira.id)).toMatchObject({ twoStep: "active" });
+  });
+
   it("caps password and username changes per session", async () => {
     const server = app();
     for (let i = 0; i < 10; i++) await post(ronit, `/users/${moran.id}/sign-in`, { username: `moran${i}` }, server).expect(200);

@@ -69,6 +69,8 @@ export function auditTitle(entry: AuditEntry, usersCopy: UsersCopy, holidayNames
       return copy.passwordLocked;
     case "password-set":
       return entry.own ? copy.passwordChangedOwn(entry.userName) : copy.passwordSet(entry.userName);
+    case "two-step-changed":
+      return copy.twoStepChanged(entry.userName, entry.exempt);
     case "username-changed":
       return copy.usernameChanged(entry.userName, entry.username);
     case "sign-in-refused":

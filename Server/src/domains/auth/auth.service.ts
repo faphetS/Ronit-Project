@@ -137,9 +137,11 @@ interface UserRow {
   google_sub: string | null;
   locked_until: Date | null;
   disabled_at: Date | null;
+  /** A special account that never gets the emailed code. */
+  two_step_exempt: boolean;
 }
 
-const USER_COLUMNS = "id, email, name, role, passport_access, google_sub, locked_until, disabled_at";
+const USER_COLUMNS = "id, email, name, role, passport_access, google_sub, locked_until, disabled_at, two_step_exempt";
 
 async function findUser(q: Queryable, where: "email" | "id" | "google_sub", value: string): Promise<UserRow | null> {
   const { rows } = await q.query<UserRow>(`SELECT ${USER_COLUMNS} FROM staff_users WHERE ${where} = $1`, [value]);
@@ -305,8 +307,11 @@ async function continueSignIn(
 
   const { rows } = await deps.db.query<{ two_step_required: boolean }>("SELECT two_step_required FROM security_settings");
   const twoStep = rows[0]?.two_step_required ?? true;
-  const trusted = twoStep && device.deviceToken !== null && (await isTrustedDevice(deps.db, device.deviceToken, user.id, now));
-  if (!twoStep || trusted) {
+  // A special account skips the code, but its "remember me" still marks the browser, so the
+  // browser keeps its own count of wrong passwords.
+  const needsCode = twoStep && !user.two_step_exempt;
+  const trusted = needsCode && device.deviceToken !== null && (await isTrustedDevice(deps.db, device.deviceToken, user.id, now));
+  if (!needsCode || trusted) {
     return deps.db.transaction((tx) => startSession(tx, user, { remember, trust: twoStep && remember, device, returnTo }, now));
   }
   const challengeToken = await sendFirstCode(deps, user, { remember, returnTo }, now);

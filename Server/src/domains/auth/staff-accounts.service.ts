@@ -273,6 +273,25 @@ export async function changeOwnPassword(
   await tellOwner(deps.mailer, owner, false);
 }
 
+/**
+ * Makes an account special: it never gets the emailed code (`exempt`), or back to normal. From
+ * the server console only; logged, and shown on the users screen.
+ */
+export async function setTwoStepExempt(deps: Pick<AccountDeps, "db" | "now">, email: string, exempt: boolean): Promise<void> {
+  const now = deps.now();
+  await deps.db.transaction(async (tx) => {
+    const { rows } = await tx.query<{ id: string }>(
+      "UPDATE staff_users SET two_step_exempt = $2, updated_at = $3 WHERE email = $1 AND disabled_at IS NULL AND two_step_exempt <> $2 RETURNING id",
+      [normalizeEmail(email), exempt, now],
+    );
+    if (!rows[0]) {
+      await userIdByEmail(tx, email); // NotFoundError when there's no such account
+      return; // already as asked
+    }
+    await recordAudit(tx, now, "two-step-changed", null, { userId: rows[0].id, exempt });
+  });
+}
+
 /** Closes the account: no sign-in, and every session ended. */
 export async function disableStaff(deps: AccountDeps, email: string, byUserId: string | null = null): Promise<void> {
   await disableStaffById(deps, await userIdByEmail(deps.db, email), byUserId);
