@@ -21,8 +21,8 @@ export interface UserAccountDto {
   /** Whether they can sign in with a password. Shown like the email; false otherwise. */
   hasPassword: boolean;
   lastSignInAt: string | null;
-  /** Active once they've signed in: every new device then needs the emailed code. */
-  twoStep: "active" | "not-set";
+  /** Active once they've signed in: every new device then needs the emailed code. "off": a special account that never gets it. */
+  twoStep: "active" | "not-set" | "off";
   /** Their own WhatsApp number, for test greetings ("050…"). Only on their own account; "" when not set. */
   whatsappPhone: string;
 }
@@ -54,6 +54,7 @@ interface StaffRow {
   joined: boolean;
   username: string | null;
   has_password: boolean;
+  two_step_exempt: boolean;
   last_sign_in_at: Date | null;
   created_at: Date;
   invited_by: string | null;
@@ -63,7 +64,7 @@ interface StaffRow {
 // Someone has joined once they've signed in, either way; until then they're a pending invite.
 const STAFF_SELECT = `
   SELECT u.id, u.email, u.name, u.role, u.passport_access, (u.google_sub IS NOT NULL OR u.last_sign_in_at IS NOT NULL) AS joined,
-    u.username, u.password_hash IS NOT NULL AS has_password, u.last_sign_in_at, u.created_at, u.whatsapp_phone,
+    u.username, u.password_hash IS NOT NULL AS has_password, u.two_step_exempt, u.last_sign_in_at, u.created_at, u.whatsapp_phone,
     (SELECT a.by_user_id FROM audit_log a WHERE a.action = 'staff-invited' AND a.details->>'userId' = u.id::text
      ORDER BY a.at DESC LIMIT 1) AS invited_by
   FROM staff_users u`;
@@ -79,7 +80,7 @@ function toAccount(row: StaffRow, showEmail: boolean, own = false): UserAccountD
     username: showEmail ? (row.username ?? "") : "",
     hasPassword: showEmail && row.has_password,
     lastSignInAt: row.last_sign_in_at?.toISOString() ?? null,
-    twoStep: row.last_sign_in_at ? "active" : "not-set",
+    twoStep: row.two_step_exempt ? "off" : row.last_sign_in_at ? "active" : "not-set",
     whatsappPhone: own ? localPhone(row.whatsapp_phone) : "",
   };
 }
@@ -238,6 +239,8 @@ export type AuditEntryDto = AuditBase &
     | { action: "password-set"; userId: string; userName: string; own: boolean }
     /** "" when the username was taken off. */
     | { action: "username-changed"; userId: string; userName: string; username: string }
+    /** From the console: `exempt` when the account stopped getting the emailed code. */
+    | { action: "two-step-changed"; userId: string; userName: string; exempt: boolean }
     | { action: "staff-access-changed"; userId: string; userName: string; role: Role; passportAccess: boolean }
     | { action: "permission-change"; role: Role; area: PermissionArea; access: AccessLevel }
     | { action: "sign-in-refused"; email: string }
@@ -257,6 +260,7 @@ const LOGGED = [
   "sign-in-refused",
   "password-set",
   "username-changed",
+  "two-step-changed",
   "monday-copy",
   "staff-invited",
   "staff-disabled",
@@ -315,6 +319,8 @@ export async function auditLog(db: Queryable): Promise<AuditEntryDto[]> {
         return [{ ...base, action: row.action }];
       case "password-set":
         return [{ ...base, action: "password-set", userId: String(detail("userId") ?? ""), userName: row.target_name ?? "", own: detail("own") === true }];
+      case "two-step-changed":
+        return [{ ...base, action: "two-step-changed", userId: String(detail("userId") ?? ""), userName: row.target_name ?? "", exempt: detail("exempt") === true }];
       case "username-changed":
         return [
           { ...base, action: "username-changed", userId: String(detail("userId") ?? ""), userName: row.target_name ?? "", username: String(detail("username") ?? "") },

@@ -3,13 +3,15 @@
  *
  *   docker exec root-crm-1 node dist/scripts/staff-user.js invite --email <email> --name "<name>" --role admin|office|sales [--passport-access] [--phone <whatsapp>] [--username <name>] [--password-stdin]
  *   docker exec -i root-crm-1 node dist/scripts/staff-user.js set-sign-in --email <email> [--username <name>] [--password-stdin]
+ *   docker exec root-crm-1 node dist/scripts/staff-user.js two-step --email <email> --off|--on
  *   docker exec root-crm-1 node dist/scripts/staff-user.js reset-sign-in --email <email>
  *   docker exec root-crm-1 node dist/scripts/staff-user.js disable --email <email>
  *
  * invite registers the person and emails them where to sign in: the username (or the email)
  * and a password, when one is given, or "Continue with Google" with that email. set-sign-in
  * changes the username ("" takes it off) or sets a new password, which signs the person out
- * everywhere. --password-stdin reads the password from standard input (run docker exec with
+ * everywhere. two-step --off makes a special account that never gets the emailed code;
+ * --on puts it back. --password-stdin reads the password from standard input (run docker exec with
  * -i), so it never sits on a command line or in the process list. reset-sign-in is for a
  * replaced Google account or a lost phone: it unlinks the Google account and signs the person
  * out everywhere. Needs DATABASE_URL and DASHBOARD_URL; without SMTP the invite is printed to
@@ -25,7 +27,7 @@ import { logger } from "../config/logger.js";
 import { closeCrmDb, getCrmDb } from "../config/pg.js";
 import { migrate } from "../db/migrate.js";
 import type { Role } from "../domains/auth/auth.service.js";
-import { disableStaff, inviteStaff, resetSignIn, setSignInByEmail, type AccountDeps } from "../domains/auth/staff-accounts.service.js";
+import { disableStaff, inviteStaff, resetSignIn, setSignInByEmail, setTwoStepExempt, type AccountDeps } from "../domains/auth/staff-accounts.service.js";
 import { toMsisdn } from "../domains/whatsapp/whatsapp.gateway.js";
 import { AppError, ValidationError } from "../lib/errors.js";
 import { smtpMailerFromEnv } from "../lib/mailer.js";
@@ -34,6 +36,7 @@ const ROLES: Role[] = ["admin", "office", "sales"];
 const USAGE =
   "Usage: staff-user invite --email <email> --name <name> --role admin|office|sales [--passport-access] [--phone <number>] [--username <name>] [--password-stdin]\n" +
   "       staff-user set-sign-in --email <email> [--username <name>] [--password-stdin]\n" +
+  "       staff-user two-step --email <email> --off|--on\n" +
   "       staff-user reset-sign-in|disable --email <email>";
 
 export type StaffCommand =
@@ -49,6 +52,8 @@ export type StaffCommand =
       passwordFromStdin: boolean;
     }
   | { command: "set-sign-in"; email: string; username?: string; passwordFromStdin: boolean }
+  /** `exempt`: the account never gets the emailed code. */
+  | { command: "two-step"; email: string; exempt: boolean }
   | { command: "reset-sign-in" | "disable"; email: string };
 
 export function parseStaffArgs(argv: string[]): StaffCommand {
@@ -63,6 +68,8 @@ export function parseStaffArgs(argv: string[]): StaffCommand {
       phone: { type: "string" },
       username: { type: "string" },
       "password-stdin": { type: "boolean", default: false },
+      off: { type: "boolean", default: false },
+      on: { type: "boolean", default: false },
     },
     strict: true,
   });
@@ -70,6 +77,10 @@ export function parseStaffArgs(argv: string[]): StaffCommand {
   const email = values.email?.trim();
   if (!email || !email.includes("@")) throw new ValidationError(USAGE);
   if (command === "reset-sign-in" || command === "disable") return { command, email };
+  if (command === "two-step") {
+    if (values.off === values.on) throw new ValidationError(USAGE);
+    return { command, email, exempt: values.off === true };
+  }
   const passwordFromStdin = values["password-stdin"] ?? false;
   if (command === "set-sign-in") {
     if (values.username === undefined && !passwordFromStdin) throw new ValidationError(USAGE);
@@ -132,6 +143,10 @@ async function main(): Promise<void> {
         );
         break;
       }
+      case "two-step":
+        await setTwoStepExempt(deps, args.email, args.exempt);
+        logger.info({ exempt: args.exempt }, args.exempt ? "two-step off — this account never gets the emailed code" : "two-step back on for this account");
+        break;
       case "reset-sign-in":
         await resetSignIn(deps, args.email);
         logger.info("sign-in reset — the next Google account to sign in with this email is linked, and every session ended");

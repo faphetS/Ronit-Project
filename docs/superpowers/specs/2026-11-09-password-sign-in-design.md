@@ -71,6 +71,15 @@ On `staff_users`:
 
 On `staff_devices`, the count for a remembered browser: `password_failures` and `password_locked_until`.
 
+## Special accounts without the code (added the same day)
+
+The user asked for one admin account that never gets the emailed code ("dont put any otp on it ... i want it a special account").
+- **The switch:** `staff_users.two_step_exempt` (migration 007). The console turns it on and off: `staff-user two-step --email <email> --off|--on`. Never from the dashboard.
+- **What it skips:** the code, after both the password and Google. Everyone else keeps it.
+- **What still applies:** the five-wrong-passwords lock still holds. "Remember me" still marks the browser, so the browser keeps its own count.
+- **Where it shows:** the users screen shows the account's two-step as "off", and the access log records `two-step-changed`.
+- **The risk the user accepted:** the password alone opens that account.
+
 ## Out of scope
 
 - A "forgot password" email. The office sets a new password, or the person uses Google.

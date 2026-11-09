@@ -95,7 +95,7 @@ export const usersCopy = {
     },
     passportFull: "גישה מלאה",
     passportNone: "ללא גישה",
-    twoStep: { active: "פעיל", "not-set": "לא הוגדר" } satisfies Record<TwoStepStatus, string>,
+    twoStep: { active: "פעיל", "not-set": "לא הוגדר", off: "כבוי" } satisfies Record<TwoStepStatus, string>,
     /** Read instead of the dot in the two-step column of a pending invite. */
     twoStepNotYet: "עדיין לא הוגדר",
     neverSignedIn: "אין כניסה עדיין",
@@ -166,6 +166,7 @@ export const usersCopy = {
     passwordLocked: "הכניסה בסיסמה ננעלה אחרי סיסמאות שגויות",
     passwordSet: (name: string) => `הגדרת סיסמה · ${name}`,
     passwordChangedOwn: (name: string) => `שינוי סיסמה · ${name}`,
+    twoStepChanged: (name: string, exempt: boolean) => (exempt ? `אימות דו-שלבי כובה לחשבון · ${name}` : `אימות דו-שלבי הופעל שוב לחשבון · ${name}`),
     usernameChanged: (name: string, username: string) => (username ? `שם משתמש · ${name}: ${username}` : `שם המשתמש הוסר · ${name}`),
     /** Someone with a Google account that isn't registered tried to sign in. */
     signInRefused: (email: string) => `ניסיון כניסה של חשבון לא רשום · ${email}`,

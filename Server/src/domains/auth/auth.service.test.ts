@@ -25,7 +25,7 @@ import {
   type DeviceContext,
   type SignInOutcome,
 } from "./auth.service.js";
-import { changeOwnPassword, disableStaff, inviteStaff, resetSignIn, setSignIn } from "./staff-accounts.service.js";
+import { changeOwnPassword, disableStaff, inviteStaff, resetSignIn, setSignIn, setTwoStepExempt } from "./staff-accounts.service.js";
 
 const RONIT: GoogleIdentity = { sub: "google-ronit", email: "ronit@example.com", name: "Ronit Barash" };
 
@@ -623,5 +623,36 @@ describe("usernames and passwords", { timeout: 30_000 }, () => {
     expect(mail.at(-1)?.text).toContain("שם המשתמש ronit");
     expect(mail.at(-1)?.text).not.toContain(PASSWORD);
     expect(mail.at(-1)?.html).not.toContain(PASSWORD);
+  });
+});
+
+describe("a special account without the code", { timeout: 30_000 }, () => {
+  const accounts = () => ({ db, dashboardUrl: "https://app.example.com", mailer, now: () => clock });
+  const codesSent = () => mail.filter((message) => message.subject.startsWith("קוד הכניסה")).length;
+
+  it("signs in with the password or Google alone, while everyone else still gets the code", async () => {
+    await registerWithPassword();
+    await registerWithPassword({ email: "shira@example.com", username: "shira" });
+    await setTwoStepExempt(accounts(), "RONIT@example.com", true);
+    expect((await viaPassword("ronit", PASSWORD)).step).toBe("signed-in");
+    expect((await viaGoogle()).step).toBe("signed-in");
+    expect(codesSent()).toBe(0);
+    expect((await viaPassword("shira", PASSWORD)).step).toBe("code-sent");
+    // Back to normal: the code again.
+    await setTwoStepExempt(accounts(), RONIT.email, false);
+    expect((await viaPassword("ronit", PASSWORD)).step).toBe("code-sent");
+    expect((await auditActions()).filter((action) => action === "two-step-changed")).toHaveLength(2);
+    // Setting it as it already is logs nothing; an unknown email is refused.
+    await setTwoStepExempt(accounts(), RONIT.email, false);
+    expect((await auditActions()).filter((action) => action === "two-step-changed")).toHaveLength(2);
+    await expect(setTwoStepExempt(accounts(), "nobody@example.com", true)).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("still locks password sign-in after five wrong passwords", async () => {
+    await registerWithPassword();
+    await setTwoStepExempt(accounts(), RONIT.email, true);
+    for (let i = 0; i < 4; i++) await expect(viaPassword("ronit", "wrong-password")).rejects.toMatchObject({ code: "INVALID_LOGIN" });
+    await expect(viaPassword("ronit", "wrong-password")).rejects.toMatchObject({ code: "TOO_MANY_ATTEMPTS" });
+    await expect(viaPassword("ronit", PASSWORD)).rejects.toMatchObject({ code: "TOO_MANY_ATTEMPTS" });
   });
 });

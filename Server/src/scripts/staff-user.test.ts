@@ -43,6 +43,13 @@ describe("parseStaffArgs", () => {
     });
   });
 
+  it("reads two-step, which takes exactly one of --off and --on", () => {
+    expect(parseStaffArgs(["two-step", "--email", "office@example.com", "--off"])).toEqual({ command: "two-step", email: "office@example.com", exempt: true });
+    expect(parseStaffArgs(["two-step", "--email", "office@example.com", "--on"])).toEqual({ command: "two-step", email: "office@example.com", exempt: false });
+    expect(() => parseStaffArgs(["two-step", "--email", "office@example.com"])).toThrow(/Usage/);
+    expect(() => parseStaffArgs(["two-step", "--email", "office@example.com", "--off", "--on"])).toThrow(/Usage/);
+  });
+
   it("reads the other commands", () => {
     expect(parseStaffArgs(["reset-sign-in", "--email", "ronit@example.com"])).toEqual({ command: "reset-sign-in", email: "ronit@example.com" });
     expect(parseStaffArgs(["disable", "--email", "ronit@example.com"])).toEqual({ command: "disable", email: "ronit@example.com" });

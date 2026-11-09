@@ -407,7 +407,8 @@ export interface BirthdaysOverview {
 
 // ---- Users and access ----
 
-export type TwoStepStatus = "active" | "not-set";
+/** "off": a special account that never gets the emailed code (set on the server console). */
+export type TwoStepStatus = "active" | "not-set" | "off";
 
 export interface UserAccount extends StaffUser {
   email: string;
@@ -490,6 +491,8 @@ export type AuditEntry = AuditBase &
     | { action: "password-set"; userId: string; userName: string; own: boolean }
     /** Someone's username changed; "" when it was taken off. */
     | { action: "username-changed"; userId: string; userName: string; username: string }
+    /** An account stopped (`exempt`) or started again getting the emailed code. */
+    | { action: "two-step-changed"; userId: string; userName: string; exempt: boolean }
     | { action: "staff-invited" | "staff-removed"; userId: string; userName: string }
     /** Someone's role or passport access changed: what they have now. */
     | { action: "staff-access-changed"; userId: string; userName: string; role: Role; passportAccess: boolean }
