@@ -1,11 +1,16 @@
+import { ApiError } from "../data/http/client";
 import { NotFoundError, SignInError, type ServiceName, type Services } from "../data/services";
 import type { Customer, MondayCopy, OverviewStats, PassportIntake, PermissionMatrix, Session, StaffUser, UserAccount } from "../data/types";
 
 /**
  * For tests only: services that answer at once from a few fixed records, in place of Ronit's API. Sign-in works like
- * the real one without Google: "Continue with Google" goes straight to the code, and any 6 digits sign Ronit in.
+ * the real one without Google: "Continue with Google", or "ronit" with TEST_PASSWORD, goes straight to the code, and
+ * any 6 digits sign Ronit in.
  * Times are UTC; the clock in tests stands at 2026-10-28 15:30 Israel time (src/test/setup.ts).
  */
+
+/** Ronit's password in the test services. */
+export const TEST_PASSWORD = "uman-hanukkah-26";
 
 export const RONIT: UserAccount = {
   id: "u-ronit",
@@ -14,6 +19,8 @@ export const RONIT: UserAccount = {
   role: "admin",
   passportAccess: true,
   email: "ronit@example.com",
+  username: "ronit",
+  hasPassword: true,
   lastSignInAt: "2026-10-28T06:12:00.000Z",
   twoStep: "active",
   whatsappPhone: "",
@@ -120,6 +127,14 @@ export function createTestServices({ failing = [], signedIn = false }: TestServi
         pendingReturnTo = returnTo;
         return { step: "code-required" };
       },
+      // "ronit" (or her email) with TEST_PASSWORD; anything else is refused the way the API refuses it.
+      password: async (login, password, { returnTo }) => {
+        const known = ["ronit", RONIT.email].includes(login.trim().toLowerCase());
+        if (!known || password !== TEST_PASSWORD) throw new SignInError("invalid-login");
+        awaitingCode = true;
+        pendingReturnTo = returnTo;
+        return { step: "code-required" };
+      },
       pendingCode: async () => (awaitingCode ? { email: "r***@example.com" } : null),
       resendCode: async () => {
         if (!awaitingCode) throw new SignInError("step-expired");
@@ -203,6 +218,13 @@ export function createTestServices({ failing = [], signedIn = false }: TestServi
       changePermission: async ({ role, area, access }) =>
         PERMISSIONS.map((row) => (row.area === area && !row.fixed.includes(role) ? { ...row, access: { ...row.access, [role]: access } } : row)),
       changeAccess: async (userId, input) => ({ users: [userId === RONIT.id ? { ...RONIT, passportAccess: input.passportAccess } : RONIT], invites: [] }),
+      changeSignIn: async (userId, change) => ({
+        users: [userId === RONIT.id ? { ...RONIT, username: change.username ?? RONIT.username, hasPassword: RONIT.hasPassword || Boolean(change.password) } : RONIT],
+        invites: [],
+      }),
+      changeOwnPassword: async ({ current }) => {
+        if (current !== TEST_PASSWORD) throw new ApiError(400, "WRONG_PASSWORD", "The current password is wrong");
+      },
       security: async () => ({ twoStepRequired: true, maskPassportNumbers: true, autoSignOut: true, passportAccessLog: true, autoSignOutMinutes: 30 }),
       updateSecurity: async (key, enabled) => ({
         twoStepRequired: true,
@@ -214,7 +236,16 @@ export function createTestServices({ failing = [], signedIn = false }: TestServi
       }),
       audit: async () => [],
       invite: async (input) => ({
-        invite: { id: "u-new", email: input.email, role: input.role, passportAccess: input.passportAccess, sentAt: "2026-10-28T13:30:00.000Z", sentByUserId: RONIT.id },
+        invite: {
+          id: "u-new",
+          email: input.email,
+          username: input.username ?? "",
+          hasPassword: Boolean(input.password),
+          role: input.role,
+          passportAccess: input.passportAccess,
+          sentAt: "2026-10-28T13:30:00.000Z",
+          sentByUserId: RONIT.id,
+        },
         emailed: true,
       }),
       remove: async () => undefined,

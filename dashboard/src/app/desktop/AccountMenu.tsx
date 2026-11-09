@@ -15,8 +15,9 @@ import type { IconName } from "../../ui/icons";
 import { Ltr } from "../../ui/Ltr";
 import { Switch } from "../../ui/Switch";
 import { useToast } from "../../ui/toast-context";
+import { OwnPasswordForm } from "../../screens/users/OwnPasswordForm";
 
-type View = "settings" | "profile";
+type View = "settings" | "profile" | "password";
 
 const PRESSABLE = "transition-colors hover:bg-sand-light active:bg-line focus-visible:bg-sand-light focus-visible:outline-none";
 const HAIRLINE = "border-t border-line";
@@ -178,6 +179,22 @@ function ProfileView({ name, email, phone, onBack }: { name: string; email: stri
   );
 }
 
+/** Your own password: the current one first when you have one, else your first. Saved, it goes back to the settings. */
+function PasswordView({ hasPassword, onBack }: { hasPassword: boolean; onBack: () => void }) {
+  const { nav, usersCopy } = useCopy();
+  return (
+    <div className="flex flex-col gap-3 p-2.5">
+      <div className="flex items-center gap-1">
+        <button type="button" onClick={onBack} aria-label={nav.back} className={cx("grid size-9 place-items-center rounded-full text-ink", PRESSABLE)}>
+          <Icon name="back" size={18} />
+        </button>
+        <h2 className="text-[15px] font-semibold text-ink">{hasPassword ? usersCopy.password.title : usersCopy.password.setTitle}</h2>
+      </div>
+      <OwnPasswordForm hasPassword={hasPassword} size="sm" onDone={onBack} />
+    </div>
+  );
+}
+
 /** The height of an element as it changes, so a box around it can animate to fit. */
 function useHeight() {
   const ref = useRef<HTMLDivElement>(null);
@@ -223,7 +240,7 @@ export function AccountMenu() {
   const me = users.data?.users.find((member) => member.id === user?.id);
   const email = me?.email ?? "";
   const masked = security.data?.maskPassportNumbers;
-  const shift = (view === "profile" ? 1 : -1) * (rtl ? -1 : 1);
+  const shift = (view === "settings" ? -1 : 1) * (rtl ? -1 : 1);
 
   const close = () => setOpenAt(null);
 
@@ -276,6 +293,9 @@ export function AccountMenu() {
         <div className={STILL_ROW}>
           <RowBody icon="globe" label={copy.language} trailing={<LanguageToggle label={copy.language} />} first />
         </div>
+        <button type="button" onClick={() => setView("password")} disabled={!me} className={ROW}>
+          <RowBody icon="key" label={copy.password} value={me ? (me.hasPassword ? copy.passwordSet : copy.passwordNotSet) : undefined} trailing={<Chevron />} />
+        </button>
         {masked === undefined ? null : (
           <div className={STILL_ROW}>
             <RowBody
@@ -329,7 +349,13 @@ export function AccountMenu() {
               <div ref={content}>
                 <AnimatePresence mode="wait" initial={false} custom={shift}>
                   <motion.div key={view} custom={shift} variants={SLIDE} initial="from" animate="at" exit="to">
-                    {view === "profile" ? <ProfileView name={name} email={email} phone={me?.whatsappPhone ?? ""} onBack={() => setView("settings")} /> : settings}
+                    {view === "profile" ? (
+                      <ProfileView name={name} email={email} phone={me?.whatsappPhone ?? ""} onBack={() => setView("settings")} />
+                    ) : view === "password" ? (
+                      <PasswordView hasPassword={me?.hasPassword ?? false} onBack={() => setView("settings")} />
+                    ) : (
+                      settings
+                    )}
                   </motion.div>
                 </AnimatePresence>
               </div>

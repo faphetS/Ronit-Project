@@ -2,6 +2,7 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { createTestServices, renderApp } from "../../test/app";
+import { TEST_PASSWORD } from "../../test/services";
 import { SignInScreen } from "./SignInScreen";
 
 const routes = [
@@ -26,6 +27,30 @@ describe("SignInScreen", () => {
     await userEvent.click(screen.getByRole("button", { name: "כניסה" }));
     expect(await screen.findByRole("heading", { name: "customers" })).toBeInTheDocument();
     expect(await services.session.current()).not.toBeNull();
+  });
+
+  it("signs in with the username and password, then the emailed code", async () => {
+    const services = createTestServices();
+    renderApp(routes, { path: "/login", state: { from: "/customers" }, services });
+    await userEvent.type(await screen.findByLabelText("שם משתמש או מייל"), "Ronit");
+    await userEvent.type(screen.getByLabelText("סיסמה"), TEST_PASSWORD);
+    await userEvent.click(screen.getByRole("button", { name: "כניסה" }));
+    expect(await screen.findByRole("heading", { name: "קוד אימות" })).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("קוד בן 6 ספרות"), "123456");
+    await userEvent.click(screen.getByRole("button", { name: "כניסה" }));
+    expect(await screen.findByRole("heading", { name: "customers" })).toBeInTheDocument();
+  });
+
+  it("asks for both boxes, and says when the username or password is wrong", async () => {
+    renderApp(routes, { path: "/login" });
+    await userEvent.click(await screen.findByRole("button", { name: "כניסה" }));
+    expect(screen.getByRole("status")).toHaveTextContent("צריך למלא שם משתמש וסיסמה.");
+    await userEvent.type(screen.getByLabelText("שם משתמש או מייל"), "ronit");
+    await userEvent.type(screen.getByLabelText("סיסמה"), "not-the-password");
+    await userEvent.click(screen.getByRole("button", { name: "הצגת הסיסמה" }));
+    expect(screen.getByLabelText("סיסמה")).toHaveAttribute("type", "text");
+    await userEvent.click(screen.getByRole("button", { name: "כניסה" }));
+    expect(await screen.findByText("שם המשתמש או הסיסמה לא נכונים.")).toBeInTheDocument();
   });
 
   it("checks the code is 6 digits before sending it, and sends a new one on request", async () => {

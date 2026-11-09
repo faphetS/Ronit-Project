@@ -13,6 +13,11 @@ export function createHttpUsersService(api: ApiClient): UsersService {
     changePermission: (change) => http.post<PermissionMatrix>("/users/permissions", change),
     changeAccess: (userId, { role, passportAccess }) =>
       http.post<UserDirectory>(`/users/${segment(userId)}/access`, { role, passportAccess }, "User", userId),
+    changeSignIn: (userId, { username, password }) =>
+      http.post<UserDirectory>(`/users/${segment(userId)}/sign-in`, { username, password }, "User", userId),
+    changeOwnPassword: async ({ current, next }) => {
+      await http.post<null>("/users/me/password", { current, next });
+    },
     security: () => http.get<SecuritySettings>("/users/security"),
     updateSecurity: (setting, enabled) => http.post<SecuritySettings>("/users/security", { setting, enabled }),
     audit: () => http.get<AuditEntry[]>("/users/audit"),

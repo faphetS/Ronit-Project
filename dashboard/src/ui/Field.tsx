@@ -24,6 +24,8 @@ interface FieldProps {
   autoFocus?: boolean;
   /** The direction of what's typed, e.g. "ltr" for a code in the Hebrew layout. */
   dir?: "ltr" | "rtl" | "auto";
+  /** Off for usernames and passwords, so what's typed isn't underlined or sent to a spelling service. */
+  spellCheck?: boolean;
   className?: string;
 }
 
@@ -46,6 +48,7 @@ export function Field({
   maxLength,
   autoFocus,
   dir,
+  spellCheck,
   className,
 }: FieldProps) {
   const id = useId();
@@ -78,6 +81,7 @@ export function Field({
         maxLength={maxLength}
         autoFocus={autoFocus}
         dir={dir}
+        spellCheck={spellCheck}
         className="h-full min-w-0 flex-1 bg-transparent px-1 text-[15px] text-ink outline-none placeholder:text-mute"
       />
       {trailing}

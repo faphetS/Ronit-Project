@@ -92,8 +92,8 @@ export type BirthdaySettingsPatch = Partial<Pick<BirthdaySettings, "enabled" | "
 /** Where "Continue with Google" leads: Google itself, through the API. Test services may go straight to the code. */
 export type GoogleStart = { redirectTo: string } | { step: "code-required" };
 
-/** What Google's own button led to: signed in on a remembered device, or the emailed code is next. */
-export type GoogleCredentialResult = { step: "signed-in"; signedIn: SignedIn; returnTo: string } | { step: "code-required" };
+/** What Google's own button or a password led to: signed in on a remembered device, or the emailed code is next. */
+export type SignInResult = { step: "signed-in"; signedIn: SignedIn; returnTo: string } | { step: "code-required" };
 
 /** The code waiting after Google: where it was emailed, partly hidden (r***@gmail.com). */
 export interface PendingCode {
@@ -101,6 +101,7 @@ export interface PendingCode {
 }
 
 export const SIGN_IN_ERRORS = [
+  "invalid-login",
   "not-registered",
   "google-failed",
   "too-many-attempts",
@@ -127,7 +128,9 @@ export interface SessionService {
   /** For Google's own button: the one-time value Google puts in its answer, checked by the server. */
   googleNonce(): Promise<string>;
   /** The answer (an ID token) Google's own button hands over. `returnTo` is the page to land on. */
-  googleCredential(credential: string, options: { remember: boolean; returnTo: string }): Promise<GoogleCredentialResult>;
+  googleCredential(credential: string, options: { remember: boolean; returnTo: string }): Promise<SignInResult>;
+  /** The username (or email) and password. A wrong one, an unknown username or no password all refuse with "invalid-login". */
+  password(login: string, password: string, options: { remember: boolean; returnTo: string }): Promise<SignInResult>;
   /** The emailed code waiting after Google, or null when there's none. */
   pendingCode(): Promise<PendingCode | null>;
   resendCode(): Promise<void>;
@@ -218,10 +221,21 @@ export interface AccessInput {
   passportAccess: boolean;
 }
 
-/** Someone to give an account: they sign in with the Google account of this email. */
+/**
+ * Someone to give an account. They sign in with the username (or the email) and the first
+ * password, when the office gives them one, or with the Google account of this email.
+ */
 export interface InviteInput extends AccessInput {
   email: string;
   name: string;
+  username?: string;
+  password?: string;
+}
+
+/** An admin's change to someone's sign-in: a username ("" takes it off), a new password, or both. */
+export interface SignInChange {
+  username?: string;
+  password?: string;
 }
 
 /** One cell of the role table: what `role` may now do in `area`. */
@@ -240,6 +254,10 @@ export interface UsersService {
   changePermission(change: PermissionChange): Promise<PermissionMatrix>;
   /** Changes someone's role and passport access, or a pending invite's; answers with the team as it now stands. */
   changeAccess(userId: string, input: AccessInput): Promise<UserDirectory>;
+  /** An admin changes someone's username or sets a new password, which signs them out elsewhere; answers with the team. */
+  changeSignIn(userId: string, change: SignInChange): Promise<UserDirectory>;
+  /** Your own password: the current one first when you have one. Your other sessions end. */
+  changeOwnPassword(input: { current?: string; next: string }): Promise<void>;
   security(): Promise<SecuritySettings>;
   updateSecurity(key: SecuritySwitch, enabled: boolean): Promise<SecuritySettings>;
   /** Sensitive actions, newest first. */

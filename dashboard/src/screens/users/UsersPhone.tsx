@@ -11,6 +11,7 @@ import { Icon } from "../../ui/Icon";
 import { IconCircle } from "../../ui/IconCircle";
 import { ListRow } from "../../ui/ListRow";
 import { ScreenFrame } from "../../ui/ScreenFrame";
+import { Sheet } from "../../ui/Sheet";
 import { SectionHeader } from "../../ui/SectionHeader";
 import { EmptyState, ErrorState, Skeleton } from "../../ui/states";
 import { StatusTag } from "../../ui/StatusTag";
@@ -18,6 +19,7 @@ import { Surface } from "../../ui/Surface";
 import { useToast } from "../../ui/toast-context";
 import { AccessSheet, InviteSheet, type AccessTarget } from "./InviteSheet";
 import { LoadingRows } from "./LoadingRows";
+import { OwnPasswordForm } from "./OwnPasswordForm";
 import { SecurityCard } from "./SecurityCard";
 import { formatWhen, IMPORT_TONE } from "./users-format";
 
@@ -67,14 +69,18 @@ function AccountCard() {
   );
 }
 
-/** The import, the message history and signing out. */
+/** The import, your password, the message history and signing out. */
 function AdminLinks() {
-  const { usersCopy: copy } = useCopy();
+  const { usersCopy: copy, nav } = useCopy();
   const run = useImportRun();
   const signOut = useSignOut();
+  const session = useSession();
+  const directory = useUsers();
   const navigate = useNavigate();
   const toast = useToast();
+  const [changingPassword, setChangingPassword] = useState(false);
   const status = run.data?.lastRun?.status;
+  const me = directory.data?.users.find((user) => user.id === session.data?.user.id);
 
   const leave = () =>
     signOut.mutate(undefined, {
@@ -98,9 +104,26 @@ function AdminLinks() {
             ) : null
           }
         />
+        {me ? (
+          <ListRow
+            as="li"
+            onClick={() => setChangingPassword(true)}
+            leading={<IconCircle icon="key" />}
+            title={copy.account.password}
+            description={me.hasPassword ? nav.accountMenu.passwordSet : nav.accountMenu.passwordNotSet}
+            chevron
+          />
+        ) : null}
         <ListRow as="li" to="/greetings/holidays#history" leading={<IconCircle icon="history" />} title={copy.account.history} chevron />
         <ListRow as="li" onClick={leave} leading={<IconCircle icon="signOut" />} title={copy.account.signOut} />
       </ul>
+      <Sheet
+        open={changingPassword}
+        onClose={() => setChangingPassword(false)}
+        title={me?.hasPassword ? copy.password.title : copy.password.setTitle}
+      >
+        {changingPassword && me ? <OwnPasswordForm hasPassword={me.hasPassword} onPaper onDone={() => setChangingPassword(false)} /> : null}
+      </Sheet>
     </Surface>
   );
 }
@@ -129,7 +152,16 @@ function TeamCard() {
               <ListRow
                 key={user.id}
                 as="li"
-                onClick={edit({ id: user.id, name: user.name, role: user.role, passportAccess: user.passportAccess, self: false, invite: false })}
+                onClick={edit({
+                  id: user.id,
+                  name: user.name,
+                  role: user.role,
+                  passportAccess: user.passportAccess,
+                  username: user.username,
+                  hasPassword: user.hasPassword,
+                  self: false,
+                  invite: false,
+                })}
                 leading={<Avatar initial={user.initial} />}
                 title={user.name}
                 description={copy.account.personLine(
@@ -149,7 +181,16 @@ function TeamCard() {
               <ListRow
                 key={invite.id}
                 as="li"
-                onClick={edit({ id: invite.id, name: invite.email, role: invite.role, passportAccess: invite.passportAccess, self: false, invite: true })}
+                onClick={edit({
+                  id: invite.id,
+                  name: invite.email,
+                  role: invite.role,
+                  passportAccess: invite.passportAccess,
+                  username: invite.username,
+                  hasPassword: invite.hasPassword,
+                  self: false,
+                  invite: true,
+                })}
                 leading={<Avatar initial={copy.users.inviteInitial} tone="outline" />}
                 title={copy.users.pendingInvite}
                 titleTone="muted"

@@ -1,15 +1,16 @@
-import { SignInError, type GoogleCredentialResult, type PendingCode, type SessionService, type SignedIn, type SignInErrorCode } from "../services";
+import { SignInError, type PendingCode, type SessionService, type SignedIn, type SignInErrorCode, type SignInResult } from "../services";
 import type { Session, StaffUser } from "../types";
 import { ApiError, type ApiClient } from "./client";
 
 /**
- * Sign-in against /api/auth: Google's own button hands over an ID token for the server to check
- * (or, as a fallback, "Continue with Google" is a browser navigation through the API), then the
- * emailed code. The API keeps the session in an HttpOnly cookie, so no session token passes
+ * Sign-in against /api/auth: the username (or email) and password, or Google's own button,
+ * which hands over an ID token for the server to check (as a fallback, "Continue with Google"
+ * is a browser navigation through the API); then the emailed code. The API keeps the session in an HttpOnly cookie, so no session token passes
  * through here.
  */
 
 const ERRORS: Record<string, SignInErrorCode> = {
+  INVALID_LOGIN: "invalid-login",
   NOT_REGISTERED: "not-registered",
   GOOGLE_FAILED: "google-failed",
   TOO_MANY_ATTEMPTS: "too-many-attempts",
@@ -24,6 +25,14 @@ const ERRORS: Record<string, SignInErrorCode> = {
 function translate(err: unknown): never {
   if (err instanceof ApiError && ERRORS[err.code]) throw new SignInError(ERRORS[err.code]);
   throw err;
+}
+
+/** What /google/credential and /password answer. */
+type SignInBody = ({ step: "signed-in"; returnTo: string } & SignedIn) | { step: "code-required" };
+
+function toResult(body: SignInBody): SignInResult {
+  if (body.step === "signed-in") return { step: "signed-in", signedIn: { session: body.session, user: body.user }, returnTo: body.returnTo };
+  return { step: "code-required" };
 }
 
 export function createHttpSessionService(api: ApiClient): SessionService {
@@ -48,12 +57,11 @@ export function createHttpSessionService(api: ApiClient): SessionService {
     },
 
     async googleCredential(credential, { remember, returnTo }) {
-      type Body = ({ step: "signed-in"; returnTo: string } & SignedIn) | { step: "code-required" };
-      const body = await api.post<Body>("/api/auth/google/credential", { credential, remember, returnTo }).catch(translate);
-      if (body.step === "signed-in") {
-        return { step: "signed-in", signedIn: { session: body.session, user: body.user }, returnTo: body.returnTo } satisfies GoogleCredentialResult;
-      }
-      return { step: "code-required" };
+      return toResult(await api.post<SignInBody>("/api/auth/google/credential", { credential, remember, returnTo }).catch(translate));
+    },
+
+    async password(login, password, { remember, returnTo }) {
+      return toResult(await api.post<SignInBody>("/api/auth/password", { login, password, remember, returnTo }).catch(translate));
     },
 
     async pendingCode() {

@@ -8,6 +8,7 @@ import { Headline } from "../../ui/Headline";
 import { EmailCodeStage } from "./EmailCodeStage";
 import { GoogleButton } from "./GoogleButton";
 import { GoogleIdentityButton } from "./GoogleIdentityButton";
+import { PasswordForm } from "./PasswordForm";
 import { SignInLayout } from "./SignInLayout";
 import { signInMessage } from "./signInMessage";
 
@@ -15,10 +16,11 @@ import { signInMessage } from "./signInMessage";
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "";
 
 /**
- * Sign in: Google's own "Continue as …" button for the email the office registered, then, on a
- * device that isn't remembered, the 6-digit code from the email. When Google's button can't
- * load, our button goes through Google by redirect instead, and the API sends the browser back
- * to /login?step=code, or /login?error=… when it didn't work.
+ * Sign in: the username (or email) and password the office gave, or, as the shortcut, Google's
+ * own "Continue as …" button for the email the office registered. Then, on a device that isn't
+ * remembered, the 6-digit code from the email. When Google's button can't load, our button
+ * goes through Google by redirect instead, and the API sends the browser back to
+ * /login?step=code, or /login?error=… when it didn't work.
  */
 export function SignInScreen() {
   const { signIn: copy } = useCopy();
@@ -29,7 +31,7 @@ export function SignInScreen() {
   const [params] = useSearchParams();
   const startGoogle = useStartGoogle();
   const googleCredential = useGoogleCredential();
-  const [stage, setStage] = useState<"google" | "code">(params.get("step") === "code" ? "code" : "google");
+  const [stage, setStage] = useState<"sign-in" | "code">(params.get("step") === "code" ? "code" : "sign-in");
   const [remember, setRemember] = useState(true);
   const [googleButtonFailed, setGoogleButtonFailed] = useState(false);
   // A new key renders Google's button again, with a fresh nonce.
@@ -78,16 +80,29 @@ export function SignInScreen() {
   );
 
   const restart = useCallback((notice = "") => {
-    setStage("google");
+    setStage("sign-in");
     setMessage(notice);
   }, []);
 
   return (
     <SignInLayout label={copy.title} message={message} onHelp={() => setMessage(copy.helpNotice)}>
-      {stage === "google" ? (
+      {stage === "sign-in" ? (
         <>
           <Headline title={copy.title} size="display-3" className="mt-5 mb-2" />
           <p className="mb-5 text-small text-copy">{copy.intro}</p>
+          <PasswordForm
+            remember={remember}
+            onRememberChange={setRemember}
+            returnTo={returnTo}
+            onSignedIn={(to) => navigate(to, { replace: true })}
+            onCodeRequired={() => setStage("code")}
+            onMessage={setMessage}
+          />
+          <div className="my-4 flex items-center gap-3 text-caption text-mute" aria-hidden="true">
+            <span className="h-px flex-1 bg-ink/10" />
+            {copy.or}
+            <span className="h-px flex-1 bg-ink/10" />
+          </div>
           {GOOGLE_CLIENT_ID && !googleButtonFailed ? (
             <GoogleIdentityButton
               key={googleButtonKey}
@@ -100,10 +115,6 @@ export function SignInScreen() {
           ) : (
             <GoogleButton label={copy.google} onClick={beginRedirect} disabled={startGoogle.isPending} />
           )}
-          <label className="mt-4 flex items-center gap-2.5 px-2 text-small text-mute-2">
-            <input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} className="size-[18px] accent-ink" />
-            {copy.remember}
-          </label>
         </>
       ) : (
         <EmailCodeStage onSignedIn={(to) => navigate(to, { replace: true })} onMessage={setMessage} onRestart={restart} />
