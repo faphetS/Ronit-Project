@@ -365,6 +365,16 @@ describe("users and access", () => {
     expect((await post(shira, "/users/me/password", { current: "anything", next: "shira-pass-1" }).expect(400)).body.code).toBe("NO_PASSWORD");
   }, 30_000);
 
+  it("refuses a demo account every dashboard route, so none of the real data reaches it", async () => {
+    await db.query("UPDATE staff_users SET is_demo = true WHERE id = $1", [moran.id]);
+    for (const path of ["/leads", "/customers", "/users", "/overview/stats", "/imports/latest"]) {
+      expect((await get(moran, path).expect(403)).body.code).toBe("DEMO_ACCOUNT");
+    }
+    expect((await post(moran, "/users/me/password", { current: "x", next: "new-password-1" }).expect(403)).body.code).toBe("DEMO_ACCOUNT");
+    // Others are unaffected.
+    await get(shira, "/leads").expect(200);
+  });
+
   it("shows a special account without the code as two-step off", async () => {
     await db.query("UPDATE staff_users SET two_step_exempt = true WHERE id = $1", [moran.id]);
     const team = (await get(ronit, "/users").expect(200)).body.data;

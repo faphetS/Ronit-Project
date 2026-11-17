@@ -13,6 +13,8 @@ export interface StaffUser {
   initial: string;
   role: Role;
   passportAccess: boolean;
+  /** A demo account: every screen shows sample data (the API refuses it Ronit's real data). */
+  demo?: boolean;
 }
 
 export interface Session {

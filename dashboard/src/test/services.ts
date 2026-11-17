@@ -3,7 +3,8 @@ import { NotFoundError, SignInError, type ServiceName, type Services } from "../
 import type { Customer, MondayCopy, OverviewStats, PassportIntake, PermissionMatrix, Session, StaffUser, UserAccount } from "../data/types";
 
 /**
- * For tests only: services that answer at once from a few fixed records, in place of Ronit's API. Sign-in works like
+ * For tests, and the base of a demo account's sample data (data/demo): services that answer at once from a few fixed,
+ * made-up records, in place of Ronit's API. Sign-in works like
  * the real one without Google: "Continue with Google", or "ronit" with TEST_PASSWORD, goes straight to the code, and
  * any 6 digits sign Ronit in.
  * Times are UTC; the clock in tests stands at 2026-10-28 15:30 Israel time (src/test/setup.ts).

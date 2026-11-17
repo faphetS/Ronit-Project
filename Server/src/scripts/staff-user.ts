@@ -1,7 +1,7 @@
 /**
  * Dashboard accounts from the server console, until the users screen is connected:
  *
- *   docker exec root-crm-1 node dist/scripts/staff-user.js invite --email <email> --name "<name>" --role admin|office|sales [--passport-access] [--phone <whatsapp>] [--username <name>] [--password-stdin]
+ *   docker exec root-crm-1 node dist/scripts/staff-user.js invite --email <email> --name "<name>" --role admin|office|sales [--passport-access] [--phone <whatsapp>] [--username <name>] [--password-stdin] [--demo]
  *   docker exec -i root-crm-1 node dist/scripts/staff-user.js set-sign-in --email <email> [--username <name>] [--password-stdin]
  *   docker exec root-crm-1 node dist/scripts/staff-user.js two-step --email <email> --off|--on
  *   docker exec root-crm-1 node dist/scripts/staff-user.js reset-sign-in --email <email>
@@ -10,7 +10,8 @@
  * invite registers the person and emails them where to sign in: the username (or the email)
  * and a password, when one is given, or "Continue with Google" with that email. set-sign-in
  * changes the username ("" takes it off) or sets a new password, which signs the person out
- * everywhere. two-step --off makes a special account that never gets the emailed code;
+ * everywhere. invite --demo makes a demo account: it sees sample data only, gets no code and no
+ * invite email. two-step --off makes a special account that never gets the emailed code;
  * --on puts it back. --password-stdin reads the password from standard input (run docker exec with
  * -i), so it never sits on a command line or in the process list. reset-sign-in is for a
  * replaced Google account or a lost phone: it unlinks the Google account and signs the person
@@ -34,7 +35,7 @@ import { smtpMailerFromEnv } from "../lib/mailer.js";
 
 const ROLES: Role[] = ["admin", "office", "sales"];
 const USAGE =
-  "Usage: staff-user invite --email <email> --name <name> --role admin|office|sales [--passport-access] [--phone <number>] [--username <name>] [--password-stdin]\n" +
+  "Usage: staff-user invite --email <email> --name <name> --role admin|office|sales [--passport-access] [--phone <number>] [--username <name>] [--password-stdin] [--demo]\n" +
   "       staff-user set-sign-in --email <email> [--username <name>] [--password-stdin]\n" +
   "       staff-user two-step --email <email> --off|--on\n" +
   "       staff-user reset-sign-in|disable --email <email>";
@@ -50,6 +51,8 @@ export type StaffCommand =
       username: string | null;
       /** The password comes on standard input. */
       passwordFromStdin: boolean;
+      /** A demo account, on sample data only. */
+      demo: boolean;
     }
   | { command: "set-sign-in"; email: string; username?: string; passwordFromStdin: boolean }
   /** `exempt`: the account never gets the emailed code. */
@@ -69,6 +72,7 @@ export function parseStaffArgs(argv: string[]): StaffCommand {
       username: { type: "string" },
       "password-stdin": { type: "boolean", default: false },
       off: { type: "boolean", default: false },
+      demo: { type: "boolean", default: false },
       on: { type: "boolean", default: false },
     },
     strict: true,
@@ -99,6 +103,7 @@ export function parseStaffArgs(argv: string[]): StaffCommand {
     whatsappPhone: values.phone ? toMsisdn(values.phone) : null,
     username: values.username?.trim() || null,
     passwordFromStdin,
+    demo: values.demo ?? false,
   };
 }
 
@@ -128,7 +133,9 @@ async function main(): Promise<void> {
           { userId, role: invite.role, emailed, username: invite.username, withPassword: password !== null },
           emailed ? "staff user invited — the invite was emailed" : "staff user registered — no email went out",
         );
-        if (!emailed) {
+        if (invite.demo) {
+          process.stdout.write(`Demo account ready: sign in at ${env.DASHBOARD_URL} with ${invite.username ?? invite.email} and the password you set. It sees sample data only.\n`);
+        } else if (!emailed) {
           const how = password ? `the username ${invite.username ?? invite.email} and the password you set` : `"Continue with Google", using ${invite.email}`;
           process.stdout.write(`Pass this on: sign in at ${env.DASHBOARD_URL} with ${how}.\n`);
         }

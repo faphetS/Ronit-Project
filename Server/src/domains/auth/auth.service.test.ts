@@ -656,3 +656,23 @@ describe("a special account without the code", { timeout: 30_000 }, () => {
     await expect(viaPassword("ronit", PASSWORD)).rejects.toMatchObject({ code: "TOO_MANY_ATTEMPTS" });
   });
 });
+
+describe("demo accounts", { timeout: 30_000 }, () => {
+  it("sign in with the password and no code, say demo in the session, and get no invite email", async () => {
+    await inviteStaff(
+      { db, dashboardUrl: "https://app.example.com", mailer, now: () => clock },
+      { email: "demo@example.invalid", name: "חשבון הדגמה", role: "admin", passportAccess: true, whatsappPhone: null, username: "demo", password: "demo-password-1", demo: true },
+    );
+    expect(mail).toEqual([]);
+    const outcome = await viaPassword("demo", "demo-password-1");
+    expect(outcome).toMatchObject({ step: "signed-in" });
+    if (outcome.step !== "signed-in") return;
+    expect(outcome.signedIn.user).toMatchObject({ name: "חשבון הדגמה", demo: true });
+    await expect(authenticate(deps(), outcome.sessionToken)).resolves.toMatchObject({ user: { demo: true } });
+    // Everyone else is not a demo.
+    await registerWithPassword();
+    const ronit = await signedInWithPassword();
+    expect(ronit.signedIn.user.demo).toBe(false);
+  });
+});
+

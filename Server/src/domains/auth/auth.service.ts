@@ -26,6 +26,8 @@ export interface StaffUserDto {
   initial: string;
   role: Role;
   passportAccess: boolean;
+  /** A demo account: the dashboard shows sample data, and the server refuses it Ronit's real data. */
+  demo: boolean;
 }
 
 export interface SessionDto {
@@ -139,22 +141,24 @@ interface UserRow {
   disabled_at: Date | null;
   /** A special account that never gets the emailed code. */
   two_step_exempt: boolean;
+  is_demo: boolean;
 }
 
-const USER_COLUMNS = "id, email, name, role, passport_access, google_sub, locked_until, disabled_at, two_step_exempt";
+const USER_COLUMNS = "id, email, name, role, passport_access, google_sub, locked_until, disabled_at, two_step_exempt, is_demo";
 
 async function findUser(q: Queryable, where: "email" | "id" | "google_sub", value: string): Promise<UserRow | null> {
   const { rows } = await q.query<UserRow>(`SELECT ${USER_COLUMNS} FROM staff_users WHERE ${where} = $1`, [value]);
   return rows[0] ?? null;
 }
 
-function toUserDto(user: Pick<UserRow, "id" | "name" | "role" | "passport_access">): StaffUserDto {
+function toUserDto(user: Pick<UserRow, "id" | "name" | "role" | "passport_access" | "is_demo">): StaffUserDto {
   return {
     id: user.id,
     name: user.name,
     initial: Array.from(user.name.trim())[0] ?? "?",
     role: user.role,
     passportAccess: user.passport_access,
+    demo: user.is_demo,
   };
 }
 
@@ -607,6 +611,7 @@ interface SessionRow {
   name: string;
   role: Role;
   passport_access: boolean;
+  is_demo: boolean;
   disabled_at: Date | null;
   auto_sign_out: boolean;
   auto_sign_out_minutes: number;
@@ -622,7 +627,7 @@ export async function authenticate(deps: Pick<AuthDeps, "db" | "now">, sessionTo
   const now = deps.now();
   const { rows } = await deps.db.query<SessionRow>(
     `SELECT s.id, s.created_at, s.last_seen_at, s.expires_at, s.ended_at,
-            u.id AS user_id, u.name, u.role, u.passport_access, u.disabled_at,
+            u.id AS user_id, u.name, u.role, u.passport_access, u.is_demo, u.disabled_at,
             sec.auto_sign_out, sec.auto_sign_out_minutes
      FROM staff_sessions s
      JOIN staff_users u ON u.id = s.user_id
@@ -642,7 +647,7 @@ export async function authenticate(deps: Pick<AuthDeps, "db" | "now">, sessionTo
   }
   return {
     session: { userId: row.user_id, signedInAt: row.created_at.toISOString() },
-    user: toUserDto({ id: row.user_id, name: row.name, role: row.role, passport_access: row.passport_access }),
+    user: toUserDto({ id: row.user_id, name: row.name, role: row.role, passport_access: row.passport_access, is_demo: row.is_demo }),
   };
 }
 
