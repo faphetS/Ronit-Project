@@ -122,6 +122,12 @@ function passwordChangeLimiter() {
   });
 }
 
+/** A demo account sees the dashboard's sample data only: none of Ronit's real data, and no changes to it. */
+function refuseDemo(req: Request, _res: Response, next: NextFunction): void {
+  if (staffOf(req).user.demo) throw new AppError(403, "Demo accounts see sample data only", "DEMO_ACCOUNT");
+  next();
+}
+
 export interface DashboardOptions {
   /** The copy from Monday: whether it's on, and how to reach Monday. Tests pass a fake. */
   copy?: { enabled: boolean; deps: (db: Db) => CopyDeps };
@@ -152,6 +158,7 @@ export function createDashboardRouter(resolveDeps: AuthDepsResolver, options: Da
     withAuthDeps(resolveDeps),
     requireDashboardOrigin,
     requireStaff,
+    refuseDemo,
     loadAccess,
   );
 

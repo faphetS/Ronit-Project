@@ -17,6 +17,15 @@ describe("parseStaffArgs", () => {
       whatsappPhone: "972501234567",
       username: null,
       passwordFromStdin: false,
+      demo: false,
+    });
+  });
+
+  it("reads --demo", () => {
+    expect(parseStaffArgs(["invite", "--email", "demo@example.com", "--name", "Demo", "--role", "admin", "--username", "demo", "--password-stdin", "--demo"])).toMatchObject({
+      demo: true,
+      username: "demo",
+      passwordFromStdin: true,
     });
   });
 

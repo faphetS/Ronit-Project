@@ -129,7 +129,7 @@ describe("/api/auth", () => {
       status: "ok",
       step: "signed-in",
       session: { userId: expect.any(String), signedInAt: "2026-11-02T10:00:00.000Z" },
-      user: { id: verified.body.session.userId, name: "רונית ברש", initial: "ר", role: "admin", passportAccess: true },
+      user: { id: verified.body.session.userId, name: "רונית ברש", initial: "ר", role: "admin", passportAccess: true, demo: false },
       returnTo: "/customers",
     });
     expect(jar.has("__Host-oh_challenge")).toBe(false);

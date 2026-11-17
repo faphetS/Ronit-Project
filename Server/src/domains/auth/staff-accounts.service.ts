@@ -30,6 +30,11 @@ export interface StaffInvite {
   username?: string | null;
   /** A first password the office passes on by hand. None: Google is the way in until one is set. */
   password?: string | null;
+  /**
+   * A demo account: it sees sample data only, never gets the emailed code (it has no real
+   * mailbox), and no invite email goes out.
+   */
+  demo?: boolean;
 }
 
 const USERNAME = /^[a-z][a-z0-9._-]{2,31}$/;
@@ -135,17 +140,19 @@ export async function inviteStaff(
     .transaction(async (tx) => {
       await assertUsernameFree(tx, username, null);
       const { rows } = await tx.query<{ id: string }>(
-        `INSERT INTO staff_users (email, name, role, passport_access, whatsapp_phone, username, password_hash, password_changed_at, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+        `INSERT INTO staff_users (email, name, role, passport_access, whatsapp_phone, username, password_hash, password_changed_at, created_at, updated_at,
+                                  is_demo, two_step_exempt)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $10, $10)
          ON CONFLICT (email) DO UPDATE SET
            name = EXCLUDED.name, role = EXCLUDED.role, passport_access = EXCLUDED.passport_access,
            whatsapp_phone = COALESCE(EXCLUDED.whatsapp_phone, staff_users.whatsapp_phone),
            username = EXCLUDED.username, password_hash = EXCLUDED.password_hash, password_changed_at = EXCLUDED.password_changed_at,
            password_failures = 0, password_locked_until = NULL,
+           is_demo = EXCLUDED.is_demo, two_step_exempt = EXCLUDED.two_step_exempt,
            disabled_at = NULL, google_sub = NULL, failed_sign_ins = 0, locked_until = NULL, updated_at = EXCLUDED.updated_at
          WHERE staff_users.disabled_at IS NOT NULL
          RETURNING id`,
-        [email, name, invite.role, invite.passportAccess, invite.whatsappPhone, username, passwordHash, passwordHash ? now : null, now],
+        [email, name, invite.role, invite.passportAccess, invite.whatsappPhone, username, passwordHash, passwordHash ? now : null, now, invite.demo === true],
       );
       if (!rows[0]) throw new AppError(409, `${email} already has an account`, "ALREADY_REGISTERED");
       await recordAudit(tx, now, "staff-invited", byUserId, {
@@ -154,13 +161,14 @@ export async function inviteStaff(
         passportAccess: invite.passportAccess,
         username,
         withPassword: passwordHash !== null,
+        demo: invite.demo === true,
       });
       return rows[0].id;
     })
     .catch((err: unknown) => {
       throw isUniqueViolation(err) ? usernameTaken() : err;
     });
-  if (!deps.mailer) return { userId, emailed: false };
+  if (!deps.mailer || invite.demo) return { userId, emailed: false };
   try {
     await deps.mailer.send({ to: email, ...inviteEmail({ name, email, username, withPassword: passwordHash !== null, dashboardUrl: deps.dashboardUrl }) });
     return { userId, emailed: true };
