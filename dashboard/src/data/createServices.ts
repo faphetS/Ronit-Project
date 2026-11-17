@@ -7,6 +7,7 @@ import { createHttpLeadsService } from "./http/leads";
 import { createHttpSessionService } from "./http/session";
 import { createHttpImportsService, createHttpUsersService } from "./http/users";
 import type { Services, SessionService, SignedIn } from "./services";
+import type { StaffUser } from "./types";
 
 export interface ServicesOptions {
   /** VITE_API_URL: the API's origin. Empty: the page's own origin, which Vercel (and Vite in development) passes on to the API. */
@@ -71,12 +72,13 @@ export function createServices({ apiUrl, fetch }: ServicesOptions): Services {
     imports: createHttpImportsService(api),
   };
   let demo: DataServices | null = null;
-  let inDemo = false;
-  const current = (): DataServices => (inDemo ? (demo ??= createDemoServices()) : live);
+  let demoUser: StaffUser | null = null;
+  const current = (): DataServices => (demoUser ? (demo ??= createDemoServices(demoUser)) : live);
   const session = watchSession(createHttpSessionService(api), (signedIn) => {
-    inDemo = signedIn?.user.demo === true;
+    const next = signedIn?.user.demo === true ? signedIn.user : null;
     // A fresh set of samples for each demo sign-in.
-    if (!inDemo) demo = null;
+    if (next?.id !== demoUser?.id) demo = null;
+    demoUser = next;
   });
   const data = Object.fromEntries(DATA_SERVICES.map((name) => [name, switching(name, current)])) as unknown as DataServices;
   return { session, ...data };
