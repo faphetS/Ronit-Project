@@ -35,6 +35,27 @@ export const CustomerListQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).optional(),
 });
 
+const GroupDay = z.string().refine(isDay, "Expected a day as YYYY-MM-DD").nullable().optional();
+const GROUP_FIELDS = {
+  startsOn: GroupDay,
+  endsOn: GroupDay,
+  capacity: z.number().int().min(1).max(1000).nullable().optional(),
+};
+const endNotBeforeStart = (v: { startsOn?: string | null; endsOn?: string | null }) => !v.startsOn || !v.endsOn || v.endsOn >= v.startsOn;
+const END_MESSAGE = { message: "The end is before the start", path: ["endsOn"] };
+
+export const NewGroupSchema = z
+  .object({ name: z.string().trim().min(1).max(80), type: z.enum(["flight", "event", "project"]), ...GROUP_FIELDS })
+  .strict()
+  .refine(endNotBeforeStart, END_MESSAGE);
+
+export const GroupPatchSchema = z
+  .object({ name: z.string().trim().min(1).max(80).optional(), ...GROUP_FIELDS })
+  .strict()
+  .refine(endNotBeforeStart, END_MESSAGE);
+
+export const JoinGroupSchema = z.object({ leadId: z.string().uuid() }).strict();
+
 export const NoteSchema = z.object({ text: z.string().trim().min(1).max(2000) });
 
 export const PassportViewSchema = z.object({ part: z.enum(["details", "photo"]) });

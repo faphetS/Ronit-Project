@@ -44,6 +44,8 @@ export interface LeadDto {
   mondayPending: boolean;
   /** The customer card this lead is linked to, once it joined a group. */
   customerId: string | null;
+  /** The active groups this lead's customer is in. Only getLead fills it; lists leave it out. */
+  groups?: Array<{ id: string; name: string; type: string }>;
   /** Newest first. Empty in lists; filled by getLead. */
   history: LeadEventDto[];
 }
@@ -237,5 +239,13 @@ export async function getLead(db: Queryable, id: string): Promise<LeadDto> {
     })),
   ];
   lead.history = events.sort((x, y) => y.at.localeCompare(x.at));
+  const groups = lead.customerId
+    ? await db.query<{ id: string; name: string; type: string }>(
+        `SELECT DISTINCT g.id, g.name, g.kind AS type FROM group_members m JOIN groups g ON g.id = m.group_id
+         WHERE m.customer_id = $1 AND g.removed_at IS NULL ORDER BY g.name, g.id`,
+        [lead.customerId],
+      )
+    : { rows: [] };
+  lead.groups = groups.rows;
   return lead;
 }

@@ -39,7 +39,10 @@ import {
   InviteSchema,
   LeadListQuerySchema,
   LeadNoteSchema,
+  GroupPatchSchema,
+  JoinGroupSchema,
   LeadStatusSchema,
+  NewGroupSchema,
   NoteSchema,
   OwnPasswordSchema,
   PassportViewSchema,
@@ -63,6 +66,7 @@ import {
   type GreetingsDeps,
   type WhatsAppStatusDto,
 } from "./greetings.service.js";
+import { createGroup, joinGroup, removeGroup, removeMember, updateGroup } from "./crm-groups.service.js";
 import { getGroup, groupParticipants, listGroups } from "./groups.service.js";
 import { mondayCopyStatus } from "./imports.service.js";
 import { getLead, leadCounts, leadDays, listLeads } from "./leads.service.js";
@@ -252,6 +256,30 @@ export function createDashboardRouter(resolveDeps: AuthDepsResolver, options: Da
   });
   router.get("/groups/:id/participants", requireAccess("customers", "view"), async (req, res) => {
     sendData(res, await groupParticipants(db(res), viewer(req), idParam(req.params.id, "Group"), now(res)));
+  });
+  // Groups made here can be edited and removed here; Monday groups cannot. Joining also changes the lead, so it needs leads full too.
+  router.post("/groups", requireAccess("customers", "full"), validate({ body: NewGroupSchema }), async (req, res) => {
+    const id = await createGroup(db(res), req.body, now(res));
+    sendData(res, await getGroup(db(res), id), 201);
+  });
+  router.post("/groups/:id", requireAccess("customers", "full"), validate({ body: GroupPatchSchema }), async (req, res) => {
+    const id = idParam(req.params.id, "Group");
+    await updateGroup(db(res), id, req.body, now(res));
+    sendData(res, await getGroup(db(res), id));
+  });
+  router.post("/groups/:id/remove", requireAccess("customers", "full"), async (req, res) => {
+    await removeGroup(db(res), idParam(req.params.id, "Group"), now(res));
+    sendData(res, { removed: true });
+  });
+  router.post("/groups/:id/members", requireAccess("customers", "full"), requireAccess("leads", "full"), validate({ body: JoinGroupSchema }), async (req, res) => {
+    const deps = mirror.deps(db(res));
+    const joined = await joinGroup(db(res), deps.crmBoardId, idParam(req.params.id, "Group"), req.body.leadId, staffOf(req).user.id, now(res));
+    if (joined.statusChanged && mirror.enabled) await mirrorSoon(deps, req.body.leadId);
+    sendData(res, { customerId: joined.customerId, alreadyMember: joined.alreadyMember });
+  });
+  router.post("/groups/:id/members/:memberId/remove", requireAccess("customers", "full"), async (req, res) => {
+    await removeMember(db(res), idParam(req.params.id, "Group"), idParam(req.params.memberId, "Member"));
+    sendData(res, { removed: true });
   });
 
   // ---- Overview: for everyone signed in ----

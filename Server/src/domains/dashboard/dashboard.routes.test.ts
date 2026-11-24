@@ -377,6 +377,121 @@ describe("trips and events", () => {
   });
 });
 
+describe("groups in the CRM", () => {
+  const leadIdOf = async (itemId: string) => (await db.query<{ id: string }>("SELECT id FROM leads WHERE monday_item_id = $1", [itemId])).rows[0].id;
+  const newGroup = async (body: object = { name: "  פרויקט חורף  ", type: "project" }) => (await post(shira, "/groups", body).expect(201)).body.data;
+  const people = async (groupId: string) => (await get(shira, `/groups/${groupId}/participants`).expect(200)).body.data;
+
+  beforeEach(() => {
+    forgetMondayColumns();
+  });
+
+  it("creates a project group, renames it and removes it; Monday's groups refuse both", async () => {
+    const group = await newGroup({ name: "  פרויקט חורף  ", type: "project", startsOn: "2026-12-01", endsOn: "2026-12-05", capacity: 20 });
+    expect(group).toMatchObject({ name: "פרויקט חורף", shortName: "פרויקט חורף", type: "project", fromCrm: true, capacity: 20, startsOn: "2026-12-01", endsOn: "2026-12-05", registered: 0 });
+    const listed = (await get(moran, "/groups").expect(200)).body.data;
+    expect(listed.find((g: { id: string }) => g.id === group.id)).toMatchObject({ type: "project", fromCrm: true });
+    expect(listed.filter((g: { fromCrm: boolean }) => !g.fromCrm)).toHaveLength(2);
+    const renamed = (await post(shira, `/groups/${group.id}`, { name: "חורף 2", capacity: null, endsOn: null }).expect(200)).body.data;
+    expect(renamed).toMatchObject({ name: "חורף 2", capacity: null, endsOn: null, startsOn: "2026-12-01" });
+    expect((await post(shira, `/groups/${group.id}/remove`).expect(200)).body.data).toEqual({ removed: true });
+    expect((await get(moran, "/groups").expect(200)).body.data.map((g: { id: string }) => g.id)).not.toContain(group.id);
+    await post(shira, `/groups/${group.id}`, { name: "x" }).expect(404);
+    await post(shira, `/groups/${group.id}/remove`).expect(404);
+    const flight = listed.find((g: { type: string; fromCrm: boolean }) => g.type === "flight" && !g.fromCrm);
+    expect((await post(shira, `/groups/${flight.id}`, { name: "x" }).expect(409)).body.code).toBe("MONDAY_GROUP");
+    expect((await post(shira, `/groups/${flight.id}/remove`).expect(409)).body.code).toBe("MONDAY_GROUP");
+  });
+
+  it("refuses bad bodies", async () => {
+    await post(shira, "/groups", { name: "   ", type: "project" }).expect(400);
+    await post(shira, "/groups", { name: "x", type: "cruise" }).expect(400);
+    await post(shira, "/groups", { name: "x", type: "event", startsOn: "2026-12-05", endsOn: "2026-12-01" }).expect(400);
+    await post(shira, "/groups", { name: "x", type: "event", capacity: 0 }).expect(400);
+    await post(shira, "/groups", { name: "x", type: "event", extra: 1 }).expect(400);
+    const group = await newGroup();
+    await post(shira, `/groups/${group.id}`, { startsOn: "2026-12-05", endsOn: "2026-12-01" }).expect(400);
+    await post(shira, `/groups/${group.id}`, { type: "event" }).expect(400);
+    await post(shira, `/groups/${group.id}/members`, { leadId: "nope" }).expect(400);
+  });
+
+  it("adds a CRM lead: customer card, participant, registered status, Monday label and audit", async () => {
+    const group = await newGroup();
+    const id = await leadIdOf("101");
+    const joined = (await post(shira, `/groups/${group.id}/members`, { leadId: id }).expect(200)).body.data;
+    expect(joined).toMatchObject({ alreadyMember: false });
+    const customer = (await db.query<{ first_name: string; last_name: string; phone: string; from_monday: boolean }>("SELECT * FROM customers WHERE id = $1", [joined.customerId])).rows[0];
+    expect(customer).toMatchObject({ first_name: "יעל", last_name: "פרץ", from_monday: false });
+    const lead = (await get(shira, `/leads/${id}`).expect(200)).body.data;
+    expect(customer.phone).toBe((await db.query<{ phone: string }>("SELECT phone FROM leads WHERE id = $1", [id])).rows[0].phone);
+    expect(lead).toMatchObject({ customerId: joined.customerId, status: "registered", groups: [{ id: group.id, name: "פרויקט חורף", type: "project" }] });
+    expect(await people(group.id)).toMatchObject([{ customerId: joined.customerId, addedInCrm: true }]);
+    expect((await get(shira, `/groups/${group.id}`).expect(200)).body.data.registered).toBe(1);
+    expect(monday.writes).toEqual([{ boardId: CRM, itemId: "101", columnId: "contact", label: "נסגר" }]);
+    const audit = (await db.query<{ customer_id: string; details: Record<string, string>; by_user_id: string }>("SELECT customer_id, details, by_user_id FROM audit_log WHERE action = 'lead-joined-group'")).rows;
+    expect(audit).toEqual([{ customer_id: joined.customerId, details: { leadId: id, groupId: group.id }, by_user_id: shira.id }]);
+    const lists = (await get(shira, "/leads").expect(200)).body.data;
+    expect(lists.find((l: { id: string }) => l.id === id)).not.toHaveProperty("groups");
+  });
+
+  it("answers alreadyMember the second time and adds no second participant", async () => {
+    const group = await newGroup();
+    const id = await leadIdOf("101");
+    const first = (await post(shira, `/groups/${group.id}/members`, { leadId: id }).expect(200)).body.data;
+    const again = (await post(shira, `/groups/${group.id}/members`, { leadId: id }).expect(200)).body.data;
+    expect(again).toEqual({ customerId: first.customerId, alreadyMember: true });
+    expect(await people(group.id)).toHaveLength(1);
+    expect(monday.writes).toHaveLength(1);
+  });
+
+  it("reuses the customer with the same phone", async () => {
+    const group = await newGroup();
+    const id = await leadIdOf("103");
+    const before = (await db.query<{ n: number }>("SELECT count(*)::int AS n FROM customers")).rows[0].n;
+    const joined = (await post(shira, `/groups/${group.id}/members`, { leadId: id }).expect(200)).body.data;
+    expect((await db.query<{ n: number }>("SELECT count(*)::int AS n FROM customers")).rows[0].n).toBe(before);
+    expect((await db.query<{ first_name: string }>("SELECT first_name FROM customers WHERE id = $1", [joined.customerId])).rows[0].first_name).toBe("שירה");
+    expect(await people(group.id)).toMatchObject([{ customerId: joined.customerId, addedInCrm: true }]);
+  });
+
+  it("adds an old-board lead without writing to Monday", async () => {
+    const group = await newGroup();
+    const id = await leadIdOf("91");
+    await post(shira, `/groups/${group.id}/members`, { leadId: id }).expect(200);
+    expect((await get(shira, `/leads/${id}`).expect(200)).body.data).toMatchObject({ status: "registered", groups: [{ id: group.id }] });
+    expect(monday.writes).toEqual([]);
+  });
+
+  it("removes a CRM-added member but not one from Monday", async () => {
+    const group = await newGroup();
+    const joined = await post(shira, `/groups/${group.id}/members`, { leadId: await leadIdOf("101") }).expect(200);
+    const [member] = await people(group.id);
+    expect(joined.body.data.customerId).toBe(member.customerId);
+    await post(shira, `/groups/${group.id}/members/${member.id}/remove`).expect(200);
+    expect(await people(group.id)).toEqual([]);
+    await post(shira, `/groups/${group.id}/members/${member.id}/remove`).expect(404);
+    const flight = (await get(shira, "/groups").expect(200)).body.data.find((g: { type: string }) => g.type === "flight");
+    const [mondayMember] = await people(flight.id);
+    expect(mondayMember.addedInCrm).toBe(false);
+    expect((await post(shira, `/groups/${flight.id}/members/${mondayMember.id}/remove`).expect(409)).body.code).toBe("MONDAY_MEMBER");
+    await post(shira, `/groups/${group.id}/members/${mondayMember.id}/remove`).expect(404);
+  });
+
+  it("needs customers full, and leads full to join; demo is refused", async () => {
+    const group = await newGroup();
+    const id = await leadIdOf("101");
+    await post(ronit, "/users/permissions", { role: "sales", area: "customers", access: "view" }).expect(200);
+    await post(moran, "/groups", { name: "x", type: "event" }).expect(403);
+    await post(moran, `/groups/${group.id}/members`, { leadId: id }).expect(403);
+    await post(moran, `/groups/${group.id}/remove`).expect(403);
+    await post(ronit, "/users/permissions", { role: "office", area: "leads", access: "view" }).expect(200);
+    expect((await post(shira, `/groups/${group.id}/members`, { leadId: id }).expect(403)).body.code).toBe("NO_ACCESS");
+    expect(monday.writes).toEqual([]);
+    await db.query("UPDATE staff_users SET is_demo = true WHERE id = $1", [ronit.id]);
+    expect((await post(ronit, "/groups", { name: "x", type: "event" }).expect(403)).body.code).toBe("DEMO_ACCOUNT");
+  });
+});
+
 describe("overview", () => {
   it("counts the pipeline, customers and active trips, and lists what happened lately", async () => {
     const stats = (await get(moran, "/overview/stats").expect(200)).body.data;
