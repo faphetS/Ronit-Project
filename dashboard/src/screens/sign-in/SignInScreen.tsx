@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { useCopy, useLocale } from "../../content/locale";
 import { useGoogleCredential, useStartGoogle } from "../../data/queries";
@@ -14,6 +14,8 @@ import { signInMessage } from "./signInMessage";
 
 /** Set in production: Google's own button. Unset (the demo, tests): our button, which skips Google on the demo data. */
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "";
+/** The server's Google nonce cookie lasts 30 minutes (GOOGLE_BUTTON_MINUTES); the button is redrawn before then. */
+const NONCE_REFRESH_MS = 25 * 60_000;
 
 /**
  * Sign in: the username (or email) and password the office gave, or, as the shortcut, Google's
@@ -36,6 +38,28 @@ export function SignInScreen() {
   const [googleButtonFailed, setGoogleButtonFailed] = useState(false);
   // A new key renders Google's button again, with a fresh nonce.
   const [googleButtonKey, setGoogleButtonKey] = useState(0);
+  // A sign-in page left open past the nonce's 30 minutes failed on the first click ("no sign-in in progress on this
+  // browser"). Draw the button again every 25 minutes, and on coming back to the tab after that long, since timers
+  // sleep with the laptop.
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID) return;
+    let drawnAt = Date.now();
+    const redraw = () => {
+      drawnAt = Date.now();
+      setGoogleButtonKey((key) => key + 1);
+    };
+    const timer = window.setInterval(redraw, NONCE_REFRESH_MS);
+    const onReturn = () => {
+      if (document.visibilityState === "visible" && Date.now() - drawnAt >= NONCE_REFRESH_MS) redraw();
+    };
+    document.addEventListener("visibilitychange", onReturn);
+    window.addEventListener("focus", onReturn);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onReturn);
+      window.removeEventListener("focus", onReturn);
+    };
+  }, []);
   const [message, setMessage] = useState(() => {
     // "cancelled" (backing out of Google's page) isn't in the list, so it says nothing.
     const code = SIGN_IN_ERRORS.find((known) => known === params.get("error"));
