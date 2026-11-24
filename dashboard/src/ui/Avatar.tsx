@@ -1,11 +1,13 @@
 import { cx } from "../lib/cx";
 
-type AvatarSize = "sm" | "md" | "lg" | "xl";
+type AvatarSize = "xs" | "sm" | "md" | "lg" | "xl";
 
 /** The circle's look on each surface. "outline" is for someone who has not joined yet, like a pending invite. */
 export type AvatarTone = "sand" | "glass" | "ink" | "paper" | "outline";
 
 const SIZE: Record<AvatarSize, string> = {
+  /** In a list of suggestions. */
+  xs: "size-7 text-[12px] font-semibold",
   sm: "size-[38px] text-[14px] font-semibold",
   md: "size-[46px] text-[18px] font-semibold",
   lg: "size-[76px] text-[30px] font-light",

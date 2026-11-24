@@ -8,10 +8,14 @@ import { Avatar } from "../../ui/Avatar";
 import { IconButton } from "../../ui/IconButton";
 import { LanguageSwitch } from "../../ui/LanguageSwitch";
 import { MotionLink } from "../../ui/MotionLink";
+import { NotificationsSheet } from "../notifications/NotificationsSheet";
 import { isPushedRoute, parentOf } from "../sections";
 import { useNavBadges } from "../useNavBadges";
 
-/** Top of a phone screen: avatar, logo, language and bell on top-level screens; a back arrow and a title on pushed ones. */
+/**
+ * Top of a phone screen: avatar, logo, language and the bell (it opens the notifications in a sheet) on top-level
+ * screens; a back arrow and a title on pushed ones.
+ */
 export function PhoneTopBar({ title }: { title?: string }) {
   const location = useLocation();
   // The screen's own path: while a screen slides out, its header must not turn into the next screen's.
@@ -46,7 +50,7 @@ export function PhoneTopBar({ title }: { title?: string }) {
       <img src={logoUrl} alt={common.brandFull} className="w-14" />
       <div className="flex items-center gap-2 justify-self-end">
         <LanguageSwitch compact />
-        <IconButton icon="bell" label={nav.notifications(badges.notifications)} badge={badges.notifications} />
+        <NotificationsSheet count={badges.notifications} />
       </div>
     </header>
   );

@@ -25,6 +25,21 @@ export const nav = {
   settings: "הגדרות",
   search: "חיפוש מהיר",
   notifications: (count: number) => `התראות, ${count} חדשות`,
+  /** What the bell opens: the alerts its count includes, and the notes that tagged the signed-in person. */
+  bell: {
+    title: "התראות",
+    markAllRead: "סימון הכול כנקרא",
+    empty: "אין התראות חדשות",
+    /** Read beside the dot of a tag nobody opened yet. */
+    unread: "לא נקרא",
+    mentionTitle: (lead: string) => `תיוג בהערה · ${lead}`,
+    /** The author's first name and the opening of the note. */
+    mentionDetail: (author: string, text: string) => `${author}: ${text}`,
+    mentionsFailed: "התיוגים לא נטענו.",
+    passports: (count: number) => (count === 1 ? "דרכון ממתין לבדיקה" : `${count} דרכונים ממתינים לבדיקה`),
+    greeting: (holiday: string) => `ברכת ${holiday} ממתינה לאישור`,
+    greetingDetail: (recipients: string) => `${recipients} נמענים`,
+  },
   withNew: (label: string, count: number) => `${label}, ${count} חדשים`,
   signOut: (name: string) => `${name}, יציאה מהמערכת`,
   account: (name: string) => `${name}, חשבון וניהול`,

@@ -22,7 +22,7 @@ interface ListRowProps {
   titleEnd?: ReactNode;
   /** The whole row links here. */
   to?: string;
-  /** The whole row is a button. */
+  /** The whole row is a button. With `to`, it runs as the link is followed. */
   onClick?: () => void;
   /** A forward arrow at the end, for link rows on phones. */
   chevron?: boolean;
@@ -94,7 +94,7 @@ export function ListRow({
   const interactiveClass = cx(baseRow, "-mx-2.5 w-[calc(100%+1.25rem)] rounded-[14px] px-2.5 transition-colors", HOVER_TINT[surface]);
   const outerClass = cx("border-t first:border-t-0", DIVIDER[surface], className);
   const inner = to ? (
-    <Link to={to} className={cx("group/row", interactiveClass, FOCUS_RING[surface])}>
+    <Link to={to} onClick={onClick} className={cx("group/row", interactiveClass, FOCUS_RING[surface])}>
       {body}
     </Link>
   ) : onClick ? (

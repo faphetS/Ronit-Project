@@ -1,5 +1,5 @@
 import { motion } from "motion/react";
-import { useId, useRef, type ReactNode } from "react";
+import { useId, useImperativeHandle, useRef, type FocusEvent, type KeyboardEvent, type ReactNode, type Ref, type SyntheticEvent } from "react";
 import { useCopy } from "../content/locale";
 import { cx } from "../lib/cx";
 import { PRESS_SCALE, springs } from "../motion/springs";
@@ -10,6 +10,14 @@ export interface TextToken {
   label: string;
   /** What it inserts: "{שם פרטי}". */
   token: string;
+}
+
+/** A field that suggests as it's typed into: it is a combobox for the listbox with the id `controls`. */
+export interface TextAreaCombobox {
+  expanded: boolean;
+  controls: string;
+  /** The id of the suggestion picked with the arrow keys, while the list is open. */
+  activeDescendant?: string;
 }
 
 interface TextAreaProps {
@@ -35,6 +43,15 @@ interface TextAreaProps {
   required?: boolean;
   disabled?: boolean;
   className?: string;
+  /** Reaches the textarea itself, e.g. to read or move the caret. */
+  ref?: Ref<HTMLTextAreaElement>;
+  onKeyDown?: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
+  /** The caret moved or the selection changed: by typing, a click or the arrow keys. */
+  onSelect?: (event: SyntheticEvent<HTMLTextAreaElement>) => void;
+  onBlur?: (event: FocusEvent<HTMLTextAreaElement>) => void;
+  combobox?: TextAreaCombobox;
+  /** Floats right under the field, over what follows: a list of suggestions. */
+  popup?: ReactNode;
 }
 
 /** Multiline field in the same family as Field: soft fill, rounded corners, a dark focus ring. */
@@ -55,10 +72,18 @@ export function TextArea({
   required,
   disabled,
   className,
+  ref,
+  onKeyDown,
+  onSelect,
+  onBlur,
+  combobox,
+  popup,
 }: TextAreaProps) {
   const id = useId();
   const { uiCopy } = useCopy();
   const fieldRef = useRef<HTMLTextAreaElement>(null);
+  // Handed out again each render: the field remounts if `popup` comes or goes.
+  useImperativeHandle(ref, () => fieldRef.current as HTMLTextAreaElement);
   // Where the cursor was when the field last had it, so a chip inserts there.
   const lastSelection = useRef<[number, number] | null>(null);
 
@@ -78,31 +103,53 @@ export function TextArea({
   };
 
   const hasRow = Boolean(tokens?.length) || Boolean(actions);
+  const field = (
+    <textarea
+      ref={fieldRef}
+      id={id}
+      name={name}
+      rows={rows}
+      value={value}
+      defaultValue={defaultValue}
+      onChange={onChange ? (event) => onChange(event.target.value) : undefined}
+      onKeyDown={onKeyDown}
+      onSelect={(event) => {
+        remember();
+        onSelect?.(event);
+      }}
+      onBlur={(event) => {
+        remember();
+        onBlur?.(event);
+      }}
+      placeholder={placeholder}
+      maxLength={maxLength}
+      required={required}
+      disabled={disabled}
+      aria-describedby={describedBy}
+      role={combobox ? "combobox" : undefined}
+      aria-autocomplete={combobox ? "list" : undefined}
+      aria-expanded={combobox?.expanded}
+      aria-controls={combobox?.controls}
+      aria-activedescendant={combobox?.activeDescendant}
+      className={cx(
+        "block w-full resize-y rounded-inner px-[18px] py-3.5 text-[15px] leading-[1.7] text-ink placeholder:text-mute focus-visible:outline-offset-2 disabled:opacity-60",
+        onPaper ? "bg-sand-light" : "bg-white/60",
+      )}
+    />
+  );
   return (
     <div className={cx("flex flex-col gap-2", className)}>
       <label htmlFor={id} className={showLabel ? "text-[13px] font-medium text-mute" : "sr-only"}>
         {label}
       </label>
-      <textarea
-        ref={fieldRef}
-        id={id}
-        name={name}
-        rows={rows}
-        value={value}
-        defaultValue={defaultValue}
-        onChange={onChange ? (event) => onChange(event.target.value) : undefined}
-        onSelect={remember}
-        onBlur={remember}
-        placeholder={placeholder}
-        maxLength={maxLength}
-        required={required}
-        disabled={disabled}
-        aria-describedby={describedBy}
-        className={cx(
-          "block w-full resize-y rounded-inner px-[18px] py-3.5 text-[15px] leading-[1.7] text-ink placeholder:text-mute focus-visible:outline-offset-2 disabled:opacity-60",
-          onPaper ? "bg-sand-light" : "bg-white/60",
-        )}
-      />
+      {popup ? (
+        <div className="relative">
+          {field}
+          {popup}
+        </div>
+      ) : (
+        field
+      )}
       {hasRow ? (
         <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
           {tokens?.length ? (

@@ -159,6 +159,9 @@ export function createTestServices({ failing = [], signedIn = false }: TestServi
       addNote: missing("Lead"),
       editNote: missing("Lead"),
       deleteNote: missing("Lead"),
+      // Nobody tagged Ronit yet.
+      mentions: async () => ({ unread: 0, items: [] }),
+      markMentionsSeen: async () => ({ unread: 0 }),
     },
     customers: {
       list: async (query = {}) => ({ items: [], total: 0, page: query.page ?? 1, pageSize: query.pageSize ?? 25 }),

@@ -151,7 +151,11 @@ export const leadsCopy = {
     historyMeta: (date: string, by: string) => `${date} · ${by}`,
     /** The note box on the lead's card. */
     noteLabel: "הערה חדשה",
-    notePlaceholder: "כתבו הערה על הליד",
+    notePlaceholder: "כתבו הערה על הליד · @ לתיוג",
+    /** Beside "שמירה": starts a tag of someone from the team, like typing "@". */
+    noteTag: "תיוג",
+    /** The list of people that opens under the box after "@". */
+    noteTagList: "אנשי צוות לתיוג",
     noteSave: "שמירה",
     noteSaved: "ההערה נשמרה",
     noteFailed: "ההערה לא נשמרה. נסו שוב.",

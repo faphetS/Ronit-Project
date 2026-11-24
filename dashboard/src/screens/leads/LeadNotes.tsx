@@ -1,29 +1,47 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { Link } from "react-router";
 import { useCopy, useLocale } from "../../content/locale";
-import { useAddLeadNote, useDeleteLeadNote, useEditLeadNote, useSession } from "../../data/queries";
-import type { Lead, LeadEvent } from "../../data/types";
+import { useAddLeadNote, useDeleteLeadNote, useEditLeadNote, useSession, useUsers } from "../../data/queries";
+import type { Lead, LeadEvent, UserAccount } from "../../data/types";
 import { formatDayMonth } from "../../lib/format";
 import { Button } from "../../ui/Button";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
-import { TextArea } from "../../ui/TextArea";
 import { useToast } from "../../ui/toast-context";
 import { useStaffLookup } from "../customers/useStaffLookup";
+import { mentionedIds, splitMentions } from "./mentions";
+import { MentionTextArea } from "./MentionTextArea";
 
-/** The box for a new note, for people with full Leads access. */
+/** A note's tags; a server from before tags sends none. */
+const tagsOf = (event: LeadEvent): string[] => event.mentions ?? [];
+
+/** Remembers one more person picked in the box. */
+const withTag = (userId: string) => (ids: string[]) => (ids.includes(userId) ? ids : [...ids, userId]);
+
+/**
+ * The tags to save with the text: the people picked whose "@<full name>" is still in it. Until the team has loaded,
+ * names can't be checked, so the ones remembered stay.
+ */
+function tagsToSave(text: string, remembered: string[], team: UserAccount[] | undefined): string[] {
+  return team ? mentionedIds(text, remembered, team) : remembered;
+}
+
+/** The box for a new note, for people with full Leads access. "@" tags someone from the team. */
 export function NoteComposer({ leadId }: { leadId: string }) {
   const { leadsCopy: copy } = useCopy();
   const toast = useToast();
   const add = useAddLeadNote();
+  const team = useUsers().data?.users;
   const [text, setText] = useState("");
+  const [tagged, setTagged] = useState<string[]>([]);
   const save = () => {
     const trimmed = text.trim();
     if (!trimmed || add.isPending) return;
     add.mutate(
-      { id: leadId, text: trimmed },
+      { id: leadId, text: trimmed, mentions: tagsToSave(trimmed, tagged, team) },
       {
         onSuccess: () => {
           setText("");
+          setTagged([]);
           toast.show({ message: copy.detail.noteSaved });
         },
         onError: () => toast.show({ message: copy.detail.noteFailed, tone: "warning" }),
@@ -31,12 +49,12 @@ export function NoteComposer({ leadId }: { leadId: string }) {
     );
   };
   return (
-    <TextArea
+    <MentionTextArea
       label={copy.detail.noteLabel}
       name="note"
-      rows={3}
       value={text}
       onChange={setText}
+      onTag={(userId) => setTagged(withTag(userId))}
       placeholder={copy.detail.notePlaceholder}
       className="mb-4"
       actions={
@@ -48,6 +66,28 @@ export function NoteComposer({ leadId }: { leadId: string }) {
   );
 }
 
+/** A note's text, with the "@<full name>" of each person it tags as a gold chip. Other "@" text stays as it is. */
+export function NoteText({ text, mentions }: { text: string; mentions: readonly string[] }) {
+  const team = useUsers().data?.users ?? [];
+  const parts = splitMentions(
+    text,
+    team.filter((user) => mentions.includes(user.id)),
+  );
+  return (
+    <p className="font-medium break-words whitespace-pre-line text-ink">
+      {parts.map((part, index) =>
+        typeof part === "string" ? (
+          <Fragment key={index}>{part}</Fragment>
+        ) : (
+          <bdi key={index} data-mention={part.person.id} className="rounded-md bg-gold/25 px-1 box-decoration-clone">
+            {part.text}
+          </bdi>
+        ),
+      )}
+    </p>
+  );
+}
+
 const LINK_BUTTON = "text-caption font-medium text-copy underline-offset-2 hover:underline";
 
 function NoteRow({ leadId, event, canManage }: { leadId: string; event: LeadEvent; canManage: boolean }) {
@@ -55,10 +95,12 @@ function NoteRow({ leadId, event, canManage }: { leadId: string; event: LeadEven
   const { locale } = useLocale();
   const toast = useToast();
   const staff = useStaffLookup();
+  const team = useUsers().data?.users;
   const edit = useEditLeadNote();
   const remove = useDeleteLeadNote();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(event.text);
+  const [tagged, setTagged] = useState<string[]>(() => tagsOf(event));
   const [confirming, setConfirming] = useState(false);
 
   const date = formatDayMonth(new Date(event.at), locale);
@@ -66,17 +108,25 @@ function NoteRow({ leadId, event, canManage }: { leadId: string; event: LeadEven
   const who = isCrm ? (staff(event.byUserId)?.name ?? null) : event.author;
   const meta = who ? copy.detail.historyMeta(date, who) : date;
 
+  // The editor opens on the note as it is now, with the people it tags already remembered.
+  const startEdit = () => {
+    setDraft(event.text);
+    setTagged(tagsOf(event));
+    setEditing(true);
+  };
+  // The tags always go with an edit, so taking a name out of the text takes its tag off.
   const saveEdit = () => {
     const trimmed = draft.trim();
     if (!trimmed || edit.isPending) return;
     edit.mutate(
-      { id: leadId, noteId: event.id, text: trimmed },
+      { id: leadId, noteId: event.id, text: trimmed, mentions: tagsToSave(trimmed, tagged, team) },
       { onSuccess: () => setEditing(false), onError: () => toast.show({ message: copy.detail.noteFailed, tone: "warning" }) },
     );
   };
   const cancelEdit = () => {
     setEditing(false);
     setDraft(event.text);
+    setTagged(tagsOf(event));
   };
   const confirmDelete = () => {
     remove.mutate(
@@ -93,33 +143,33 @@ function NoteRow({ leadId, event, canManage }: { leadId: string; event: LeadEven
     <li className="relative ps-6 pb-4 last:pb-0">
       <span aria-hidden="true" className={`absolute start-[3px] top-[7px] size-[9px] rounded-full ${isCrm ? "bg-ink" : "bg-status-irrelevant"}`} />
       {editing ? (
-        <TextArea
+        <MentionTextArea
           label={copy.detail.noteEditLabel}
           name="note-edit"
-          rows={3}
           value={draft}
           onChange={setDraft}
+          onTag={(userId) => setTagged(withTag(userId))}
           actions={
-            <span className="flex gap-2">
+            <>
               <Button size="sm" variant="outline" onClick={cancelEdit}>
                 {copy.detail.noteCancel}
               </Button>
               <Button size="sm" onClick={saveEdit} disabled={!draft.trim() || edit.isPending}>
                 {copy.detail.noteSave}
               </Button>
-            </span>
+            </>
           }
         />
       ) : (
         <>
-          <p className="font-medium break-words whitespace-pre-line text-ink">{event.text}</p>
+          <NoteText text={event.text} mentions={tagsOf(event)} />
           <p className="text-caption text-mute">
             {meta}
             {event.editedAt ? ` · ${copy.detail.noteEdited}` : null}
           </p>
           {canManage ? (
             <p className="mt-1 flex gap-3">
-              <button type="button" className={LINK_BUTTON} onClick={() => setEditing(true)}>
+              <button type="button" className={LINK_BUTTON} onClick={startEdit}>
                 {copy.detail.noteEdit}
               </button>
               <button type="button" className={LINK_BUTTON} onClick={() => setConfirming(true)}>

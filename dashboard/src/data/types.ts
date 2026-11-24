@@ -39,6 +39,28 @@ export interface LeadEvent {
   source: "crm" | "monday";
   /** When a CRM note was last edited; null if never, and always null for Monday notes. */
   editedAt: string | null;
+  /** The staff tagged in the note with "@", by user id. Empty for older notes and Monday's. */
+  mentions: string[];
+}
+
+/** A note that tagged the signed-in user. */
+export interface Mention {
+  noteId: string;
+  leadId: string;
+  leadName: string;
+  /** Who wrote the note; null when the account is gone. */
+  byUserId: string | null;
+  at: string;
+  text: string;
+  /** Opened from the bell, or marked read. */
+  seen: boolean;
+}
+
+/** The signed-in user's tags in notes: the newest 30, and how many of all of them are unread. */
+export interface MentionFeed {
+  unread: number;
+  /** Newest first. */
+  items: Mention[];
 }
 
 /**

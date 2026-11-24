@@ -42,7 +42,7 @@ export async function createTestDb(): Promise<TestDb> {
       await pglite.exec(`
         TRUNCATE audit_log, messages, campaigns, passport_intakes, group_members, groups,
           passports, customer_notes, customers, staff_sign_in_challenges, staff_devices, staff_sessions,
-          security_settings, monday_copy_runs, staff_users, leads, lead_notes, monday_notes, monday_boards, role_permissions,
+          security_settings, monday_copy_runs, staff_users, leads, lead_notes, lead_note_mentions, monday_notes, monday_boards, role_permissions,
           whatsapp_templates, birthday_settings, zernio_webhook_events;
         INSERT INTO security_settings DEFAULT VALUES;
         ${ROLE_PERMISSIONS_SEED}

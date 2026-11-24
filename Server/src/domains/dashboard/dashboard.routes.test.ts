@@ -332,6 +332,206 @@ describe("lead notes", () => {
   });
 });
 
+describe("note mentions", () => {
+  const UNKNOWN = "00000000-0000-4000-8000-000000000000";
+  const leadIdOf = async (itemId: string) => (await db.query<{ id: string }>("SELECT id FROM leads WHERE monday_item_id = $1", [itemId])).rows[0].id;
+  const leadNameOf = async (id: string) => (await db.query<{ name: string }>("SELECT name FROM leads WHERE id = $1", [id])).rows[0].name;
+  /** Who is tagged on a note, and when each saw it (null: not yet). */
+  const tags = async (noteId: string) => {
+    const { rows } = await db.query<{ user_id: string; seen_at: Date | null }>("SELECT user_id, seen_at FROM lead_note_mentions WHERE note_id = $1", [noteId]);
+    return Object.fromEntries(rows.map((row) => [row.user_id, row.seen_at?.toISOString() ?? null]));
+  };
+  /** An account that is only tagged here, never signed in. */
+  const staff = async (name: string, kind: "open" | "demo" | "removed" = "open") =>
+    (
+      await db.query<{ id: string }>("INSERT INTO staff_users (email, name, role, is_demo, disabled_at) VALUES ($1, $2, 'office', $3, $4) RETURNING id", [
+        `${name}@example.com`,
+        name,
+        kind === "demo",
+        kind === "removed" ? clock : null,
+      ])
+    ).rows[0].id;
+  const note = async (who: Person, leadId: string, body: object) => (await post(who, `/leads/${leadId}/notes`, body).expect(201)).body.data;
+  const edit = async (who: Person, leadId: string, noteId: string, body: object) => (await post(who, `/leads/${leadId}/notes/${noteId}`, body).expect(200)).body.data;
+  const mentionsOf = async (who: Person) => (await get(who, "/mentions").expect(200)).body.data;
+  const seen = async (who: Person, body: object = {}) => (await post(who, "/mentions/seen", body).expect(200)).body.data;
+
+  it("tags people on a new note, drops unknown, demo and removed accounts, and counts your own tag as seen", async () => {
+    const id = await leadIdOf("101");
+    const demo = await staff("demo", "demo");
+    const former = await staff("former", "removed");
+    const saved = await note(shira, id, { text: "please call back", mentions: [moran.id, UNKNOWN, demo, shira.id, former, ronit.id] });
+    expect(saved).toMatchObject({ text: "please call back", byUserId: shira.id, editedAt: null, mentions: [moran.id, shira.id, ronit.id] });
+    expect(await tags(saved.id)).toEqual({ [moran.id]: null, [shira.id]: clock.toISOString(), [ronit.id]: null });
+    expect((await note(shira, id, { text: "no tags" })).mentions).toEqual([]);
+    expect((await note(shira, id, { text: "same person", mentions: [moran.id.toUpperCase()] })).mentions).toEqual([moran.id]);
+  });
+
+  it("refuses a mentions list that isn't unique ids, or has more than 20, and saves nothing then", async () => {
+    const id = await leadIdOf("101");
+    const ids = (n: number) => Array.from({ length: n }, (_, i) => `00000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`);
+    const before = await note(shira, id, { text: "kept", mentions: [moran.id] });
+    for (const mentions of [[moran.id, moran.id], [moran.id, moran.id.toUpperCase()], ["moran"], moran.id, ids(21)]) {
+      await post(shira, `/leads/${id}/notes`, { text: "x", mentions }).expect(400);
+      await post(shira, `/leads/${id}/notes/${before.id}`, { text: "x", mentions }).expect(400);
+    }
+    expect((await db.query("SELECT text FROM lead_notes")).rows).toEqual([{ text: "kept" }]);
+    expect(await tags(before.id)).toEqual({ [moran.id]: null });
+    // Twenty ids nobody has: the note is saved, untagged.
+    expect((await note(shira, id, { text: "x", mentions: ids(20) })).mentions).toEqual([]);
+  });
+
+  it("replaces the tags on an edit: dropped ones go, new ones start unseen, kept ones keep what they've seen", async () => {
+    const id = await leadIdOf("101");
+    const tester = await staff("tester");
+    const saved = await note(shira, id, { text: "first", mentions: [moran.id, ronit.id] });
+    expect(await seen(moran, { noteIds: [saved.id] })).toEqual({ unread: 0 });
+    clock = new Date("2026-11-02T09:20:00Z");
+    const edited = await edit(shira, id, saved.id, { text: "second", mentions: [tester, moran.id, shira.id] });
+    expect(edited).toMatchObject({ id: saved.id, text: "second", editedAt: "2026-11-02T09:20:00.000Z", mentions: [tester, moran.id, shira.id] });
+    const after = { [tester]: null, [moran.id]: "2026-11-02T09:00:00.000Z", [shira.id]: "2026-11-02T09:20:00.000Z" };
+    expect(await tags(saved.id)).toEqual(after);
+
+    // Without mentions, the tags stay as they are, oldest tag first.
+    clock = new Date("2026-11-02T09:25:00Z");
+    const again = await edit(shira, id, saved.id, { text: "third" });
+    expect(again).toMatchObject({ text: "third", editedAt: "2026-11-02T09:25:00.000Z" });
+    expect(again.mentions[0]).toBe(moran.id);
+    expect([...again.mentions].sort()).toEqual([tester, moran.id, shira.id].sort());
+    expect(await tags(saved.id)).toEqual(after);
+
+    // An empty list takes every tag off.
+    expect((await edit(shira, id, saved.id, { text: "fourth", mentions: [] })).mentions).toEqual([]);
+    expect(await tags(saved.id)).toEqual({});
+  });
+
+  it("lets only the note's author or an admin change its tags; the admin's own new tag is seen", async () => {
+    const id = await leadIdOf("101");
+    const saved = await note(shira, id, { text: "mine", mentions: [moran.id] });
+    expect((await post(moran, `/leads/${id}/notes/${saved.id}`, { text: "mine", mentions: [] }).expect(403)).body.code).toBe("NOT_YOUR_NOTE");
+    expect(await tags(saved.id)).toEqual({ [moran.id]: null });
+    expect((await edit(ronit, id, saved.id, { text: "mine", mentions: [moran.id, ronit.id] })).mentions).toEqual([moran.id, ronit.id]);
+    expect(await tags(saved.id)).toEqual({ [moran.id]: null, [ronit.id]: clock.toISOString() });
+  });
+
+  it("shows each note's tags in the lead's history, and none on Monday's notes", async () => {
+    const id = await leadIdOf("101");
+    const tagged = await note(shira, id, { text: "tagged", mentions: [moran.id] });
+    clock = new Date("2026-11-02T09:05:00Z");
+    const plain = await note(shira, id, { text: "plain" });
+    const history = (await get(moran, `/leads/${id}`).expect(200)).body.data.history;
+    expect(history.map((e: { id: string; source: string; mentions: string[] }) => [e.source, e.mentions])).toEqual([
+      ["crm", []],
+      ["crm", [moran.id]],
+      ["monday", []],
+      ["monday", []],
+    ]);
+    expect(history.slice(0, 2).map((e: { id: string }) => e.id)).toEqual([plain.id, tagged.id]);
+  });
+
+  it("lists only your mentions, newest note first, without removed leads, and counts the unseen", async () => {
+    const a = await leadIdOf("101");
+    const b = await leadIdOf("103");
+    const older = await note(shira, a, { text: "older", mentions: [moran.id] });
+    clock = new Date("2026-11-02T09:05:00Z");
+    const newer = await note(ronit, b, { text: "newer", mentions: [moran.id, shira.id] });
+    clock = new Date("2026-11-02T09:10:00Z");
+    const own = await note(shira, a, { text: "for the admin", mentions: [shira.id, ronit.id] });
+    expect(await mentionsOf(moran)).toEqual({
+      unread: 2,
+      items: [
+        { noteId: newer.id, leadId: b, leadName: await leadNameOf(b), byUserId: ronit.id, at: "2026-11-02T09:05:00.000Z", text: "newer", seen: false },
+        { noteId: older.id, leadId: a, leadName: await leadNameOf(a), byUserId: shira.id, at: "2026-11-02T09:00:00.000Z", text: "older", seen: false },
+      ],
+    });
+    // Your own tag is listed as seen and not counted.
+    const shiras = await mentionsOf(shira);
+    expect(shiras.unread).toBe(1);
+    expect(shiras.items.map((m: { noteId: string; seen: boolean }) => [m.noteId, m.seen])).toEqual([
+      [own.id, true],
+      [newer.id, false],
+    ]);
+    // A lead taken out of the CRM takes its mentions out of the list and the count.
+    await db.query("UPDATE leads SET removed_at = $2 WHERE id = $1", [b, clock]);
+    const left = await mentionsOf(moran);
+    expect(left.unread).toBe(1);
+    expect(left.items.map((m: { noteId: string }) => m.noteId)).toEqual([older.id]);
+  });
+
+  it("lists the newest 30, and counts every unseen one", async () => {
+    const id = await leadIdOf("101");
+    await db.query(
+      `INSERT INTO lead_notes (lead_id, by_user_id, at, text)
+       SELECT $1, $2, $3::timestamptz + n * interval '1 minute', 'note ' || n FROM generate_series(1, 31) AS n`,
+      [id, shira.id, clock],
+    );
+    await db.query("INSERT INTO lead_note_mentions (note_id, user_id) SELECT id, $1 FROM lead_notes", [moran.id]);
+    const list = await mentionsOf(moran);
+    expect(list.unread).toBe(31);
+    expect(list.items).toHaveLength(30);
+    expect([list.items[0].text, list.items.at(-1).text]).toEqual(["note 31", "note 2"]);
+  });
+
+  it("marks some of your mentions seen, or all of them, and answers the unread count", async () => {
+    const id = await leadIdOf("101");
+    const first = await note(shira, id, { text: "one", mentions: [moran.id] });
+    const second = await note(shira, id, { text: "two", mentions: [moran.id] });
+    const third = await note(ronit, id, { text: "three", mentions: [moran.id, shira.id] });
+    expect(await seen(moran, { noteIds: [first.id] })).toEqual({ unread: 2 });
+    expect(await tags(first.id)).toEqual({ [moran.id]: "2026-11-02T09:00:00.000Z" });
+    // Someone else's tag on the same note stays theirs to see.
+    clock = new Date("2026-11-02T09:10:00Z");
+    expect(await seen(moran, { noteIds: [third.id, UNKNOWN] })).toEqual({ unread: 1 });
+    expect(await tags(third.id)).toEqual({ [moran.id]: "2026-11-02T09:10:00.000Z", [shira.id]: null });
+    // Without a list, all of yours; one seen before keeps its time.
+    clock = new Date("2026-11-02T09:20:00Z");
+    expect(await seen(moran)).toEqual({ unread: 0 });
+    expect(await tags(first.id)).toEqual({ [moran.id]: "2026-11-02T09:00:00.000Z" });
+    expect(await tags(second.id)).toEqual({ [moran.id]: "2026-11-02T09:20:00.000Z" });
+    expect((await mentionsOf(moran)).items.map((m: { seen: boolean }) => m.seen)).toEqual([true, true, true]);
+    expect((await mentionsOf(shira)).unread).toBe(1);
+
+    for (const body of [{ noteIds: ["nope"] }, { noteIds: first.id }, { noteIds: Array.from({ length: 101 }, () => first.id) }, { all: true }]) {
+      await post(moran, "/mentions/seen", body).expect(400);
+    }
+  });
+
+  it("needs leads view, and refuses a demo account", async () => {
+    await post(ronit, "/users/permissions", { role: "sales", area: "leads", access: "none" }).expect(200);
+    expect((await get(moran, "/mentions").expect(403)).body.code).toBe("NO_ACCESS");
+    expect((await post(moran, "/mentions/seen").expect(403)).body.code).toBe("NO_ACCESS");
+    await post(ronit, "/users/permissions", { role: "sales", area: "leads", access: "view" }).expect(200);
+    expect(await mentionsOf(moran)).toEqual({ unread: 0, items: [] });
+    expect(await seen(moran)).toEqual({ unread: 0 });
+    await db.query("UPDATE staff_users SET is_demo = true WHERE id = $1", [moran.id]);
+    expect((await get(moran, "/mentions").expect(403)).body.code).toBe("DEMO_ACCOUNT");
+    expect((await post(moran, "/mentions/seen").expect(403)).body.code).toBe("DEMO_ACCOUNT");
+  });
+
+  it("takes a deleted note's tags with it", async () => {
+    const id = await leadIdOf("101");
+    const saved = await note(shira, id, { text: "gone soon", mentions: [moran.id, shira.id] });
+    expect((await mentionsOf(moran)).unread).toBe(1);
+    await post(shira, `/leads/${id}/notes/${saved.id}/delete`).expect(200);
+    expect(await tags(saved.id)).toEqual({});
+    expect(await mentionsOf(moran)).toEqual({ unread: 0, items: [] });
+  });
+
+  it("saves a note and its tags together, or neither", async () => {
+    const id = await leadIdOf("101");
+    await db.exec(`
+      CREATE FUNCTION refuse_mention() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'refused'; END $$;
+      CREATE TRIGGER refuse_mention BEFORE INSERT ON lead_note_mentions FOR EACH ROW EXECUTE FUNCTION refuse_mention();
+    `);
+    try {
+      await post(shira, `/leads/${id}/notes`, { text: "half saved", mentions: [moran.id] }).expect(500);
+    } finally {
+      await db.exec("DROP TRIGGER refuse_mention ON lead_note_mentions; DROP FUNCTION refuse_mention();");
+    }
+    expect((await db.query("SELECT 1 FROM lead_notes")).rows).toEqual([]);
+  });
+});
+
 describe("customers", () => {
   it("lists customers with their trips, counts them, and keeps passports from people without access", async () => {
     const page = (await get(moran, "/customers").expect(200)).body.data;

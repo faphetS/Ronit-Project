@@ -22,6 +22,9 @@ function Harness({ onClose, active = true }: { onClose: () => void; active?: boo
       <div data-toast="">
         <button type="button">toast button</button>
       </div>
+      <button type="button" aria-haspopup="dialog">
+        <span>bell</span>
+      </button>
     </div>
   );
 }
@@ -30,7 +33,7 @@ describe("useCloseOnOutsidePress", () => {
   it("closes on a main-button press outside, and on nothing else", () => {
     const onClose = vi.fn();
     render(<Harness onClose={onClose} />);
-    for (const text of ["inside", "another lead", "menu option", "toast button", "call"]) fireEvent.pointerDown(screen.getByText(text), { button: 0 });
+    for (const text of ["inside", "another lead", "menu option", "toast button", "call", "bell"]) fireEvent.pointerDown(screen.getByText(text), { button: 0 });
     fireEvent.pointerDown(screen.getByText("outside"), { button: 2 });
     expect(onClose).not.toHaveBeenCalled();
     fireEvent.pointerDown(screen.getByText("outside"), { button: 0 });
