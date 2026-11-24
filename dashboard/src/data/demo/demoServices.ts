@@ -135,6 +135,8 @@ function createLeads(leads: Lead[], me: StaffUser): DataServices["leads"] {
   // The notes written in the CRM, newest first, per lead.
   const crmNotes = new Map<string, LeadEvent[]>();
   const notesOf = (id: string) => crmNotes.get(id) ?? [];
+  // Each lead's made-up Monday note, kept apart: a CRM note updates lastNote, and must not reappear as Monday's.
+  const mondayNote = new Map(leads.map((lead) => [lead.id, { text: lead.lastNote, at: lead.updatedAt }]));
   const findLead = (id: string) => {
     const lead = leads.find((entry) => entry.id === id);
     if (!lead) throw new NotFoundError("Lead", id);
@@ -151,7 +153,8 @@ function createLeads(leads: Lead[], me: StaffUser): DataServices["leads"] {
     const lead = leads.find((entry) => entry.id === id);
     if (!lead) throw new NotFoundError("Lead", id);
     const first = { id: `${id}-first`, at: lead.createdAt, text: "פנתה דרך הטופס, ביקשה פרטים על הטיסה", byUserId: null, author: OFFICE_NOTES, mondayBoard: lead.mondayBoard, source: "monday" as const, editedAt: null };
-    const latest = { id: `${id}-note`, at: lead.updatedAt, text: lead.lastNote, byUserId: null, author: OFFICE_NOTES, mondayBoard: lead.mondayBoard, source: "monday" as const, editedAt: null };
+    const monday = mondayNote.get(id) ?? { text: lead.lastNote, at: lead.updatedAt };
+    const latest = { id: `${id}-note`, at: monday.at, text: monday.text, byUserId: null, author: OFFICE_NOTES, mondayBoard: lead.mondayBoard, source: "monday" as const, editedAt: null };
     const fromMonday = lead.status === "new" ? [latest] : [latest, first];
     return { ...lead, history: [...notesOf(id).map((note) => ({ ...note })), ...fromMonday] };
   };
