@@ -18,6 +18,7 @@ import type {
   LeadService,
   LeadSource,
   LeadStatus,
+  MentionFeed,
   MondayCopy,
   OverviewStats,
   PassportAccessEntry,
@@ -153,10 +154,15 @@ export interface LeadsService {
   get(id: string): Promise<Lead>;
   /** Gives the lead a new status. Resolves with the lead as saved; mondayPending until Monday has the label. */
   setStatus(id: string, status: SettableLeadStatus): Promise<Lead>;
-  /** Adds a CRM note to the lead; resolves with the note as saved. */
-  addNote(id: string, text: string): Promise<LeadEvent>;
-  editNote(id: string, noteId: string, text: string): Promise<LeadEvent>;
+  /** Adds a CRM note to the lead; resolves with the note as saved. `mentions`: the staff it tags, by user id. */
+  addNote(id: string, text: string, mentions?: string[]): Promise<LeadEvent>;
+  /** Changes a note's text. With `mentions`, they replace the note's tags; without, its tags stay as they were. */
+  editNote(id: string, noteId: string, text: string, mentions?: string[]): Promise<LeadEvent>;
   deleteNote(id: string, noteId: string): Promise<void>;
+  /** The notes that tagged the signed-in user: the newest 30, and how many of all of them are unread. */
+  mentions(): Promise<MentionFeed>;
+  /** Marks the signed-in user's tags in these notes as read, or all of them without `noteIds`. Resolves with how many stay unread. */
+  markMentionsSeen(noteIds?: string[]): Promise<{ unread: number }>;
 }
 
 export interface CustomersService {

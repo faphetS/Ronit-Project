@@ -66,6 +66,36 @@ describe("the demo's sample data", () => {
     await expect(demo.leads.addNote("nope", "x")).rejects.toThrow();
   });
 
+  it("rings the bell once: a teammate tagged the demo user, and it can be read", async () => {
+    const demo = createDemoServices(ME);
+    const feed = await demo.leads.mentions();
+    expect(feed.unread).toBe(1);
+    expect(feed.items).toHaveLength(1);
+    const [mention] = feed.items;
+    expect(mention).toMatchObject({ byUserId: "u-michal", seen: false });
+    expect(mention.text.startsWith(`@${ME.name} `)).toBe(true);
+    const lead = await demo.leads.get(mention.leadId);
+    expect(mention.leadName).toBe(lead.name);
+    expect(lead.history[0]).toMatchObject({ id: mention.noteId, byUserId: "u-michal", mentions: [ME.id] });
+
+    expect(await demo.leads.markMentionsSeen(["another-note"])).toEqual({ unread: 1 });
+    expect(await demo.leads.markMentionsSeen()).toEqual({ unread: 0 });
+    expect((await demo.leads.mentions()).items[0].seen).toBe(true);
+  });
+
+  it("keeps a note's tags: each once, kept by an edit without them, replaced by one with them", async () => {
+    const demo = createDemoServices(ME);
+    const [lead] = await demo.leads.list();
+    const note = await demo.leads.addNote(lead.id, "@מיכל לוי אפשר לחזור אליה?", ["u-michal", "u-michal", "u-noa"]);
+    expect(note.mentions).toEqual(["u-michal", "u-noa"]);
+    expect((await demo.leads.editNote(lead.id, note.id, "@מיכל לוי @נועה כהן אפשר לחזור אליה מחר?")).mentions).toEqual(["u-michal", "u-noa"]);
+    expect((await demo.leads.editNote(lead.id, note.id, "בלי תיוג", [])).mentions).toEqual([]);
+    expect((await demo.leads.get(lead.id)).history[0].mentions).toEqual([]);
+    // The demo user's own notes never ring their bell.
+    await demo.leads.addNote(lead.id, `@${ME.name}`, [ME.id]);
+    expect((await demo.leads.mentions()).items).toHaveLength(1);
+  });
+
   it("makes, changes and removes a group, and registers a lead in it", async () => {
     const demo = createDemoServices(ME);
     const group = await demo.groups.create({ name: "פרויקט בדיקה", type: "project", capacity: 10 });

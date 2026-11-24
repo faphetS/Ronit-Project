@@ -23,6 +23,7 @@ import type {
   HolidayCampaign,
   Lead,
   LeadStatus,
+  MentionFeed,
   MondayCopy,
   PermissionArea,
   PermissionMatrix,
@@ -39,6 +40,8 @@ export const queryKeys = {
   leadCounts: ["leads", "counts"] as const,
   leadDays: ["leads", "days"] as const,
   lead: (id: string) => ["leads", "detail", id] as const,
+  /** The signed-in user's tags in notes, behind the bell. */
+  mentions: ["mentions"] as const,
   customers: (query: CustomerQuery) => ["customers", "list", query] as const,
   customerCounts: ["customers", "counts"] as const,
   customer: (id: string) => ["customers", "detail", id] as const,
@@ -183,27 +186,29 @@ export function useLead(id: string) {
   return useQuery({ queryKey: queryKeys.lead(id), queryFn: () => leads.get(id) });
 }
 
-/** Refreshes a lead's card and every leads list after one of its notes changed. */
+/** Refreshes a lead's card, every leads list and the bell's tags after one of its notes changed. */
 async function refreshLead(client: QueryClient, id: string) {
   await client.invalidateQueries({ queryKey: queryKeys.lead(id) });
   await client.invalidateQueries({ queryKey: ["leads", "list"] });
+  await client.invalidateQueries({ queryKey: queryKeys.mentions });
 }
 
-/** Adds a CRM note to a lead. It shows once the save resolves. */
+/** Adds a CRM note to a lead, with the staff it tags. It shows once the save resolves. */
 export function useAddLeadNote() {
   const { leads } = useServices();
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, text }: { id: string; text: string }) => leads.addNote(id, text),
+    mutationFn: ({ id, text, mentions }: { id: string; text: string; mentions?: string[] }) => leads.addNote(id, text, mentions),
     onSettled: (_data, _error, { id }) => refreshLead(client, id),
   });
 }
 
+/** Changes a note's text; with `mentions`, its tags too. */
 export function useEditLeadNote() {
   const { leads } = useServices();
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, noteId, text }: { id: string; noteId: string; text: string }) => leads.editNote(id, noteId, text),
+    mutationFn: ({ id, noteId, text, mentions }: { id: string; noteId: string; text: string; mentions?: string[] }) => leads.editNote(id, noteId, text, mentions),
     onSettled: (_data, _error, { id }) => refreshLead(client, id),
   });
 }
@@ -214,6 +219,53 @@ export function useDeleteLeadNote() {
   return useMutation({
     mutationFn: ({ id, noteId }: { id: string; noteId: string }) => leads.deleteNote(id, noteId),
     onSettled: (_data, _error, { id }) => refreshLead(client, id),
+  });
+}
+
+/** How often the bell asks for new tags. */
+const MENTIONS_POLL_MS = 60_000;
+
+/**
+ * The notes that tagged the signed-in user, behind the bell. Asked again every minute, and each time the window comes
+ * back into focus. Tags are on leads: asked once the role table says the person may see them, never by anyone it keeps
+ * out of Leads (the API would refuse them).
+ */
+export function useMentions() {
+  const { leads } = useServices();
+  const enabled = useCan("leads", "view");
+  return useQuery({ queryKey: queryKeys.mentions, queryFn: () => leads.mentions(), enabled, refetchInterval: MENTIONS_POLL_MS, refetchOnWindowFocus: "always" });
+}
+
+/** The feed with the tags in these notes read, or every tag for "all". */
+function withSeen(feed: MentionFeed, noteIds: readonly string[] | "all"): MentionFeed {
+  const marks = (seen: boolean, noteId: string) => !seen && (noteIds === "all" || noteIds.includes(noteId));
+  const marked = feed.items.filter((item) => marks(item.seen, item.noteId)).length;
+  return {
+    unread: noteIds === "all" ? 0 : Math.max(0, feed.unread - marked),
+    items: feed.items.map((item) => (marks(item.seen, item.noteId) ? { ...item, seen: true } : item)),
+  };
+}
+
+const markSeenKey = ["mentions", "mark-seen"] as const;
+
+/**
+ * Marks tags as read: the ones in the given notes, or "all". The bell's count and dots change at once and come back if
+ * the call fails. Once the last of several quick calls is back, the count is the server's.
+ */
+export function useMarkMentionsSeen() {
+  const { leads } = useServices();
+  const client = useQueryClient();
+  return useMutation({
+    mutationKey: markSeenKey,
+    mutationFn: (noteIds: string[] | "all") => leads.markMentionsSeen(noteIds === "all" ? undefined : noteIds),
+    onMutate: (noteIds) => changeCached<MentionFeed>(client, queryKeys.mentions, (feed) => withSeen(feed, noteIds)),
+    onError: async (_error, _noteIds, snapshot) => {
+      if (client.isMutating({ mutationKey: markSeenKey }) === 1) rollBack(client, snapshot);
+      await client.invalidateQueries({ queryKey: queryKeys.mentions });
+    },
+    onSuccess: ({ unread }) => {
+      if (client.isMutating({ mutationKey: markSeenKey }) === 1) client.setQueryData<MentionFeed>(queryKeys.mentions, (feed) => (feed ? { ...feed, unread } : feed));
+    },
   });
 }
 

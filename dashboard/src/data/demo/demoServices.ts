@@ -29,6 +29,7 @@ import type {
   LeadEvent,
   LeadSource,
   LeadStatus,
+  Mention,
   MondayCopy,
   Passport,
   PassportAccessEntry,
@@ -131,10 +132,16 @@ function buildLeads(): Lead[] {
   return leads;
 }
 
+/** A note's tags as the API keeps them: each person once, at most 20. */
+const tagsOf = (ids: readonly string[] = []) => [...new Set(ids)].slice(0, 20);
+const copyNote = (note: LeadEvent): LeadEvent => ({ ...note, mentions: [...note.mentions] });
+
 function createLeads(leads: Lead[], me: StaffUser): DataServices["leads"] {
   // The notes written in the CRM, newest first, per lead.
   const crmNotes = new Map<string, LeadEvent[]>();
   const notesOf = (id: string) => crmNotes.get(id) ?? [];
+  // The notes whose tag of the demo user was opened from the bell, or marked read.
+  const seen = new Set<string>();
   // Each lead's made-up Monday note, kept apart: a CRM note updates lastNote, and must not reappear as Monday's.
   const mondayNote = new Map(leads.map((lead) => [lead.id, { text: lead.lastNote, at: lead.updatedAt }]));
   const findLead = (id: string) => {
@@ -148,15 +155,44 @@ function createLeads(leads: Lead[], me: StaffUser): DataServices["leads"] {
     if (!note) throw new NotFoundError("Note", noteId);
     return note;
   };
+  const write = (lead: Lead, note: LeadEvent) => {
+    crmNotes.set(lead.id, [note, ...notesOf(lead.id)]);
+    leads[leads.indexOf(lead)] = { ...lead, lastNote: note.text, updatedAt: note.at };
+  };
+  // A teammate tagged the demo user on a lead in conversation 40 minutes ago, so the bell has one to show.
+  const tagged = leads.findLast((lead) => lead.status === "talking");
+  if (tagged) {
+    write(tagged, {
+      id: nextId("ln"),
+      at: iso(new Date(now().getTime() - 40 * 60_000)),
+      text: `@${me.name} אפשר לחזור אליה היום? היא שאלה על חדר יחיד בטיסה`,
+      byUserId: STAFF.michal,
+      author: "מיכל לוי",
+      mondayBoard: null,
+      source: "crm",
+      editedAt: null,
+      mentions: [me.id],
+    });
+  }
+  // The notes that tag the demo user, newest first. Tagging yourself doesn't ring the bell.
+  const myMentions = (): Mention[] =>
+    [...crmNotes.entries()]
+      .flatMap(([leadId, notes]) =>
+        notes
+          .filter((note) => note.byUserId !== me.id && note.mentions.includes(me.id))
+          .map((note) => ({ noteId: note.id, leadId, leadName: findLead(leadId).name, byUserId: note.byUserId, at: note.at, text: note.text, seen: seen.has(note.id) })),
+      )
+      .sort((a, b) => b.at.localeCompare(a.at));
+  const unread = () => myMentions().filter((mention) => !mention.seen).length;
   const arrived = (lead: Lead) => lead.inquiryOn ?? isoDay(new Date(lead.createdAt));
   const get = async (id: string): Promise<Lead> => {
     const lead = leads.find((entry) => entry.id === id);
     if (!lead) throw new NotFoundError("Lead", id);
-    const first = { id: `${id}-first`, at: lead.createdAt, text: "פנתה דרך הטופס, ביקשה פרטים על הטיסה", byUserId: null, author: OFFICE_NOTES, mondayBoard: lead.mondayBoard, source: "monday" as const, editedAt: null };
+    const first = { id: `${id}-first`, at: lead.createdAt, text: "פנתה דרך הטופס, ביקשה פרטים על הטיסה", byUserId: null, author: OFFICE_NOTES, mondayBoard: lead.mondayBoard, source: "monday" as const, editedAt: null, mentions: [] };
     const monday = mondayNote.get(id) ?? { text: lead.lastNote, at: lead.updatedAt };
-    const latest = { id: `${id}-note`, at: monday.at, text: monday.text, byUserId: null, author: OFFICE_NOTES, mondayBoard: lead.mondayBoard, source: "monday" as const, editedAt: null };
+    const latest = { id: `${id}-note`, at: monday.at, text: monday.text, byUserId: null, author: OFFICE_NOTES, mondayBoard: lead.mondayBoard, source: "monday" as const, editedAt: null, mentions: [] };
     const fromMonday = lead.status === "new" ? [latest] : [latest, first];
-    return { ...lead, history: [...notesOf(id).map((note) => ({ ...note })), ...fromMonday] };
+    return { ...lead, history: [...notesOf(id).map(copyNote), ...fromMonday] };
   };
   return {
     list: async (filters: LeadFilters = {}) => {
@@ -192,22 +228,30 @@ function createLeads(leads: Lead[], me: StaffUser): DataServices["leads"] {
       leads[index] = { ...leads[index], status, mondayPending: false };
       return get(id);
     },
-    addNote: async (id, text) => {
+    addNote: async (id, text, mentions) => {
       const lead = findLead(id);
-      const note: LeadEvent = { id: nextId("ln"), at: iso(now()), text, byUserId: me.id, author: me.name, mondayBoard: null, source: "crm", editedAt: null };
-      crmNotes.set(id, [note, ...notesOf(id)]);
-      leads[leads.indexOf(lead)] = { ...lead, lastNote: text, updatedAt: note.at };
-      return { ...note };
+      const note: LeadEvent = { id: nextId("ln"), at: iso(now()), text, byUserId: me.id, author: me.name, mondayBoard: null, source: "crm", editedAt: null, mentions: tagsOf(mentions) };
+      write(lead, note);
+      return copyNote(note);
     },
-    editNote: async (id, noteId, text) => {
+    editNote: async (id, noteId, text, mentions) => {
       const note = findNote(id, noteId);
       note.text = text;
       note.editedAt = iso(now());
-      return { ...note };
+      if (mentions) note.mentions = tagsOf(mentions);
+      return copyNote(note);
     },
     deleteNote: async (id, noteId) => {
       const note = findNote(id, noteId);
       crmNotes.set(id, notesOf(id).filter((entry) => entry !== note));
+    },
+    mentions: async () => {
+      const items = myMentions();
+      return { unread: items.filter((mention) => !mention.seen).length, items: items.slice(0, 30) };
+    },
+    markMentionsSeen: async (noteIds) => {
+      for (const mention of myMentions()) if (!noteIds || noteIds.includes(mention.noteId)) seen.add(mention.noteId);
+      return { unread: unread() };
     },
   };
 }

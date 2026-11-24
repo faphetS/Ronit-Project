@@ -40,6 +40,26 @@ describe("createServices", () => {
     await expect(services.leads.get("l-gone")).rejects.toBeInstanceOf(NotFoundError);
   });
 
+  it("sends a note's tags, and reads and marks the signed-in user's tags", async () => {
+    const fetch = stubFetch({ status: "ok", data: { unread: 0, items: [] } });
+    const services = createServices({ apiUrl: "", fetch });
+    await services.leads.addNote("l-1", "@מיכל לוי", ["u-michal"]);
+    await services.leads.editNote("l-1", "n-1", "שלום", []);
+    // Without tags, an edit leaves the note's tags as they are.
+    await services.leads.editNote("l-1", "n-1", "שלום");
+    expect(await services.leads.mentions()).toEqual({ unread: 0, items: [] });
+    await services.leads.markMentionsSeen(["n-1"]);
+    await services.leads.markMentionsSeen();
+    expect(fetch.mock.calls.map(([url, init]) => [url, init?.method, init?.body])).toEqual([
+      ["/api/dashboard/leads/l-1/notes", "POST", JSON.stringify({ text: "@מיכל לוי", mentions: ["u-michal"] })],
+      ["/api/dashboard/leads/l-1/notes/n-1", "POST", JSON.stringify({ text: "שלום", mentions: [] })],
+      ["/api/dashboard/leads/l-1/notes/n-1", "POST", JSON.stringify({ text: "שלום" })],
+      ["/api/dashboard/mentions", "GET", undefined],
+      ["/api/dashboard/mentions/seen", "POST", JSON.stringify({ noteIds: ["n-1"] })],
+      ["/api/dashboard/mentions/seen", "POST", JSON.stringify({})],
+    ]);
+  });
+
   it("runs on sample data while a demo account is signed in, and on the API again after it signs out", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>();
     const services = createServices({ apiUrl: "https://api.example.com", fetch });

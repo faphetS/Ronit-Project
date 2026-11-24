@@ -3,6 +3,7 @@ import type { Queryable } from "../../config/pg.js";
 import { NotFoundError } from "../../lib/errors.js";
 import type { LeadSource, LeadStatus, Service } from "../monday-copy/monday-copy.mapping.js";
 import { localPhone, phoneSearchDigits } from "./dashboard.format.js";
+import { mentionsByNote } from "./mentions.service.js";
 
 /** Leads, as copied from Monday's CRM boards. Their status can also change in the CRM: see lead-status.service.ts. */
 
@@ -16,6 +17,8 @@ export interface LeadEventDto {
   author: string | null;
   mondayBoard: string | null;
   editedAt: string | null;
+  /** The staff tagged in a CRM note (@-mentions); Monday's notes have none. */
+  mentions: string[];
 }
 
 export interface LeadDto {
@@ -216,6 +219,7 @@ export async function getLead(db: Queryable, id: string): Promise<LeadDto> {
     "SELECT id, at, text, by_user_id, edited_at FROM lead_notes WHERE lead_id = $1 ORDER BY at DESC LIMIT 200",
     [id],
   );
+  const tagged = await mentionsByNote(db, crm.rows.map((note) => note.id));
   const events: LeadEventDto[] = [
     ...crm.rows.map((note) => ({
       id: note.id,
@@ -226,6 +230,7 @@ export async function getLead(db: Queryable, id: string): Promise<LeadDto> {
       author: null,
       mondayBoard: null,
       editedAt: note.edited_at ? note.edited_at.toISOString() : null,
+      mentions: tagged.get(note.id) ?? [],
     })),
     ...monday.rows.map((note) => ({
       id: note.id,
@@ -236,6 +241,7 @@ export async function getLead(db: Queryable, id: string): Promise<LeadDto> {
       author: note.author,
       mondayBoard: lead.mondayBoard || null,
       editedAt: null,
+      mentions: [],
     })),
   ];
   lead.history = events.sort((x, y) => y.at.localeCompare(x.at));

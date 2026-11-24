@@ -26,7 +26,17 @@ export const LeadListQuerySchema = z.object({
 /** A status someone gives a lead: the board's five columns. "details-sent" stays Monday's own. */
 export const LeadStatusSchema = z.object({ status: z.enum(SETTABLE_STATUSES) }).strict();
 
-export const LeadNoteSchema = z.object({ text: z.string().trim().min(1).max(2000) }).strict();
+/** Staff tagged in a note (@-mentions): each one once, at most 20. Ids that can't be tagged are dropped by the service. */
+const MentionsSchema = z
+  .array(z.string().uuid())
+  .max(20)
+  .refine((ids) => new Set(ids.map((id) => id.toLowerCase())).size === ids.length, "Each person can be tagged once");
+
+/** On an edit, `mentions` replaces the note's tags; left out, they stay. */
+export const LeadNoteSchema = z.object({ text: z.string().trim().min(1).max(2000), mentions: MentionsSchema.optional() }).strict();
+
+/** The notes whose mentions you've seen; without a list, all of yours. */
+export const MentionsSeenSchema = z.object({ noteIds: z.array(z.string().uuid()).max(100).optional() }).strict();
 
 export const CustomerListQuerySchema = z.object({
   filter: z.enum(["all", "whatsapp-today", "expiring", "missing-passport"]).optional(),

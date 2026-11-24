@@ -1,12 +1,13 @@
-import { useCurrentCampaign, useOverview, usePassportIntakes } from "../data/queries";
+import { useMentions, useOverview, usePassportIntakes } from "../data/queries";
 import { isoDay, now } from "../lib/clock";
+import { alertCount, useBellAlerts } from "./notifications/bell";
 
 export interface NavBadges {
   /** New leads this week, on the leads menu item. */
   newLeads: number;
   /** Passports that arrived on WhatsApp today, on the rail. */
   passportsToday: number;
-  /** Items on the bell: passports waiting for review, and greetings waiting for approval. */
+  /** Items on the bell: passports waiting for review, a greeting waiting for approval, and unread tags in notes. */
   notifications: number;
 }
 
@@ -14,14 +15,12 @@ export interface NavBadges {
 export function useNavBadges(): NavBadges {
   const overview = useOverview();
   const intakes = usePassportIntakes();
-  const campaign = useCurrentCampaign();
+  const alerts = useBellAlerts();
+  const mentions = useMentions();
   const today = isoDay(now());
-  const allIntakes = intakes.data ?? [];
-  const passportsWaiting = allIntakes.some((intake) => intake.result === "needs-review") ? 1 : 0;
-  const greetingsWaiting = campaign.data?.status === "awaiting-approval" ? 1 : 0;
   return {
     newLeads: overview.data?.newLeadsThisWeek ?? 0,
-    passportsToday: allIntakes.filter((intake) => isoDay(new Date(intake.receivedAt)) === today).length,
-    notifications: passportsWaiting + greetingsWaiting,
+    passportsToday: (intakes.data ?? []).filter((intake) => isoDay(new Date(intake.receivedAt)) === today).length,
+    notifications: alertCount(alerts) + (mentions.data?.unread ?? 0),
   };
 }

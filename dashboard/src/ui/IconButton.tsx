@@ -1,4 +1,5 @@
 import { motion } from "motion/react";
+import type { Ref } from "react";
 import { cx } from "../lib/cx";
 import { PRESS_SCALE, springs } from "../motion/springs";
 import { CountBadge } from "./CountBadge";
@@ -16,6 +17,10 @@ interface IconButtonProps {
   tone?: "glass" | "ink" | "paper";
   size?: "md" | "sm";
   className?: string;
+  /** For a button that opens a panel: the kind of panel, and whether it is open. */
+  popup?: { kind: "dialog"; expanded: boolean };
+  /** Reaches the button element (not the link), e.g. to bring the focus back to it. */
+  ref?: Ref<HTMLButtonElement>;
 }
 
 const TONE = {
@@ -25,7 +30,7 @@ const TONE = {
 } as const;
 
 /** Round icon-only control. */
-export function IconButton({ icon, label, to, onClick, badge, tone = "glass", size = "md", className }: IconButtonProps) {
+export function IconButton({ icon, label, to, onClick, badge, tone = "glass", size = "md", className, popup, ref }: IconButtonProps) {
   const classes = cx("relative grid shrink-0 place-items-center rounded-full transition-colors", size === "md" ? "size-12" : "size-10", TONE[tone], className);
   const content = (
     <>
@@ -38,7 +43,18 @@ export function IconButton({ icon, label, to, onClick, badge, tone = "glass", si
       {content}
     </MotionLink>
   ) : (
-    <motion.button type="button" aria-label={label} onClick={onClick} className={classes} whileHover={{ y: -1 }} whileTap={{ scale: PRESS_SCALE }} transition={springs.ui}>
+    <motion.button
+      ref={ref}
+      type="button"
+      aria-label={label}
+      aria-haspopup={popup?.kind}
+      aria-expanded={popup?.expanded}
+      onClick={onClick}
+      className={classes}
+      whileHover={{ y: -1 }}
+      whileTap={{ scale: PRESS_SCALE }}
+      transition={springs.ui}
+    >
       {content}
     </motion.button>
   );

@@ -42,6 +42,7 @@ import {
   GroupPatchSchema,
   JoinGroupSchema,
   LeadStatusSchema,
+  MentionsSeenSchema,
   NewGroupSchema,
   NoteSchema,
   OwnPasswordSchema,
@@ -70,6 +71,7 @@ import { createGroup, joinGroup, removeGroup, removeMember, updateGroup } from "
 import { getGroup, groupParticipants, listGroups } from "./groups.service.js";
 import { mondayCopyStatus } from "./imports.service.js";
 import { getLead, leadCounts, leadDays, listLeads } from "./leads.service.js";
+import { listMentions, markMentionsSeen } from "./mentions.service.js";
 import { overviewStats, recentActivity } from "./overview.service.js";
 import {
   auditLog,
@@ -207,18 +209,27 @@ export function createDashboardRouter(resolveDeps: AuthDepsResolver, options: Da
     if (change === "changed" && mirror.enabled) await mirrorSoon(deps, id);
     sendData(res, await getLead(db(res), id));
   });
-  // Notes are kept in the CRM only. Only the author or an admin edits or deletes one.
+  // Notes are kept in the CRM only. Only the author or an admin edits or deletes one. A note can tag staff (mentions).
   const editorOf = (req: Request) => ({ id: staffOf(req).user.id, role: staffOf(req).user.role });
   router.post("/leads/:id/notes", requireAccess("leads", "full"), validate({ body: LeadNoteSchema }), async (req, res) => {
-    sendData(res, await addLeadNote(db(res), idParam(req.params.id, "Lead"), staffOf(req).user.id, req.body.text, now(res)), 201);
+    const note = await addLeadNote(db(res), idParam(req.params.id, "Lead"), staffOf(req).user.id, req.body.text, now(res), req.body.mentions);
+    sendData(res, note, 201);
   });
   router.post("/leads/:id/notes/:noteId", requireAccess("leads", "full"), validate({ body: LeadNoteSchema }), async (req, res) => {
     const leadId = idParam(req.params.id, "Lead");
-    sendData(res, await editLeadNote(db(res), editorOf(req), leadId, idParam(req.params.noteId, "Note"), req.body.text, now(res)));
+    sendData(res, await editLeadNote(db(res), editorOf(req), leadId, idParam(req.params.noteId, "Note"), req.body.text, now(res), req.body.mentions));
   });
   router.post("/leads/:id/notes/:noteId/delete", requireAccess("leads", "full"), async (req, res) => {
     await deleteLeadNote(db(res), editorOf(req), idParam(req.params.id, "Lead"), idParam(req.params.noteId, "Note"));
     sendData(res, { deleted: true });
+  });
+
+  // ---- Mentions: the notes you were tagged in ----
+  router.get("/mentions", requireAccess("leads", "view"), async (req, res) => {
+    sendData(res, await listMentions(db(res), staffOf(req).user.id));
+  });
+  router.post("/mentions/seen", requireAccess("leads", "view"), validate({ body: MentionsSeenSchema }), async (req, res) => {
+    sendData(res, await markMentionsSeen(db(res), staffOf(req).user.id, req.body.noteIds, now(res)));
   });
 
   // ---- Customers and passports ----
