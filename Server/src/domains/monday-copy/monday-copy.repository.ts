@@ -95,11 +95,12 @@ export async function removeBoard(tx: Queryable, boardId: string, now: Date): Pr
 /**
  * The CRM's own change to a lead is on its way to Monday, or was made, or was taken by Monday, after this copy began
  * reading ($2 is the copy's start). What the copy read may predate it, so the copy leaves the lead's status, label
- * and group as they are, and the next copy compares again (spec 2026-11-24).
+ * and group as they are, and the next copy compares again (spec 2026-11-24). A label Monday took counts for 2 more
+ * minutes: Monday's reads can lag its own write for a moment, so a read just after could still show the old label.
  */
 const CRM_CHANGE_IN_FLIGHT = `(leads.monday_label_pending IS NOT NULL
   OR leads.status_changed_at > $2
-  OR leads.monday_label_sent_at > $2)`;
+  OR leads.monday_label_sent_at > $2 - interval '2 minutes')`;
 
 /**
  * A lead the CRM changed, with nothing status-related changed in Monday since: the same group and the same label.

@@ -66,7 +66,7 @@ It's for staff with full Leads access. It appears in the side panel on desktop a
 ### When Monday is behind
 
 While a lead's new label hasn't reached Monday, the "In Monday" section of the lead's card says so: "The status
-hasn't reached Monday yet. Trying again in a few minutes." The board itself shows nothing.
+hasn't reached Monday yet. The CRM keeps trying." The board itself shows nothing.
 
 ### Click outside closes the lead (desktop)
 
@@ -147,7 +147,8 @@ unconditionally.
   2. The CRM changed the status after this copy began: `leads.status_changed_at > $copyStart`. `$copyStart` is the
      `at` that `copyBoards` takes before reading any board, so it covers a drag made while the copy was reading Monday.
   3. Monday took the CRM's label after this copy began: `leads.monday_label_sent_at > $copyStart`. This covers a retry
-     that lands while the copy is reading, when the copy still holds Monday's old label.
+     that lands while the copy is reading, when the copy still holds Monday's old label. The check allows 2 minutes
+     after Monday took a label, because Monday's reads can lag its own write for a moment.
 
   What the copy read may predate the change, so the next copy compares again. The group is left as it is too, so a
   group move that arrives meanwhile isn't stored as "seen" and then never applied.
@@ -191,17 +192,19 @@ the test fixtures and the demo data gain the same field.
   - `demoServices.ts` changes the made-up lead in memory, with `mondayPending: false`, so the demo account's board
     drags too.
 - **`useSetLeadStatus()`** in `queries.ts`:
-  - moves the lead at once in every cached leads list and in the lead's own detail, through the existing
-    `changeCached`;
-  - rolls back on error with `rollBack`;
-  - refreshes `["leads"]` and `["overview"]` when settled.
+  - moves the lead at once in every cached leads list and in the lead's own detail;
+  - on error, rolls back per lead, only where the lead still shows that move;
+  - refreshes `["leads"]` and `["overview"]` after the last of several quick moves.
+- **`useChangeLeadStatus()`** shows the failure toast from the mutation's promise, so it survives overlapping moves and
+  an unmounted control.
 - **The drag:** `@dnd-kit/core`, pinned at 6.3.1, the only new package. Its peer dependency is React ≥ 16.8.
   - **In `LeadsKanban`:** a `DndContext` with the pointer sensor (6 px activation distance) and a `DragOverlay` that
-    renders the card above the columns. The columns scroll and clip, so a card dragged inside them would be cut off.
+    renders the card above the columns, through a portal on the page body. The columns scroll and clip, so a card dragged
+    inside them would be cut off. The drop goes to the column under the pointer, falling back to the most overlapped.
   - **Drop targets:** every `BoardColumn` and the `FoldedColumn`. A column maps to its status as in the table.
   - **Animation:** the cards' existing layout animation carries the card into its new column.
   - **Screen-reader announcements** come from the copy files, in Hebrew and English.
-- **The status menu:** a new `LeadStatusSelect`. In `LeadDetailParts` it replaces the header's status tag for full
+- **The status menu:** a new `LeadStatusControl`. In `LeadDetailParts` it replaces the header's status tag for full
   access.
   - It's a native `<select>` styled like the status tag, built the way `SelectChip` is. Keyboard, screen readers and
     the phone's own picker work with no extra code.
