@@ -26,6 +26,7 @@ import type {
   GroupSummary,
   HolidayCampaign,
   Lead,
+  LeadEvent,
   LeadSource,
   LeadStatus,
   MondayCopy,
@@ -122,6 +123,7 @@ function buildLeads(): Lead[] {
         lastMessage: source === "instagram" ? "היי, אשמח לפרטים על הטיסה לאומן בחנוכה" : null,
         nextStep: NEXT_STEP[status] ?? null,
         mondayPending: false,
+        customerId: null,
         history: [],
       });
     }
@@ -129,14 +131,32 @@ function buildLeads(): Lead[] {
   return leads;
 }
 
-function createLeads(leads: Lead[]): DataServices["leads"] {
+function createLeads(leads: Lead[], me: StaffUser): DataServices["leads"] {
+  // The notes written in the CRM, newest first, per lead.
+  const crmNotes = new Map<string, LeadEvent[]>();
+  const notesOf = (id: string) => crmNotes.get(id) ?? [];
+  // Each lead's made-up Monday note, kept apart: a CRM note updates lastNote, and must not reappear as Monday's.
+  const mondayNote = new Map(leads.map((lead) => [lead.id, { text: lead.lastNote, at: lead.updatedAt }]));
+  const findLead = (id: string) => {
+    const lead = leads.find((entry) => entry.id === id);
+    if (!lead) throw new NotFoundError("Lead", id);
+    return lead;
+  };
+  const findNote = (id: string, noteId: string) => {
+    findLead(id);
+    const note = notesOf(id).find((entry) => entry.id === noteId);
+    if (!note) throw new NotFoundError("Note", noteId);
+    return note;
+  };
   const arrived = (lead: Lead) => lead.inquiryOn ?? isoDay(new Date(lead.createdAt));
   const get = async (id: string): Promise<Lead> => {
     const lead = leads.find((entry) => entry.id === id);
     if (!lead) throw new NotFoundError("Lead", id);
-    const first = { id: `${id}-first`, at: lead.createdAt, text: "פנתה דרך הטופס, ביקשה פרטים על הטיסה", byUserId: null, author: OFFICE_NOTES, mondayBoard: lead.mondayBoard };
-    const latest = { id: `${id}-note`, at: lead.updatedAt, text: lead.lastNote, byUserId: null, author: OFFICE_NOTES, mondayBoard: lead.mondayBoard };
-    return { ...lead, history: lead.status === "new" ? [latest] : [latest, first] };
+    const first = { id: `${id}-first`, at: lead.createdAt, text: "פנתה דרך הטופס, ביקשה פרטים על הטיסה", byUserId: null, author: OFFICE_NOTES, mondayBoard: lead.mondayBoard, source: "monday" as const, editedAt: null };
+    const monday = mondayNote.get(id) ?? { text: lead.lastNote, at: lead.updatedAt };
+    const latest = { id: `${id}-note`, at: monday.at, text: monday.text, byUserId: null, author: OFFICE_NOTES, mondayBoard: lead.mondayBoard, source: "monday" as const, editedAt: null };
+    const fromMonday = lead.status === "new" ? [latest] : [latest, first];
+    return { ...lead, history: [...notesOf(id).map((note) => ({ ...note })), ...fromMonday] };
   };
   return {
     list: async (filters: LeadFilters = {}) => {
@@ -171,6 +191,23 @@ function createLeads(leads: Lead[]): DataServices["leads"] {
       if (index < 0) throw new NotFoundError("Lead", id);
       leads[index] = { ...leads[index], status, mondayPending: false };
       return get(id);
+    },
+    addNote: async (id, text) => {
+      const lead = findLead(id);
+      const note: LeadEvent = { id: nextId("ln"), at: iso(now()), text, byUserId: me.id, author: me.name, mondayBoard: null, source: "crm", editedAt: null };
+      crmNotes.set(id, [note, ...notesOf(id)]);
+      leads[leads.indexOf(lead)] = { ...lead, lastNote: text, updatedAt: note.at };
+      return { ...note };
+    },
+    editNote: async (id, noteId, text) => {
+      const note = findNote(id, noteId);
+      note.text = text;
+      note.editedAt = iso(now());
+      return { ...note };
+    },
+    deleteNote: async (id, noteId) => {
+      const note = findNote(id, noteId);
+      crmNotes.set(id, notesOf(id).filter((entry) => entry !== note));
     },
   };
 }
@@ -343,6 +380,7 @@ function participantOf(customer: Customer, index: number, reference: Date): Grou
     mondayPassport: customer.mondayPassport,
     mondayStatus: FLIGHT_STATUS[index % FLIGHT_STATUS.length],
     eventOn: null,
+    addedInCrm: false,
   };
 }
 
@@ -392,6 +430,7 @@ function buildTrips(customers: Customer[]): Trips {
           guide: "רונית ברש",
         },
         mondayBoard: BOARD.trip,
+        fromCrm: false,
       },
       participants.get(TRIP_HANUKKAH) ?? [],
     ),
@@ -408,6 +447,7 @@ function buildTrips(customers: Customer[]): Trips {
         dateLabel: "ספטמבר 2027",
         flight: { outbound: null, inbound: null, airline: null, hotel: null, guide: null },
         mondayBoard: null,
+        fromCrm: false,
       },
       participants.get(TRIP_NEXT) ?? [],
     ),
@@ -430,6 +470,7 @@ function buildTrips(customers: Customer[]): Trips {
           guide: "רונית ברש",
         },
         mondayBoard: BOARD.tubav,
+        fromCrm: false,
       },
       participants.get(TRIP_TUBAV) ?? [],
     ),
@@ -453,6 +494,7 @@ function buildTrips(customers: Customer[]): Trips {
       dateLabel: label,
       flight: null,
       mondayBoard: BOARD.challah,
+      fromCrm: false,
     };
   });
   for (const group of challahBase) participants.set(group.id, []);
@@ -474,6 +516,7 @@ function buildTrips(customers: Customer[]): Trips {
       mondayPassport: null,
       mondayStatus: null,
       eventOn: day,
+      addedInCrm: false,
     });
   });
   const challah = challahBase.map((group) => summarize(group, participants.get(group.id) ?? []));
@@ -687,6 +730,13 @@ export function createDemoServices(me: StaffUser): DataServices {
     if (!customer) throw new NotFoundError("Customer", id);
     return customer;
   };
+  const findGroupIndex = (id: string) => {
+    const index = trips.groups.findIndex((candidate) => candidate.id === id);
+    if (index < 0) throw new NotFoundError("Group", id);
+    return index;
+  };
+  /** The group's counts again, after its people changed. */
+  const resummarize = (group: GroupSummary) => summarize(group, trips.participants.get(group.id) ?? []);
   const findCampaign = (id: string) => {
     const campaign = campaigns.find((candidate) => candidate.id === id);
     if (!campaign) throw new NotFoundError("Campaign", id);
@@ -738,7 +788,7 @@ export function createDemoServices(me: StaffUser): DataServices {
   ];
 
   return {
-    leads: createLeads(leads),
+    leads: createLeads(leads, me),
 
     customers: {
       list: async (query = {}) => {
@@ -819,6 +869,112 @@ export function createDemoServices(me: StaffUser): DataServices {
       participants: async (id) => {
         if (!trips.groups.some((group) => group.id === id)) throw new NotFoundError("Group", id);
         return [...(trips.participants.get(id) ?? [])];
+      },
+      create: async (input) => {
+        const group = summarize(
+          {
+            id: nextId("g"),
+            name: input.name,
+            shortName: input.name,
+            type: input.type,
+            womenOnly: false,
+            capacity: input.capacity ?? null,
+            startsOn: input.startsOn ?? null,
+            endsOn: input.endsOn ?? null,
+            dateLabel: null,
+            flight: null,
+            mondayBoard: null,
+            fromCrm: true,
+          },
+          [],
+        );
+        trips.groups.push(group);
+        trips.participants.set(group.id, []);
+        return { ...group };
+      },
+      update: async (id, patch) => {
+        const index = findGroupIndex(id);
+        const { name, type, startsOn, endsOn, capacity } = patch;
+        const next = {
+          ...trips.groups[index],
+          ...(name !== undefined ? { name, shortName: name } : {}),
+          ...(type !== undefined ? { type } : {}),
+          ...(startsOn !== undefined ? { startsOn } : {}),
+          ...(endsOn !== undefined ? { endsOn } : {}),
+          ...(capacity !== undefined ? { capacity } : {}),
+        };
+        trips.groups[index] = resummarize(next);
+        return { ...trips.groups[index] };
+      },
+      remove: async (id) => {
+        const index = findGroupIndex(id);
+        trips.groups.splice(index, 1);
+        trips.participants.delete(id);
+        for (const customer of customers) customer.groupIds = customer.groupIds.filter((groupId) => groupId !== id);
+        leads.forEach((lead, at) => {
+          if (lead.groups?.some((group) => group.id === id)) leads[at] = { ...lead, groups: lead.groups.filter((group) => group.id !== id) };
+        });
+      },
+      addLead: async (id, leadId) => {
+        const index = findGroupIndex(id);
+        const leadIndex = leads.findIndex((entry) => entry.id === leadId);
+        if (leadIndex < 0) throw new NotFoundError("Lead", leadId);
+        const lead = leads[leadIndex];
+        let customer = customers.find((entry) => entry.id === lead.customerId) ?? customers.find((entry) => entry.phone === lead.phone);
+        if (!customer) {
+          const [firstName = lead.name, ...rest] = lead.name.split(" ");
+          customer = {
+            id: nextId("c"),
+            firstName,
+            lastName: rest.join(" "),
+            phone: lead.phone,
+            whatsappConnected: false,
+            groupIds: [],
+            source: "monday",
+            assigneeId: null,
+            since: iso(now()),
+            updatedAt: iso(now()),
+            passport: null,
+            mondayPassport: null,
+            notes: [],
+            leadId: lead.id,
+            mondayBoard: null,
+          };
+          customers.push(customer);
+        }
+        const rows = trips.participants.get(id) ?? [];
+        const alreadyMember = rows.some((row) => row.customerId === customer.id);
+        if (!alreadyMember) {
+          rows.push({ ...participantOf(customer, rows.length, now()), id: nextId("p"), mondayStatus: null, note: null, addedInCrm: true });
+          trips.participants.set(id, rows);
+          customer.groupIds.push(id);
+          trips.groups[index] = resummarize(trips.groups[index]);
+        }
+        const group = trips.groups[index];
+        const joined = lead.groups ?? [];
+        leads[leadIndex] = {
+          ...lead,
+          status: "registered",
+          mondayPending: false,
+          customerId: customer.id,
+          groups: joined.some((entry) => entry.id === id) ? joined : [...joined, { id, name: group.name, type: group.type }],
+        };
+        return { customerId: customer.id, alreadyMember };
+      },
+      removeMember: async (id, memberId) => {
+        const index = findGroupIndex(id);
+        const rows = trips.participants.get(id) ?? [];
+        const member = rows.find((row) => row.id === memberId);
+        if (!member) throw new NotFoundError("Member", memberId);
+        trips.participants.set(id, rows.filter((row) => row !== member));
+        const customer = customers.find((entry) => entry.id === member.customerId);
+        if (customer) customer.groupIds = customer.groupIds.filter((groupId) => groupId !== id);
+        leads.forEach((lead, at) => {
+          if (lead.customerId === member.customerId && lead.groups?.some((group) => group.id === id)) {
+            leads[at] = { ...lead, groups: lead.groups.filter((group) => group.id !== id) };
+          }
+        });
+        trips.groups[index] = resummarize(trips.groups[index]);
       },
     },
 

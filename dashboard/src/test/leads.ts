@@ -25,6 +25,7 @@ export function testLead(overrides: Partial<Lead> = {}): Lead {
     nextStep: null,
     history: [],
     mondayPending: false,
+    customerId: null,
     ...overrides,
   };
 }

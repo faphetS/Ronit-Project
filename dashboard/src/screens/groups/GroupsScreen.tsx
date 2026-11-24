@@ -1,10 +1,10 @@
 import { motion, useReducedMotion } from "motion/react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useParams } from "react-router";
 import { PhoneTopBar } from "../../app/phone/PhoneTopBar";
 import { useShell } from "../../app/useShell";
 import { useCopy } from "../../content/locale";
-import { useGroups } from "../../data/queries";
+import { useCan, useGroups } from "../../data/queries";
 import type { GroupSummary } from "../../data/types";
 import { cardVariants } from "../../motion/variants";
 import { GooButton } from "../../ui/GooButton";
@@ -14,6 +14,8 @@ import { ScreenFrame } from "../../ui/ScreenFrame";
 import { EmptyState, ErrorState } from "../../ui/states";
 import { Surface } from "../../ui/Surface";
 import { TextLink } from "../../ui/TextLink";
+import { GroupManage } from "./GroupManage";
+import { GroupSheet } from "./GroupSheet";
 import { GroupCard, GroupMiniCard, SelectedGroupCard } from "./GroupCards";
 import { EventDateCard, EventDetailsCard, FlightCard, MissingPassportsCard, ParticipantsCard, ParticipantsList, ReadinessCard } from "./GroupDetails";
 import { MISSING_SECTION, PARTICIPANTS_SECTION, revealSection, selectGroup, totalRegistered, visibleGroups } from "./groups";
@@ -49,6 +51,9 @@ function DesktopGroups({ groups, selected }: GroupsViewProps) {
       ))}
       {selected ? (
         <>
+          <div className="lg:col-span-12 empty:hidden">
+            <GroupManage group={selected} />
+          </div>
           <ParticipantsCard group={selected} className="lg:col-span-12 xl:col-span-8" />
           <div className="grid content-start gap-5 lg:col-span-12 lg:grid-cols-2 xl:col-span-4 xl:grid-cols-1">
             <div className="flex flex-col gap-5">
@@ -88,6 +93,7 @@ function PhoneGroups({ groups, selected }: GroupsViewProps) {
           ))}
         </HScroll>
       ) : null}
+      {selected ? <GroupManage group={selected} /> : null}
       {selected?.type === "flight" ? (
         <>
           <ReadinessCard group={selected} phone onShow={() => revealSection(MISSING_SECTION, smooth)} />
@@ -95,7 +101,7 @@ function PhoneGroups({ groups, selected }: GroupsViewProps) {
           <FlightCard flight={selected.flight} phone />
         </>
       ) : null}
-      {selected?.type === "event" ? (
+      {selected && selected.type !== "flight" ? (
         <>
           <EventDateCard group={selected} phone onShow={() => revealSection(PARTICIPANTS_SECTION, smooth)} />
           <ParticipantsList key={selected.id} group={selected} />
@@ -112,6 +118,8 @@ export function GroupsScreen() {
   const phone = useShell() === "phone";
   const { groupsCopy: copy } = useCopy();
   const query = useGroups();
+  const canCreate = useCan("customers", "full");
+  const [creating, setCreating] = useState(false);
   const groups = query.data ? visibleGroups(query.data, groupId) : undefined;
   const selected = groups ? selectGroup(groups, groupId) : undefined;
   const registered = groups ? totalRegistered(groups) : 0;
@@ -140,18 +148,30 @@ export function GroupsScreen() {
     <ScreenFrame>
       {phone ? <PhoneTopBar /> : null}
       {phone ? (
-        <Headline title={copy.title} soft={soft} size="display-2" />
+        <>
+          <Headline title={copy.title} soft={soft} size="display-2" />
+          {canCreate ? (
+            <div>
+              <GooButton icon="plus" size="sm" onClick={() => setCreating(true)}>
+                {copy.newGroup}
+              </GooButton>
+            </div>
+          ) : null}
+        </>
       ) : (
         <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
           <Headline title={copy.title} soft={soft} size="display" />
-          <div className="pb-1.5">
-            <GooButton icon="plus" disabled>
-              {copy.newGroup}
-            </GooButton>
-          </div>
+          {canCreate ? (
+            <div className="pb-1.5">
+              <GooButton icon="plus" onClick={() => setCreating(true)}>
+                {copy.newGroup}
+              </GooButton>
+            </div>
+          ) : null}
         </div>
       )}
       {body}
+      <GroupSheet open={creating} onClose={() => setCreating(false)} />
     </ScreenFrame>
   );
 }

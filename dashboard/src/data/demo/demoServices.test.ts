@@ -46,6 +46,60 @@ describe("the demo's sample data", () => {
     expect((await demo.imports.latest()).boards).toHaveLength(4);
   });
 
+  it("keeps notes on a lead in memory: add, edit, delete", async () => {
+    const demo = createDemoServices(ME);
+    const [lead] = await demo.leads.list();
+    const before = (await demo.leads.get(lead.id)).history.length;
+    const note = await demo.leads.addNote(lead.id, "התקשרתי, תחזור אליי");
+    expect(note).toMatchObject({ text: "התקשרתי, תחזור אליי", byUserId: ME.id, source: "crm", editedAt: null });
+    let history = (await demo.leads.get(lead.id)).history;
+    expect(history).toHaveLength(before + 1);
+    expect(history[0].id).toBe(note.id);
+    const edited = await demo.leads.editNote(lead.id, note.id, "שיחה נוספת מחר");
+    expect(edited.text).toBe("שיחה נוספת מחר");
+    expect(edited.editedAt).not.toBeNull();
+    expect((await demo.leads.get(lead.id)).history[0].text).toBe("שיחה נוספת מחר");
+    await demo.leads.deleteNote(lead.id, note.id);
+    history = (await demo.leads.get(lead.id)).history;
+    expect(history).toHaveLength(before);
+    await expect(demo.leads.editNote(lead.id, note.id, "x")).rejects.toThrow();
+    await expect(demo.leads.addNote("nope", "x")).rejects.toThrow();
+  });
+
+  it("makes, changes and removes a group, and registers a lead in it", async () => {
+    const demo = createDemoServices(ME);
+    const group = await demo.groups.create({ name: "פרויקט בדיקה", type: "project", capacity: 10 });
+    expect(group).toMatchObject({ name: "פרויקט בדיקה", type: "project", fromCrm: true, registered: 0, capacity: 10 });
+    expect((await demo.groups.list()).some((entry) => entry.id === group.id)).toBe(true);
+    const renamed = await demo.groups.update(group.id, { name: "שם חדש", startsOn: "2027-01-05" });
+    expect(renamed).toMatchObject({ name: "שם חדש", startsOn: "2027-01-05", fromCrm: true });
+
+    const lead = (await demo.leads.list()).find((entry) => entry.status !== "registered")!;
+    const customersBefore = (await demo.customers.list({ pageSize: 100 })).total;
+    const added = await demo.groups.addLead(group.id, lead.id);
+    expect(added.alreadyMember).toBe(false);
+    expect((await demo.customers.list({ pageSize: 100 })).total).toBe(customersBefore + 1);
+    const participants = await demo.groups.participants(group.id);
+    expect(participants).toHaveLength(1);
+    expect(participants[0]).toMatchObject({ customerId: added.customerId, addedInCrm: true });
+    expect((await demo.groups.get(group.id)).registered).toBe(1);
+    const saved = await demo.leads.get(lead.id);
+    expect(saved).toMatchObject({ status: "registered", customerId: added.customerId });
+    expect(saved.groups).toEqual([{ id: group.id, name: "שם חדש", type: "project" }]);
+
+    expect(await demo.groups.addLead(group.id, lead.id)).toEqual({ customerId: added.customerId, alreadyMember: true });
+    expect(await demo.groups.participants(group.id)).toHaveLength(1);
+
+    await demo.groups.removeMember(group.id, participants[0].id);
+    expect(await demo.groups.participants(group.id)).toHaveLength(0);
+    expect((await demo.leads.get(lead.id)).groups ?? []).toHaveLength(0);
+    await demo.groups.addLead(group.id, lead.id);
+    await demo.groups.remove(group.id);
+    expect((await demo.groups.list()).some((entry) => entry.id === group.id)).toBe(false);
+    await expect(demo.groups.get(group.id)).rejects.toThrow();
+    await expect(demo.groups.addLead("nope", lead.id)).rejects.toThrow();
+  });
+
   it("changes a lead's status in memory, so the demo board drags", async () => {
     const demo = createDemoServices(ME);
     const [lead] = await demo.leads.list({ status: "new" });

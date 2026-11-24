@@ -13,8 +13,9 @@ import { KeyValue, type KeyValueItem } from "../../ui/KeyValue";
 import { Ltr } from "../../ui/Ltr";
 import { Skeleton } from "../../ui/states";
 import type { SurfaceVariant } from "../../ui/Surface";
-import { Timeline, type TimelineEntry } from "../../ui/Timeline";
 import { initialOf, telHref, whatsappHref } from "./leads-model";
+import { useCan } from "../../data/queries";
+import { GroupLinks, NoteComposer, NoteList } from "./LeadNotes";
 import { LeadStatusControl } from "./LeadStatusControl";
 
 const HEADING = { 1: "h1", 2: "h2", 3: "h3" } as const;
@@ -159,27 +160,39 @@ function MondayText({ label, text }: { label: string; text: string }) {
 interface LeadHistoryProps {
   lead: Lead;
   level: 2 | 3;
-  surface: SurfaceVariant;
+  /** Kept so callers state the card they sit on. */
+  surface?: SurfaceVariant;
 }
 
-/** Monday's notes and call summaries, newest first, with the day and who wrote them. */
-export function LeadHistory({ lead, level, surface }: LeadHistoryProps) {
+/** Notes and call summaries, CRM and Monday together, newest first. People with full Leads access can add, edit and delete. */
+export function LeadHistory({ lead, level }: LeadHistoryProps) {
   const { leadsCopy: copy } = useCopy();
-  const { locale } = useLocale();
   const headingId = useId();
   const Heading = HEADING[level];
-
-  const entries: TimelineEntry[] = lead.history.map((event) => {
-    const date = formatDayMonth(new Date(event.at), locale);
-    return { key: event.id, title: event.text, meta: event.author ? copy.detail.historyMeta(date, event.author) : date };
-  });
+  const canWrite = useCan("leads", "full");
 
   return (
     <section aria-labelledby={headingId}>
       <Heading id={headingId} className={PART_HEADING}>
         {copy.detail.history}
       </Heading>
-      {entries.length > 0 ? <Timeline entries={entries} surface={surface} /> : <p className="text-small text-mute">{copy.detail.noHistory}</p>}
+      {canWrite ? <NoteComposer leadId={lead.id} /> : null}
+      {lead.history.length > 0 ? <NoteList lead={lead} /> : <p className="text-small text-mute">{copy.detail.noHistory}</p>}
+    </section>
+  );
+}
+
+/** The CRM groups the lead is in. */
+export function LeadGroups({ lead, level }: { lead: Lead; level: 2 | 3 }) {
+  const { leadsCopy: copy } = useCopy();
+  const headingId = useId();
+  const Heading = HEADING[level];
+  return (
+    <section aria-labelledby={headingId}>
+      <Heading id={headingId} className={PART_HEADING}>
+        {copy.detail.groups}
+      </Heading>
+      <GroupLinks lead={lead} />
     </section>
   );
 }

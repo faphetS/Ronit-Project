@@ -19,7 +19,9 @@ export interface GroupDto {
   id: string;
   name: string;
   shortName: string;
-  type: "flight" | "event";
+  type: "flight" | "event" | "project";
+  /** Made in the CRM (no Monday key): the only kind the CRM edits or removes. */
+  fromCrm: boolean;
   womenOnly: boolean;
   /** Monday has no capacity. */
   capacity: number | null;
@@ -53,13 +55,16 @@ export interface GroupParticipantDto {
   mondayStatus: string | null;
   /** A challah booking's date. */
   eventOn: string | null;
+  /** Added from the CRM, not copied from Monday: only these can be removed here. */
+  addedInCrm: boolean;
 }
 
 interface GroupRow {
   id: string;
   name: string;
   short_name: string | null;
-  kind: "flight" | "event";
+  kind: "flight" | "event" | "project";
+  from_crm: boolean;
   women_only: boolean;
   capacity: number | null;
   starts_on: string | null;
@@ -71,7 +76,7 @@ interface GroupRow {
 }
 
 const GROUP_SELECT = `
-  SELECT g.id, g.name, g.short_name, g.kind, g.women_only, g.capacity, g.starts_on, g.ends_on, g.date_label, g.monday_board_name,
+  SELECT g.id, g.name, g.short_name, g.kind, g.monday_key IS NULL AS from_crm, g.women_only, g.capacity, g.starts_on, g.ends_on, g.date_label, g.monday_board_name,
     (SELECT count(*)::int FROM group_members m WHERE m.group_id = g.id) AS registered,
     (SELECT count(*)::int FROM group_members m LEFT JOIN passports p ON p.customer_id = m.customer_id
      WHERE m.group_id = g.id AND (p.customer_id IS NOT NULL OR m.monday_passport = 'yes')) AS passports
@@ -84,6 +89,7 @@ function toGroup(row: GroupRow): GroupDto {
     name: row.name,
     shortName: row.short_name ?? row.name,
     type: row.kind,
+    fromCrm: row.from_crm,
     womenOnly: row.women_only,
     capacity: row.capacity,
     startsOn: row.starts_on,
@@ -125,9 +131,10 @@ export async function groupParticipants(db: Queryable, viewer: Viewer, id: strin
     monday_passport: MondayPassport | null;
     monday_status: string | null;
     event_on: string | null;
+    added_in_crm: boolean;
   }>(
     `SELECT m.id, m.customer_id, c.first_name, c.last_name, c.phone, p.customer_id IS NOT NULL AS has_passport, p.expiry_date,
-            m.note, m.monday_passport, m.monday_status, m.event_on
+            m.note, m.monday_passport, m.monday_status, m.event_on, m.monday_item_id IS NULL AS added_in_crm
      FROM group_members m JOIN customers c ON c.id = m.customer_id LEFT JOIN passports p ON p.customer_id = m.customer_id
      WHERE m.group_id = $1
      ORDER BY m.event_on NULLS LAST, c.first_name, c.last_name`,
@@ -148,6 +155,7 @@ export async function groupParticipants(db: Queryable, viewer: Viewer, id: strin
       mondayPassport: row.monday_passport,
       mondayStatus: row.monday_status,
       eventOn: row.event_on,
+      addedInCrm: row.added_in_crm,
     };
   });
 }

@@ -6,6 +6,7 @@ import type {
   BirthdaySettingsPatch,
   CampaignPatch,
   CustomerQuery,
+  GroupInput,
   InviteInput,
   LeadFilters,
   PassportPart,
@@ -182,6 +183,40 @@ export function useLead(id: string) {
   return useQuery({ queryKey: queryKeys.lead(id), queryFn: () => leads.get(id) });
 }
 
+/** Refreshes a lead's card and every leads list after one of its notes changed. */
+async function refreshLead(client: QueryClient, id: string) {
+  await client.invalidateQueries({ queryKey: queryKeys.lead(id) });
+  await client.invalidateQueries({ queryKey: ["leads", "list"] });
+}
+
+/** Adds a CRM note to a lead. It shows once the save resolves. */
+export function useAddLeadNote() {
+  const { leads } = useServices();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, text }: { id: string; text: string }) => leads.addNote(id, text),
+    onSettled: (_data, _error, { id }) => refreshLead(client, id),
+  });
+}
+
+export function useEditLeadNote() {
+  const { leads } = useServices();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, noteId, text }: { id: string; noteId: string; text: string }) => leads.editNote(id, noteId, text),
+    onSettled: (_data, _error, { id }) => refreshLead(client, id),
+  });
+}
+
+export function useDeleteLeadNote() {
+  const { leads } = useServices();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, noteId }: { id: string; noteId: string }) => leads.deleteNote(id, noteId),
+    onSettled: (_data, _error, { id }) => refreshLead(client, id),
+  });
+}
+
 const setStatusKey = ["leads", "set-status"] as const;
 
 /** A lead's status as the cache has it: its own card first, else the first cached list that holds it. */
@@ -324,6 +359,51 @@ export function useParticipantsOf(ids: readonly string[]) {
   const { groups } = useServices();
   return useQueries({
     queries: ids.map((id) => ({ queryKey: queryKeys.groupParticipants(id), queryFn: () => groups.participants(id) })),
+  });
+}
+
+/** Groups, the leads that show them, and the overview and customer numbers a group change moves. */
+async function refreshGroups(client: QueryClient) {
+  await Promise.all(["groups", "leads", "overview", "customers"].map((key) => client.invalidateQueries({ queryKey: [key] })));
+}
+
+export function useCreateGroup() {
+  const { groups } = useServices();
+  const client = useQueryClient();
+  return useMutation({ mutationFn: (input: GroupInput) => groups.create(input), onSettled: () => refreshGroups(client) });
+}
+
+export function useUpdateGroup() {
+  const { groups } = useServices();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: Partial<GroupInput> }) => groups.update(id, patch),
+    onSettled: () => refreshGroups(client),
+  });
+}
+
+export function useRemoveGroup() {
+  const { groups } = useServices();
+  const client = useQueryClient();
+  return useMutation({ mutationFn: (id: string) => groups.remove(id), onSettled: () => refreshGroups(client) });
+}
+
+/** Registers a lead in a group: her status, her card and the group's participants all change. */
+export function useAddLeadToGroup() {
+  const { groups } = useServices();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, leadId }: { id: string; leadId: string }) => groups.addLead(id, leadId),
+    onSettled: () => refreshGroups(client),
+  });
+}
+
+export function useRemoveGroupMember() {
+  const { groups } = useServices();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, memberId }: { id: string; memberId: string }) => groups.removeMember(id, memberId),
+    onSettled: () => refreshGroups(client),
   });
 }
 

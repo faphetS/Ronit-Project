@@ -63,12 +63,12 @@ async function queueCampaign(tx: Queryable, campaignId: string, now: Date): Prom
   const { rows: recipients } = await tx.query<RecipientRow>(
     `SELECT c.id, c.first_name, c.phone,
        (SELECT g.name FROM group_members gm JOIN groups g ON g.id = gm.group_id
-        WHERE gm.customer_id = c.id AND ($1 = 'all' OR gm.group_id = ANY($2::uuid[]))
+        WHERE gm.customer_id = c.id AND g.removed_at IS NULL AND ($1 = 'all' OR gm.group_id = ANY($2::uuid[]))
         ORDER BY g.starts_on DESC NULLS LAST LIMIT 1) AS group_name
      FROM customers c
      WHERE c.phone IS NOT NULL AND NOT c.greetings_opt_out
        AND ($1 = 'all' OR EXISTS (
-         SELECT 1 FROM group_members gm WHERE gm.customer_id = c.id AND gm.group_id = ANY($2::uuid[])))
+         SELECT 1 FROM group_members gm JOIN groups g ON g.id = gm.group_id WHERE gm.customer_id = c.id AND g.removed_at IS NULL AND gm.group_id = ANY($2::uuid[])))
      ORDER BY c.created_at, c.id`,
     [campaign.audience_kind, campaign.audience_group_ids],
   );
