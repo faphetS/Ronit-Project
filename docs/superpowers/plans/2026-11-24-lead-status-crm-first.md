@@ -197,6 +197,13 @@ git commit -m "feat: lead status columns, and mondayPending on every lead" -m "C
 
 ### Task 2: The mirror, which writes a waiting label to Monday
 
+> **Superseded in part by review fixes (commit c721d45):**
+> - the mirror also refuses leads that aren't on the live board;
+> - it writes one label per lead at a time, in order;
+> - `retryPending` runs oldest change first, and one bad lead doesn't end the run.
+>
+> The code below is the starting point. The spec and the code are authoritative.
+
 **Files:**
 - Modify: `Server/src/domains/monday-copy/monday-copy.fake.ts` (the fake Monday learns `change_column_value`)
 - Create: `Server/src/domains/dashboard/lead-status-mirror.ts`
@@ -975,6 +982,13 @@ git commit -m "feat: retry status labels Monday hasn't taken, every 2 minutes" -
 ---
 
 ### Task 5: The copy brings in Monday's edits, not echoes of the CRM's
+
+> **Superseded in part by review fixes (commit c0f4324):**
+> - `KEEP_CRM_STATUS` became `CRM_CHANGE_IN_FLIGHT` and `UNCHANGED_SINCE_CRM`;
+> - migration 009 gained `monday_label_sent_at`, which the mirror sets when Monday takes a label;
+> - while a change is in flight, the copy keeps status, label and group.
+>
+> The spec's copy section and the code are authoritative.
 
 **Files:**
 - Modify: `Server/src/domains/monday-copy/monday-copy.repository.ts` (`saveLeads`)
