@@ -106,6 +106,12 @@ export const leadsCopy: Widen<typeof he> = {
     call: (name) => `Call ${name}`,
   },
 
+  statusChange: {
+    gone: "The status didn't change: this lead is no longer on the board",
+    "no-access": "The status didn't change: your account can't change statuses",
+    failed: "The status didn't change. Try again",
+  },
+
   empty: {
     filtered: "No leads match these filters",
     none: "No open leads right now",
@@ -126,7 +132,9 @@ export const leadsCopy: Widen<typeof he> = {
     callsLine: (count, last) => (count === 0 ? "None yet" : last ? `${count} · last ${last}` : String(count)),
     inMonday: "In Monday",
     openInMonday: "Open in Monday",
-    editInMonday: "Statuses and notes are changed in Monday until the switch-over.",
+    editInMonday: "Statuses change here, and Monday follows. Notes are still written in Monday.",
+    statusLabel: "Change status",
+    mondayPending: "The status hasn't reached Monday yet. Trying again in a few minutes.",
     nextStep: "Next step",
     lastMessage: "Last Instagram message",
     history: "Notes and calls",
