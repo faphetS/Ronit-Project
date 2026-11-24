@@ -12,7 +12,7 @@ export const groupsCopy: Widen<typeof he> = {
   newGroup: "New group",
   cards: "Groups",
   otherGroups: "More groups",
-  kind: { flight: "Flight", event: "Event" },
+  kind: { flight: "Flight", event: "Event", project: "Project" },
   womenOnly: "Women only",
   selected: "Selected",
   departs: (date) => `Departs ${date}`,

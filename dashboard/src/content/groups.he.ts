@@ -14,7 +14,7 @@ export const groupsCopy = {
   cards: "הקבוצות",
   /** Names the phone carousel under the selected group. */
   otherGroups: "קבוצות נוספות",
-  kind: { flight: "טיסה", event: "אירוע" },
+  kind: { flight: "טיסה", event: "אירוע", project: "פרויקט" },
   womenOnly: "נשים בלבד",
   selected: "נבחרה",
   departs: (date: string) => `יציאה ${date}`,

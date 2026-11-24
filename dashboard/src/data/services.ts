@@ -9,9 +9,11 @@ import type {
   Customer,
   CustomerMessage,
   GroupParticipant,
+  GroupType,
   GroupSummary,
   HolidayCampaign,
   Lead,
+  LeadEvent,
   LeadDay,
   LeadService,
   LeadSource,
@@ -151,6 +153,10 @@ export interface LeadsService {
   get(id: string): Promise<Lead>;
   /** Gives the lead a new status. Resolves with the lead as saved; mondayPending until Monday has the label. */
   setStatus(id: string, status: SettableLeadStatus): Promise<Lead>;
+  /** Adds a CRM note to the lead; resolves with the note as saved. */
+  addNote(id: string, text: string): Promise<LeadEvent>;
+  editNote(id: string, noteId: string, text: string): Promise<LeadEvent>;
+  deleteNote(id: string, noteId: string): Promise<void>;
 }
 
 export interface CustomersService {
@@ -175,6 +181,20 @@ export interface GroupsService {
   get(id: string): Promise<GroupSummary>;
   /** Everyone registered, with their passport status. */
   participants(id: string): Promise<GroupParticipant[]>;
+  create(input: GroupInput): Promise<GroupSummary>;
+  update(id: string, patch: Partial<GroupInput>): Promise<GroupSummary>;
+  remove(id: string): Promise<void>;
+  /** Registers a lead in the group, making her customer card if she has none. */
+  addLead(id: string, leadId: string): Promise<{ customerId: string; alreadyMember: boolean }>;
+  removeMember(id: string, memberId: string): Promise<void>;
+}
+
+export interface GroupInput {
+  name: string;
+  type: GroupType;
+  startsOn?: string | null;
+  endsOn?: string | null;
+  capacity?: number | null;
 }
 
 export interface OverviewService {

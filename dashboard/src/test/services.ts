@@ -156,6 +156,9 @@ export function createTestServices({ failing = [], signedIn = false }: TestServi
       days: async () => [],
       get: missing("Lead"),
       setStatus: missing("Lead"),
+      addNote: missing("Lead"),
+      editNote: missing("Lead"),
+      deleteNote: missing("Lead"),
     },
     customers: {
       list: async (query = {}) => ({ items: [], total: 0, page: query.page ?? 1, pageSize: query.pageSize ?? 25 }),
@@ -171,6 +174,13 @@ export function createTestServices({ failing = [], signedIn = false }: TestServi
       list: async () => [],
       get: missing("Group"),
       participants: async () => [],
+      create: async (input) => {
+        throw new Error(`test services do not make groups (${input.name})`);
+      },
+      update: missing("Group"),
+      remove: missing("Group"),
+      addLead: missing("Group"),
+      removeMember: missing("Group"),
     },
     overview: {
       stats: async () => STATS,

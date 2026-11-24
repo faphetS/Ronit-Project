@@ -2,8 +2,8 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { TestProviders, createTestClient, createTestServices } from "../test/app";
-import { queryKeys, useCopyNow, useImportRun, useOverview, useSession, useSetLeadStatus, useStartGoogle, useVerifyCode } from "./queries";
-import type { Lead, MondayCopy } from "./types";
+import { queryKeys, useCopyNow, useImportRun, useOverview, useSession, useAddLeadNote, useAddLeadToGroup, useGroupParticipants, useLead, useSetLeadStatus, useStartGoogle, useVerifyCode } from "./queries";
+import type { GroupParticipant, Lead, LeadEvent, MondayCopy } from "./types";
 import { testLead } from "../test/leads";
 
 function setup() {
@@ -121,5 +121,34 @@ describe("query hooks", () => {
     await act(async () => calls[1].resolve({ ...lead, status: "not-relevant" }));
     await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["leads"] }));
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["overview"] });
+  });
+
+  it("shows a new note once it is saved, by refreshing the lead's detail", async () => {
+    const { services, wrapper } = setup();
+    let notes: LeadEvent[] = [];
+    services.leads.get = async () => testLead({ history: notes });
+    services.leads.addNote = async (_id, text) => {
+      const note: LeadEvent = { id: "n1", at: "2026-11-24T08:00:00.000Z", text, byUserId: "u-ronit", author: null, mondayBoard: null, source: "crm", editedAt: null };
+      notes = [note, ...notes];
+      return note;
+    };
+    const { result } = renderHook(() => ({ lead: useLead("lead-1"), add: useAddLeadNote() }), { wrapper });
+    await waitFor(() => expect(result.current.lead.data?.history).toEqual([]));
+    await act(() => result.current.add.mutateAsync({ id: "lead-1", text: "שלום" }));
+    await waitFor(() => expect(result.current.lead.data?.history.map((note) => note.text)).toEqual(["שלום"]));
+  });
+
+  it("refreshes a group's participants after a lead is added to it", async () => {
+    const { services, wrapper } = setup();
+    let members: GroupParticipant[] = [];
+    services.groups.participants = async () => members;
+    services.groups.addLead = async () => {
+      members = [{ id: "p1", customerId: "c1", firstName: "יעל", lastName: "פרץ", phone: "0540000001", passport: "missing", passportExpiry: null, passportExpiringSoon: false, note: null, mondayPassport: null, mondayStatus: null, eventOn: null, addedInCrm: true }];
+      return { customerId: "c1", alreadyMember: false };
+    };
+    const { result } = renderHook(() => ({ people: useGroupParticipants("g1"), add: useAddLeadToGroup() }), { wrapper });
+    await waitFor(() => expect(result.current.people.data).toEqual([]));
+    await act(() => result.current.add.mutateAsync({ id: "g1", leadId: "lead-1" }));
+    await waitFor(() => expect(result.current.people.data).toHaveLength(1));
   });
 });

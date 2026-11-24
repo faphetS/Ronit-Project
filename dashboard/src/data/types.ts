@@ -35,6 +35,10 @@ export interface LeadEvent {
   author: string | null;
   /** The Monday board the note is on. */
   mondayBoard: string | null;
+  /** Written here in the CRM, or copied from Monday. */
+  source: "crm" | "monday";
+  /** When a CRM note was last edited; null if never, and always null for Monday notes. */
+  editedAt: string | null;
 }
 
 /**
@@ -71,6 +75,10 @@ export interface Lead {
   nextStep: string | null;
   /** A status changed here whose label hasn't reached Monday yet. */
   mondayPending: boolean;
+  /** The customer card made for this lead once it joined a group. */
+  customerId: string | null;
+  /** The CRM groups the lead was added to. */
+  groups?: Array<{ id: string; name: string; type: GroupType }>;
   /** Newest first. Empty in lists. */
   history: LeadEvent[];
 }
@@ -164,12 +172,14 @@ export interface Flight {
   guide: string | null;
 }
 
+export type GroupType = "flight" | "event" | "project";
+
 export interface Group {
   id: string;
   name: string;
   /** The name where space is tight, e.g. "אומן · ט״ו באב" for "אומן · ט״ו באב תשפ״ז". */
   shortName: string;
-  type: "flight" | "event";
+  type: GroupType;
   womenOnly: boolean;
   /** Null when nobody set one (Monday has none). */
   capacity: number | null;
@@ -182,6 +192,8 @@ export interface Group {
   flight: Flight | null;
   /** The Monday board it's copied from. */
   mondayBoard: string | null;
+  /** Made in the CRM rather than copied from Monday. */
+  fromCrm: boolean;
 }
 
 export interface GroupSummary extends Group {
@@ -213,6 +225,8 @@ export interface GroupParticipant {
   mondayStatus: string | null;
   /** A challah booking's date. */
   eventOn: string | null;
+  /** Added here in the CRM rather than copied from Monday. */
+  addedInCrm: boolean;
 }
 
 /** One line of the activity feed; the screen words each kind. */
