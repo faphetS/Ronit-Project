@@ -28,6 +28,7 @@ describe("migrate", () => {
       "customers",
       "group_members",
       "groups",
+      "lead_notes",
       "leads",
       "messages",
       "monday_boards",

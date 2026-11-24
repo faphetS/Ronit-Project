@@ -10,10 +10,12 @@ export interface LeadEventDto {
   id: string;
   at: string;
   text: string;
-  /** Monday notes have an author's name, not a dashboard user. */
-  byUserId: null;
+  source: "crm" | "monday";
+  /** A CRM note has the staff member's id; a Monday note has an author's name instead. */
+  byUserId: string | null;
   author: string | null;
   mondayBoard: string | null;
+  editedAt: string | null;
 }
 
 export interface LeadDto {
@@ -40,6 +42,8 @@ export interface LeadDto {
   nextStep: string | null;
   /** A status changed in the CRM whose label hasn't reached Monday yet. */
   mondayPending: boolean;
+  /** The customer card this lead is linked to, once it joined a group. */
+  customerId: string | null;
   /** Newest first. Empty in lists; filled by getLead. */
   history: LeadEventDto[];
 }
@@ -88,13 +92,17 @@ interface LeadRow {
   updated_at: Date;
   last_note: string | null;
   monday_label_pending: string | null;
+  customer_id: string | null;
 }
 
 const LEAD_SELECT = `
   SELECT l.id, l.monday_item_id, l.monday_board_id, l.monday_group, b.name AS board_name, l.name, l.phone, l.source,
          l.status, l.service, l.calls, l.last_call_on, l.inquiry_on, l.last_message, l.next_step, l.archived,
-         l.created_at, l.updated_at, l.monday_label_pending,
-         (SELECT n.body FROM monday_notes n WHERE n.monday_item_id = l.monday_item_id ORDER BY n.at DESC LIMIT 1) AS last_note
+         l.created_at, l.updated_at, l.monday_label_pending, l.customer_id,
+         (SELECT t.body FROM (
+            SELECT n.body, n.at FROM monday_notes n WHERE n.monday_item_id = l.monday_item_id
+            UNION ALL SELECT c.text, c.at FROM lead_notes c WHERE c.lead_id = l.id
+          ) t ORDER BY t.at DESC LIMIT 1) AS last_note
   FROM leads l LEFT JOIN monday_boards b ON b.id = l.monday_board_id`;
 
 /** Where a row opens in Monday. */
@@ -125,6 +133,7 @@ function toLead(row: LeadRow): LeadDto {
     lastMessage: row.last_message,
     nextStep: row.next_step,
     mondayPending: row.monday_label_pending !== null,
+    customerId: row.customer_id,
     history: [],
   };
 }
@@ -197,17 +206,36 @@ export async function getLead(db: Queryable, id: string): Promise<LeadDto> {
   const { rows } = await db.query<LeadRow>(`${LEAD_SELECT} WHERE l.id = $1 AND l.removed_at IS NULL`, [id]);
   if (!rows[0]) throw new NotFoundError("Lead");
   const lead = toLead(rows[0]);
-  const notes = await db.query<{ id: string; at: Date; author: string | null; body: string }>(
+  const monday = await db.query<{ id: string; at: Date; author: string | null; body: string }>(
     "SELECT id, at, author, body FROM monday_notes WHERE monday_item_id = $1 ORDER BY at DESC LIMIT 200",
     [rows[0].monday_item_id],
   );
-  lead.history = notes.rows.map((note) => ({
-    id: note.id,
-    at: note.at.toISOString(),
-    text: note.body,
-    byUserId: null,
-    author: note.author,
-    mondayBoard: lead.mondayBoard || null,
-  }));
+  const crm = await db.query<{ id: string; at: Date; text: string; by_user_id: string | null; edited_at: Date | null }>(
+    "SELECT id, at, text, by_user_id, edited_at FROM lead_notes WHERE lead_id = $1 ORDER BY at DESC LIMIT 200",
+    [id],
+  );
+  const events: LeadEventDto[] = [
+    ...crm.rows.map((note) => ({
+      id: note.id,
+      at: note.at.toISOString(),
+      text: note.text,
+      source: "crm" as const,
+      byUserId: note.by_user_id,
+      author: null,
+      mondayBoard: null,
+      editedAt: note.edited_at ? note.edited_at.toISOString() : null,
+    })),
+    ...monday.rows.map((note) => ({
+      id: note.id,
+      at: note.at.toISOString(),
+      text: note.body,
+      source: "monday" as const,
+      byUserId: null,
+      author: note.author,
+      mondayBoard: lead.mondayBoard || null,
+      editedAt: null,
+    })),
+  ];
+  lead.history = events.sort((x, y) => y.at.localeCompare(x.at));
   return lead;
 }

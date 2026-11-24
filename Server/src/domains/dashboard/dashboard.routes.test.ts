@@ -254,6 +254,72 @@ describe("changing a lead's status", () => {
   });
 });
 
+describe("lead notes", () => {
+  const leadIdOf = async (itemId: string) => (await db.query<{ id: string }>("SELECT id FROM leads WHERE monday_item_id = $1", [itemId])).rows[0].id;
+  const history = async (who: Person, id: string) => (await get(who, `/leads/${id}`).expect(200)).body.data.history;
+
+  it("saves a note, and the history shows it first, next to Monday's", async () => {
+    const id = await leadIdOf("101");
+    const note = (await post(shira, `/leads/${id}/notes`, { text: "  התקשרתי, חוזרת מחר  " }).expect(201)).body.data;
+    expect(note).toMatchObject({ text: "התקשרתי, חוזרת מחר", byUserId: shira.id, editedAt: null });
+    const events = await history(moran, id);
+    expect(events.map((e: { text: string }) => e.text)).toEqual(["התקשרתי, חוזרת מחר", "שלחתי לה את המסלול", "אין מענה, לחזור מחר"]);
+    expect(events[0]).toMatchObject({ id: note.id, source: "crm", byUserId: shira.id, author: null, mondayBoard: null, editedAt: null });
+    expect(events[1]).toMatchObject({ source: "monday", byUserId: null, editedAt: null });
+  });
+
+  it("lets the author edit a note, and marks it edited", async () => {
+    const id = await leadIdOf("101");
+    const note = (await post(shira, `/leads/${id}/notes`, { text: "first" }).expect(201)).body.data;
+    clock = new Date("2026-11-02T09:20:00Z");
+    const edited = (await post(shira, `/leads/${id}/notes/${note.id}`, { text: "second" }).expect(200)).body.data;
+    expect(edited).toMatchObject({ id: note.id, text: "second", editedAt: "2026-11-02T09:20:00.000Z" });
+    expect((await history(shira, id))[0]).toMatchObject({ text: "second", editedAt: "2026-11-02T09:20:00.000Z" });
+  });
+
+  it("keeps another user out, but lets an admin edit and delete", async () => {
+    const id = await leadIdOf("101");
+    const note = (await post(shira, `/leads/${id}/notes`, { text: "mine" }).expect(201)).body.data;
+    expect((await post(moran, `/leads/${id}/notes/${note.id}`, { text: "x" }).expect(403)).body.code).toBe("NOT_YOUR_NOTE");
+    expect((await post(moran, `/leads/${id}/notes/${note.id}/delete`).expect(403)).body.code).toBe("NOT_YOUR_NOTE");
+    expect((await post(ronit, `/leads/${id}/notes/${note.id}`, { text: "by admin" }).expect(200)).body.data.text).toBe("by admin");
+    await post(ronit, `/leads/${id}/notes/${note.id}/delete`).expect(200);
+    expect(await history(shira, id)).toHaveLength(2);
+  });
+
+  it("removes a deleted note from the history", async () => {
+    const id = await leadIdOf("101");
+    const note = (await post(shira, `/leads/${id}/notes`, { text: "gone soon" }).expect(201)).body.data;
+    expect((await post(shira, `/leads/${id}/notes/${note.id}/delete`).expect(200)).body.data).toEqual({ deleted: true });
+    expect((await history(shira, id)).map((e: { source: string }) => e.source)).toEqual(["monday", "monday"]);
+    await post(shira, `/leads/${id}/notes/${note.id}/delete`).expect(404);
+  });
+
+  it("answers 404 for another lead's note, 400 for a bad body, and 403 for view-only", async () => {
+    const a = await leadIdOf("101");
+    const b = await leadIdOf("103");
+    const note = (await post(shira, `/leads/${a}/notes`, { text: "on A" }).expect(201)).body.data;
+    await post(shira, `/leads/${b}/notes/${note.id}`, { text: "x" }).expect(404);
+    await post(shira, `/leads/${b}/notes/${note.id}/delete`).expect(404);
+    await post(shira, `/leads/${a}/notes`, { text: "   " }).expect(400);
+    await post(shira, `/leads/${a}/notes`, { text: "x".repeat(2001) }).expect(400);
+    await post(shira, `/leads/${a}/notes`, { text: "ok", extra: 1 }).expect(400);
+    await post(shira, `/leads/${a}/notes/${note.id}`, { text: "" }).expect(400);
+    await post(shira, "/leads/not-a-uuid/notes", { text: "x" }).expect(404);
+    await db.query("UPDATE leads SET removed_at = $2 WHERE id = $1", [b, clock]);
+    await post(shira, `/leads/${b}/notes`, { text: "x" }).expect(404);
+    await post(ronit, "/users/permissions", { role: "sales", area: "leads", access: "view" }).expect(200);
+    expect((await post(moran, `/leads/${a}/notes`, { text: "x" }).expect(403)).body.code).toBe("NO_ACCESS");
+  });
+
+  it("shows the newest CRM note as the list's last note", async () => {
+    const id = await leadIdOf("101");
+    await post(shira, `/leads/${id}/notes`, { text: "the newest word" }).expect(201);
+    const list = (await get(moran, "/leads").expect(200)).body.data;
+    expect(list.find((l: { id: string }) => l.id === id).lastNote).toBe("the newest word");
+  });
+});
+
 describe("customers", () => {
   it("lists customers with their trips, counts them, and keeps passports from people without access", async () => {
     const page = (await get(moran, "/customers").expect(200)).body.data;

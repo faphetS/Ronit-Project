@@ -26,6 +26,8 @@ export const LeadListQuerySchema = z.object({
 /** A status someone gives a lead: the board's five columns. "details-sent" stays Monday's own. */
 export const LeadStatusSchema = z.object({ status: z.enum(SETTABLE_STATUSES) }).strict();
 
+export const LeadNoteSchema = z.object({ text: z.string().trim().min(1).max(2000) }).strict();
+
 export const CustomerListQuerySchema = z.object({
   filter: z.enum(["all", "whatsapp-today", "expiring", "missing-passport"]).optional(),
   search: z.string().max(100).optional(),

@@ -29,6 +29,7 @@ import { can, loadAccess, requireAccess, staffOf } from "./dashboard.access.js";
 import { idParam, sendData } from "./dashboard.format.js";
 import { mirrorDepsFromEnv } from "./lead-status-mirror.cron.js";
 import { mirrorSoon, type MirrorDeps } from "./lead-status-mirror.js";
+import { addLeadNote, deleteLeadNote, editLeadNote } from "./lead-notes.service.js";
 import { setLeadStatus } from "./lead-status.service.js";
 import {
   AccessSchema,
@@ -37,6 +38,7 @@ import {
   CustomerListQuerySchema,
   InviteSchema,
   LeadListQuerySchema,
+  LeadNoteSchema,
   LeadStatusSchema,
   NoteSchema,
   OwnPasswordSchema,
@@ -200,6 +202,19 @@ export function createDashboardRouter(resolveDeps: AuthDepsResolver, options: Da
     const change = await setLeadStatus(db(res), deps.crmBoardId, { leadId: id, status: req.body.status, byUserId: staffOf(req).user.id }, now(res));
     if (change === "changed" && mirror.enabled) await mirrorSoon(deps, id);
     sendData(res, await getLead(db(res), id));
+  });
+  // Notes are kept in the CRM only. Only the author or an admin edits or deletes one.
+  const editorOf = (req: Request) => ({ id: staffOf(req).user.id, role: staffOf(req).user.role });
+  router.post("/leads/:id/notes", requireAccess("leads", "full"), validate({ body: LeadNoteSchema }), async (req, res) => {
+    sendData(res, await addLeadNote(db(res), idParam(req.params.id, "Lead"), staffOf(req).user.id, req.body.text, now(res)), 201);
+  });
+  router.post("/leads/:id/notes/:noteId", requireAccess("leads", "full"), validate({ body: LeadNoteSchema }), async (req, res) => {
+    const leadId = idParam(req.params.id, "Lead");
+    sendData(res, await editLeadNote(db(res), editorOf(req), leadId, idParam(req.params.noteId, "Note"), req.body.text, now(res)));
+  });
+  router.post("/leads/:id/notes/:noteId/delete", requireAccess("leads", "full"), async (req, res) => {
+    await deleteLeadNote(db(res), editorOf(req), idParam(req.params.id, "Lead"), idParam(req.params.noteId, "Note"));
+    sendData(res, { deleted: true });
   });
 
   // ---- Customers and passports ----
