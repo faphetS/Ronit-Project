@@ -113,6 +113,13 @@ export const leadsCopy = {
     attempts: (count: number) => (count === 1 ? "ניסיון אחד" : `${count} ניסיונות`),
     whatsapp: (name: string) => `וואטסאפ ל${name}`,
     call: (name: string) => `שיחה ל${name}`,
+    /** Read out to screen readers while a card is dragged. */
+    drag: {
+      pickedUp: (name: string) => `הכרטיס של ${name} נגרר`,
+      over: (column: string) => `מעל העמודה ${column}`,
+      dropped: (name: string, column: string) => `הכרטיס של ${name} הועבר לעמודה ${column}`,
+      cancelled: (name: string) => `הגרירה בוטלה. הכרטיס של ${name} נשאר במקומו`,
+    },
   },
 
   /** When a status change didn't go through: a drop on the board, or the status menu. */

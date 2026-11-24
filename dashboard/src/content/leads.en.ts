@@ -104,6 +104,12 @@ export const leadsCopy: Widen<typeof he> = {
     attempts: (count) => (count === 1 ? "1 attempt" : `${count} attempts`),
     whatsapp: (name) => `WhatsApp ${name}`,
     call: (name) => `Call ${name}`,
+    drag: {
+      pickedUp: (name) => `Picked up ${name}'s card`,
+      over: (column) => `Over the ${column} column`,
+      dropped: (name, column) => `Moved ${name}'s card to ${column}`,
+      cancelled: (name) => `Cancelled. ${name}'s card stayed where it was`,
+    },
   },
 
   statusChange: {

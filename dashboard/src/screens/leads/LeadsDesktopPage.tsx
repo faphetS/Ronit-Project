@@ -2,7 +2,7 @@ import { AnimatePresence } from "motion/react";
 import { useCallback } from "react";
 import { useNavigate } from "react-router";
 import { useCopy, useLocale } from "../../content/locale";
-import { useLeadCounts, useOverview } from "../../data/queries";
+import { useCan, useLeadCounts, useOverview } from "../../data/queries";
 import { dayAt, isoDay, now } from "../../lib/clock";
 import { formatDayMonth, formatNumber } from "../../lib/format";
 import { Headline } from "../../ui/Headline";
@@ -13,6 +13,7 @@ import { LeadsDayPanel } from "./LeadsDayPanel";
 import { LeadsKanban } from "./LeadsKanban";
 import { MondaySyncLine } from "./MondaySyncLine";
 import { useSettledLeads } from "./leads-data";
+import { useChangeLeadStatus } from "./useChangeLeadStatus";
 import { focusLeadLink } from "./leads-model";
 import { ALL, boardDay, LEAD_SERVICES, LEAD_SOURCES, toLeadFilters, useLeadsUrl, type LeadsUrlState } from "./leads-url";
 
@@ -28,6 +29,8 @@ export function LeadsDesktopPage({ leadId }: { leadId?: string }) {
   const url = useLeadsUrl();
   const counts = useLeadCounts();
   const overview = useOverview();
+  const canMove = useCan("leads", "full");
+  const changeStatus = useChangeLeadStatus();
 
   const filters = toLeadFilters(url.state, { status: false, search: false, day: true });
   const open = useSettledLeads(filters);
@@ -83,7 +86,7 @@ export function LeadsDesktopPage({ leadId }: { leadId?: string }) {
         </div>
       </div>
 
-      <LeadsKanban open={open} closed={closed} selectedId={leadId} leadHref={url.leadHref} />
+      <LeadsKanban open={open} closed={closed} selectedId={leadId} leadHref={url.leadHref} canMove={canMove} onMove={changeStatus} />
     </ScreenFrame>
   );
 }
