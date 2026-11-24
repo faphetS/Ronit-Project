@@ -339,6 +339,7 @@ function LeadCard({ lead, selected, href, row, canMove, justDropped }: LeadCardP
   return (
     <motion.li
       ref={setNodeRef}
+      data-lead-card=""
       {...(canMove ? listeners : undefined)}
       data-draggable={canMove || undefined}
       layout="position"

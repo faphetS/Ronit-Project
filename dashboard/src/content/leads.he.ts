@@ -155,7 +155,7 @@ export const leadsCopy = {
     /** The status menu in the lead's header. */
     statusLabel: "שינוי סטטוס",
     /** A status changed here that Monday hasn't taken yet. */
-    mondayPending: "הסטטוס עוד לא הגיע ל-Monday. ננסה שוב בעוד כמה דקות.",
+    mondayPending: "הסטטוס עוד לא הגיע ל-Monday. המערכת ממשיכה לנסות.",
     nextStep: "שלב הבא",
     lastMessage: "הודעה אחרונה באינסטגרם",
     history: "הערות ושיחות",

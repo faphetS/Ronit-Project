@@ -140,7 +140,7 @@ export const leadsCopy: Widen<typeof he> = {
     openInMonday: "Open in Monday",
     editInMonday: "Statuses change here, and Monday follows. Notes are still written in Monday.",
     statusLabel: "Change status",
-    mondayPending: "The status hasn't reached Monday yet. Trying again in a few minutes.",
+    mondayPending: "The status hasn't reached Monday yet. The CRM keeps trying.",
     nextStep: "Next step",
     lastMessage: "Last Instagram message",
     history: "Notes and calls",

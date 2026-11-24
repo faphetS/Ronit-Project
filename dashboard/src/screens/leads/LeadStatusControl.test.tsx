@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { Lead, SettableLeadStatus } from "../../data/types";
@@ -17,6 +17,13 @@ describe("LeadStatusControl", () => {
     expect(menu).toHaveValue("working");
     await userEvent.selectOptions(menu, "no-answer");
     await waitFor(() => expect(setStatus).toHaveBeenCalledWith(lead.id, "no-answer"));
+  });
+
+  it("keeps saying details sent on the selected In progress option", async () => {
+    const services = await signedInServices();
+    renderApp([{ path: "/", element: <LeadStatusControl lead={testLead({ status: "details-sent" })} /> }], { services });
+    const menu = await screen.findByRole("combobox", { name: "שינוי סטטוס" });
+    expect(within(menu).getByRole("option", { selected: true })).toHaveTextContent("נשלחו פרטים");
   });
 
   it("shows the status as a tag to people who may only look", async () => {

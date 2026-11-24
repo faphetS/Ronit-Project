@@ -2,10 +2,10 @@ import { useEffect, type RefObject } from "react";
 
 /**
  * Presses that never close the panel:
- * - another lead's card, which opens that lead instead (and starts a drag on the board);
+ * - a lead's card: opening it, its contact buttons, or starting a drag on the board;
  * - menus, pop-ups, dialogs and toasts, which float above the page.
  */
-const KEEPS_OPEN = 'a[href^="/leads/"], [role="menu"], [role="listbox"], [role="dialog"], [role="alertdialog"], [popover], [data-toast]';
+const KEEPS_OPEN = 'a[href^="/leads/"], [role="menu"], [role="listbox"], [role="dialog"], [role="alertdialog"], [popover], [data-toast], [data-lead-card]';
 
 /** While `active`, a main-button press anywhere outside `ref` calls `onClose`. */
 export function useCloseOnOutsidePress(ref: RefObject<HTMLElement | null>, onClose: () => void, active: boolean): void {
