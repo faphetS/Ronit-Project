@@ -156,6 +156,7 @@ describe("leads", () => {
       mondayUrl: "https://ronit550418.monday.com/boards/5101856136/pulses/101",
       lastNote: "שלחתי לה את המסלול",
       archived: false,
+      mondayPending: false,
       history: [],
     });
     expect((await get(moran, "/leads/counts").expect(200)).body.data).toEqual({

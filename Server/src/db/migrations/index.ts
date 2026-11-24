@@ -6,6 +6,7 @@ import { WHATSAPP_TEMPLATES } from "./005_whatsapp_templates.js";
 import { PASSWORD_SIGN_IN } from "./006_password_sign_in.js";
 import { TWO_STEP_EXEMPT } from "./007_two_step_exempt.js";
 import { DEMO_ACCOUNTS } from "./008_demo_accounts.js";
+import { LEAD_STATUS_IN_CRM } from "./009_lead_status_in_crm.js";
 
 export interface Migration {
   /** Never rename or reorder: applied ids are recorded in schema_migrations. */
@@ -23,4 +24,5 @@ export const MIGRATIONS: Migration[] = [
   { id: "006_password_sign_in", sql: PASSWORD_SIGN_IN },
   { id: "007_two_step_exempt", sql: TWO_STEP_EXEMPT },
   { id: "008_demo_accounts", sql: DEMO_ACCOUNTS },
+  { id: "009_lead_status_in_crm", sql: LEAD_STATUS_IN_CRM },
 ];

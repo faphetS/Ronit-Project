@@ -4,7 +4,7 @@ import { NotFoundError } from "../../lib/errors.js";
 import type { LeadSource, LeadStatus, Service } from "../monday-copy/monday-copy.mapping.js";
 import { localPhone, phoneSearchDigits } from "./dashboard.format.js";
 
-/** Leads, as copied from Monday's CRM boards. Read-only: they're edited in Monday until the switch-over. */
+/** Leads, as copied from Monday's CRM boards. Their status can also change in the CRM: see lead-status.service.ts. */
 
 export interface LeadEventDto {
   id: string;
@@ -38,6 +38,8 @@ export interface LeadDto {
   inquiryOn: string | null;
   lastMessage: string | null;
   nextStep: string | null;
+  /** A status changed in the CRM whose label hasn't reached Monday yet. */
+  mondayPending: boolean;
   /** Newest first. Empty in lists; filled by getLead. */
   history: LeadEventDto[];
 }
@@ -85,12 +87,13 @@ interface LeadRow {
   created_at: Date;
   updated_at: Date;
   last_note: string | null;
+  monday_label_pending: string | null;
 }
 
 const LEAD_SELECT = `
   SELECT l.id, l.monday_item_id, l.monday_board_id, l.monday_group, b.name AS board_name, l.name, l.phone, l.source,
          l.status, l.service, l.calls, l.last_call_on, l.inquiry_on, l.last_message, l.next_step, l.archived,
-         l.created_at, l.updated_at,
+         l.created_at, l.updated_at, l.monday_label_pending,
          (SELECT n.body FROM monday_notes n WHERE n.monday_item_id = l.monday_item_id ORDER BY n.at DESC LIMIT 1) AS last_note
   FROM leads l LEFT JOIN monday_boards b ON b.id = l.monday_board_id`;
 
@@ -121,6 +124,7 @@ function toLead(row: LeadRow): LeadDto {
     inquiryOn: row.inquiry_on,
     lastMessage: row.last_message,
     nextStep: row.next_step,
+    mondayPending: row.monday_label_pending !== null,
     history: [],
   };
 }
