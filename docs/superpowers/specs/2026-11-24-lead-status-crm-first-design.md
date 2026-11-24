@@ -255,7 +255,12 @@ the test fixtures and the demo data gain the same field.
 ## Rollout
 
 - **The pull request:** to `faphetS/Ronit-Project`, with a security review, then merge.
-- **The new server:** a database backup and a rollback image first. Then pull, migrate to 009 and rebuild the crm.
+- **The new server:** a backup of the live database and a rollback image first. Then pull, and rebuild the crm, which
+  applies migration 009 at startup.
+  - The live database is Ronit's Supabase, since 2026-11-25. The server's `.env` points at it. Back it up with
+    `pg_dump`, run through the server's Supabase docker command (`--env-file /root/supabase/pg.env`). The server's local
+    Postgres is a frozen fallback.
+  - Migration 009 adds columns and an index to `leads`, and no new table, so Supabase's `lockdown.sql` isn't needed.
 - **The dashboard:** Vercel production.
 - **When:** only on the user's "push live".
 - **Afterwards, tell Ronit's team:** statuses can now be changed in the CRM, by dragging or with the status button, and
