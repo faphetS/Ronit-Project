@@ -5,7 +5,7 @@ import { Button } from "../../ui/Button";
 import { ScreenFrame } from "../../ui/ScreenFrame";
 import { EmptyState, ErrorState } from "../../ui/states";
 import { Surface } from "../../ui/Surface";
-import { LeadBodySkeleton, LeadContactLinks, LeadFacts, LeadHeader, LeadHeaderSkeleton, LeadGroups, LeadHistory, LeadInMonday } from "./LeadDetailParts";
+import { LeadBodySkeleton, LeadContactLinks, LeadExtras, LeadFacts, LeadHeader, LeadHeaderSkeleton, LeadGroups, LeadHistory } from "./LeadDetailParts";
 import { useLeadDetail } from "./leads-data";
 
 /** The lead as a pushed phone screen, with the same parts as the desktop panel: header, contact and details on glass, then Monday and the notes. */
@@ -24,7 +24,7 @@ export function LeadPhoneDetail({ leadId }: { leadId: string }) {
           <LeadFacts lead={lead} surface="glass" />
         </Surface>
         <Surface variant="card" compact>
-          <LeadInMonday lead={lead} level={2} />
+          <LeadExtras lead={lead} />
         </Surface>
         <Surface variant="card" compact>
           <LeadGroups lead={lead} level={2} />

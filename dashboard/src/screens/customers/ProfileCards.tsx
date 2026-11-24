@@ -135,13 +135,12 @@ export function MessagesCard({ customerId, compact = false, className }: { custo
   );
 }
 
-/** Desktop: group, source, the lead and Monday board she came from, and the phone. */
+/** Desktop: group, source, the lead, and the phone. */
 export function DetailsCard({ customer, groupLabel, className }: { customer: Customer; groupLabel: string; className?: string }) {
   const { customersCopy: copy } = useCopy();
   const headingId = useId();
   const rows = copy.details.rows;
-  const fromMonday = customer.mondayBoard ? copy.details.fromMonday(customer.mondayBoard) : null;
-  const lead = customer.leadId ? <TextLink to={`/leads/${customer.leadId}`}>{fromMonday ?? copy.details.openLead}</TextLink> : (fromMonday ?? copy.details.noLead);
+  const lead = customer.leadId ? <TextLink to={`/leads/${customer.leadId}`}>{copy.details.openLead}</TextLink> : copy.details.noLead;
   const items: KeyValueItem[] = [
     { key: "group", label: rows.group, value: groupLabel || "·" },
     { key: "source", label: rows.source, value: copy.details.sources[customer.source] },

@@ -96,7 +96,7 @@ export function LeadContactLinks({ phone }: { phone: string }) {
   );
 }
 
-/** Phone, source, service, the Monday group, the first contact and the calls. */
+/** Phone, source, service, the first contact and the calls. */
 export function LeadFacts({ lead, surface }: { lead: Lead; surface: SurfaceVariant }) {
   const { leadsCopy: copy } = useCopy();
   const { locale } = useLocale();
@@ -106,47 +106,25 @@ export function LeadFacts({ lead, surface }: { lead: Lead; surface: SurfaceVaria
     { key: "phone", label: copy.detail.phone, value: <Ltr>{lead.phone}</Ltr> },
     { key: "source", label: copy.detail.source, value: copy.sources[lead.source] },
     { key: "service", label: copy.detail.service, value: lead.service ? copy.services[lead.service] : copy.noService },
-    { key: "group", label: copy.detail.mondayGroup, value: <bdi>{lead.mondayGroup}</bdi> },
     { key: "inquiry", label: copy.detail.inquiry, value: formatDate(inquiry, locale) },
     { key: "calls", label: copy.detail.calls, value: copy.detail.callsLine(lead.calls, lastCall) },
   ];
   return <KeyValue items={items} surface={surface} />;
 }
 
-interface LeadInMondayProps {
-  lead: Lead;
-  level: 2 | 3;
-}
-
-/**
- * The lead in Monday: what Monday says comes next, her last Instagram message, and the way to her row there. The status
- * changes here and Monday follows; a status still on its way to Monday says so. Notes are still written in Monday.
- */
-export function LeadInMonday({ lead, level }: LeadInMondayProps) {
+/** The lead's next step and last Instagram message, when there are any. The CRM is the one place to work: no outside links. */
+export function LeadExtras({ lead }: { lead: Lead }) {
   const { leadsCopy: copy } = useCopy();
-  const headingId = useId();
-  const Heading = HEADING[level];
+  if (!lead.nextStep && !lead.lastMessage) return null;
   return (
-    <section aria-labelledby={headingId} className="flex flex-col gap-3">
-      <Heading id={headingId} className={cx(PART_HEADING, "mb-0")}>
-        {copy.detail.inMonday}
-      </Heading>
-      {lead.nextStep ? <MondayText label={copy.detail.nextStep} text={lead.nextStep} /> : null}
-      {lead.lastMessage ? <MondayText label={copy.detail.lastMessage} text={lead.lastMessage} /> : null}
-      {lead.mondayPending ? (
-        <p role="status" className="text-small text-status-warning">
-          {copy.detail.mondayPending}
-        </p>
-      ) : null}
-      <p className="text-small text-mute">{copy.detail.editInMonday}</p>
-      <div className="flex">
-        <ContactLink href={lead.mondayUrl} icon="forward" label={copy.detail.openInMonday} newTabLabel={copy.detail.newTab(copy.detail.openInMonday)} />
-      </div>
-    </section>
+    <div className="flex flex-col gap-3">
+      {lead.nextStep ? <LeadText label={copy.detail.nextStep} text={lead.nextStep} /> : null}
+      {lead.lastMessage ? <LeadText label={copy.detail.lastMessage} text={lead.lastMessage} /> : null}
+    </div>
   );
 }
 
-function MondayText({ label, text }: { label: string; text: string }) {
+function LeadText({ label, text }: { label: string; text: string }) {
   return (
     <div>
       <p className="text-caption text-mute">{label}</p>

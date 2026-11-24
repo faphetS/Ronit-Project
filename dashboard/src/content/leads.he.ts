@@ -22,12 +22,6 @@ export const leadsCopy = {
   /** The last note and when, under a lead on phones. */
   noteLine: (note: string, when: string) => `${note} · ${when}`,
 
-  /** The line under the title: the leads are a copy of Monday, and when it was made. */
-  monday: {
-    synced: (when: string) => `מתעדכן מ-Monday · ${when}`,
-    notYet: "עוד לא הועתק מ-Monday",
-  },
-
   /** The panel above the board: how many leads came in on a day. */
   days: {
     label: "לידים לפי יום",
@@ -144,18 +138,11 @@ export const leadsCopy = {
     phone: "טלפון",
     source: "מקור",
     service: "שירות",
-    mondayGroup: "קבוצה ב-Monday",
     inquiry: "פנייה",
     calls: "שיחות",
     callsLine: (count: number, last: string | null) => (count === 0 ? "עוד לא" : last ? `${count} · אחרונה ${last}` : String(count)),
-    /** Where the lead is edited until the switch-over. */
-    inMonday: "ב-Monday",
-    openInMonday: "פתיחה ב-Monday",
-    editInMonday: "את הסטטוס משנים כאן, והוא מתעדכן גם ב-Monday. הערות עדיין נכתבות שם.",
     /** The status menu in the lead's header. */
     statusLabel: "שינוי סטטוס",
-    /** A status changed here that Monday hasn't taken yet. */
-    mondayPending: "הסטטוס עוד לא הגיע ל-Monday. המערכת ממשיכה לנסות.",
     nextStep: "שלב הבא",
     lastMessage: "הודעה אחרונה באינסטגרם",
     history: "הערות ושיחות",
@@ -177,7 +164,6 @@ export const leadsCopy = {
     noteDeleteConfirm: "מחיקת ההערה",
     noteDeleted: "ההערה נמחקה",
     noteEdited: "נערכה",
-    mondayTag: "Monday",
     groups: "קבוצות",
     noGroups: "עוד לא בקבוצה",
     notFound: "הליד הזה לא נמצא",

@@ -115,7 +115,6 @@ function NoteRow({ leadId, event, canManage }: { leadId: string; event: LeadEven
           <p className="font-medium break-words whitespace-pre-line text-ink">{event.text}</p>
           <p className="text-caption text-mute">
             {meta}
-            {isCrm ? null : <span className="ms-2 rounded-full bg-white/70 px-2 py-px text-[11px] font-medium text-copy">{copy.detail.mondayTag}</span>}
             {event.editedAt ? ` · ${copy.detail.noteEdited}` : null}
           </p>
           {canManage ? (

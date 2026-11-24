@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 import { PhoneTopBar } from "../../app/phone/PhoneTopBar";
 import { useCopy, useLocale } from "../../content/locale";
-import { useCan, useImportRun, useSession, useSignOut, useUsers } from "../../data/queries";
+import { useCan, useSession, useSignOut, useUsers } from "../../data/queries";
 import { now } from "../../lib/clock";
 import { cx } from "../../lib/cx";
 import { formatDayMonth } from "../../lib/format";
@@ -13,7 +13,7 @@ import { ListRow } from "../../ui/ListRow";
 import { ScreenFrame } from "../../ui/ScreenFrame";
 import { Sheet } from "../../ui/Sheet";
 import { SectionHeader } from "../../ui/SectionHeader";
-import { EmptyState, ErrorState, Skeleton } from "../../ui/states";
+import { EmptyState, ErrorState } from "../../ui/states";
 import { StatusTag } from "../../ui/StatusTag";
 import { Surface } from "../../ui/Surface";
 import { useToast } from "../../ui/toast-context";
@@ -21,7 +21,7 @@ import { AccessSheet, InviteSheet, type AccessTarget } from "./InviteSheet";
 import { LoadingRows } from "./LoadingRows";
 import { OwnPasswordForm } from "./OwnPasswordForm";
 import { SecurityCard } from "./SecurityCard";
-import { formatWhen, IMPORT_TONE } from "./users-format";
+import { formatWhen } from "./users-format";
 
 /** The black "+" at the end of the top bar, for admins: the invite form. */
 function InviteButton({ label, className }: { label: string; className?: string }) {
@@ -69,17 +69,15 @@ function AccountCard() {
   );
 }
 
-/** The import, your password, the message history and signing out. */
+/** Your password, the message history and signing out. */
 function AdminLinks() {
   const { usersCopy: copy, nav } = useCopy();
-  const run = useImportRun();
   const signOut = useSignOut();
   const session = useSession();
   const directory = useUsers();
   const navigate = useNavigate();
   const toast = useToast();
   const [changingPassword, setChangingPassword] = useState(false);
-  const status = run.data?.lastRun?.status;
   const me = directory.data?.users.find((user) => user.id === session.data?.user.id);
 
   const leave = () =>
@@ -91,19 +89,6 @@ function AdminLinks() {
   return (
     <Surface variant="card" compact aria-label={copy.account.admin} className="px-4 py-1.5">
       <ul>
-        <ListRow
-          as="li"
-          to="/import"
-          leading={<IconCircle icon="import" />}
-          title={copy.account.import}
-          trailing={
-            status ? (
-              <StatusTag tone={IMPORT_TONE[status]}>{copy.account.importStatus[status]}</StatusTag>
-            ) : run.isPending ? (
-              <Skeleton className="h-7 w-16 shrink-0" />
-            ) : null
-          }
-        />
         {/* Only a password the office set can be changed here; without one, the row just says so. */}
         {me ? (
           <ListRow

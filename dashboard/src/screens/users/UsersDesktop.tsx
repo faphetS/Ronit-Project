@@ -226,7 +226,7 @@ function PermissionsCard({ className }: { className?: string }) {
           <DataTable
             label={matrix.title}
             columns={columns}
-            rows={permissions.data}
+            rows={permissions.data.filter((row) => row.area !== "import")}
             rowKey={(row) => row.area}
             animateRows={false}
             empty={<EmptyState message={matrix.empty} />}

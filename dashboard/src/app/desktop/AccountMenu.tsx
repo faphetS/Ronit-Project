@@ -285,9 +285,6 @@ export function AccountMenu() {
         <Link to="/users" onClick={close} className={ROW}>
           <RowBody icon="users" label={copy.team} value={users.data?.users.length} trailing={<Chevron />} first />
         </Link>
-        <Link to="/import" onClick={close} className={ROW}>
-          <RowBody icon="import" label={copy.import} trailing={<Chevron />} />
-        </Link>
       </Group>
       <Group>
         <div className={STILL_ROW}>

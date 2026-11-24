@@ -18,11 +18,6 @@ export const leadsCopy: Widen<typeof he> = {
   separator: " · ",
   noteLine: (note, when) => `${note} · ${when}`,
 
-  monday: {
-    synced: (when) => `Synced from Monday · ${when}`,
-    notYet: "Not copied from Monday yet",
-  },
-
   days: {
     label: "Leads by day",
     today: "Today",
@@ -132,15 +127,10 @@ export const leadsCopy: Widen<typeof he> = {
     phone: "Phone",
     source: "Source",
     service: "Service",
-    mondayGroup: "Monday group",
     inquiry: "First contact",
     calls: "Calls",
     callsLine: (count, last) => (count === 0 ? "None yet" : last ? `${count} · last ${last}` : String(count)),
-    inMonday: "In Monday",
-    openInMonday: "Open in Monday",
-    editInMonday: "Statuses change here, and Monday follows. Notes are still written in Monday.",
     statusLabel: "Change status",
-    mondayPending: "The status hasn't reached Monday yet. The CRM keeps trying.",
     nextStep: "Next step",
     lastMessage: "Last Instagram message",
     history: "Notes and calls",
@@ -160,7 +150,6 @@ export const leadsCopy: Widen<typeof he> = {
     noteDeleteConfirm: "Delete note",
     noteDeleted: "Note deleted",
     noteEdited: "edited",
-    mondayTag: "Monday",
     groups: "Groups",
     noGroups: "Not in a group yet",
     notFound: "This lead wasn’t found",

@@ -124,7 +124,7 @@ export const overview = {
     lead: (source: string, service: string | null) => (service ? `ליד חדש · ${source} · ${service}` : `ליד חדש · ${source}`),
     registration: (group: string) => `נרשמה · ${group}`,
     passport: { matched: "דרכון נקלט לכרטיס", "new-card": "דרכון פתח כרטיס חדש", "needs-review": "דרכון ממתין לבדיקה" } satisfies Record<IntakeResult, string>,
-    importTitle: "העתקה מ-Monday",
+    importTitle: "רענון נתונים",
     importDetail: (leads: string, customers: string) => `${leads} לידים · ${customers} לקוחות`,
   },
 } as const;

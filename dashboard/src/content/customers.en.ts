@@ -77,7 +77,7 @@ export const customersCopy: Widen<typeof he> = {
       updated: "Updated",
     },
     missingPassport: "No passport",
-    mondayPassport: { yes: "Has one · per Monday", "in-progress": "Being issued · per Monday" },
+    mondayPassport: { yes: "Has one · not scanned", "in-progress": "Being issued" },
     expiringSoon: "Expires soon",
     expired: "Expired",
     fromWhatsapp: (time) => `From WhatsApp, ${time}`,
@@ -134,7 +134,7 @@ export const customersCopy: Widen<typeof he> = {
     expiredOn: (date) => `Expired on ${date}`,
     received: {
       whatsapp: (when) => `Arrived on WhatsApp ${when}`,
-      monday: (when) => `Imported from Monday.com ${when}`,
+      monday: (when) => `Imported ${when}`,
       manual: (when) => `Entered by hand ${when}`,
     },
     at: {
@@ -175,7 +175,7 @@ export const customersCopy: Widen<typeof he> = {
     },
     missingTitle: "No passport yet",
     missingBody: "When the passport photo arrives on WhatsApp, its details will come in here automatically.",
-    mondayTitle: { yes: "Monday marks that she has a passport", "in-progress": "Monday marks her passport as being issued" },
+    mondayTitle: { yes: "Marked as having a passport", "in-progress": "Passport marked as being issued" },
     mondayBody: "Its details will come in here when the passport photo arrives on WhatsApp.",
   },
   accessLog: {
@@ -184,7 +184,7 @@ export const customersCopy: Widen<typeof he> = {
     photoView: (name) => (name ? `Passport photo viewed · ${name}` : "Passport photo viewed"),
     received: {
       whatsapp: "Updated automatically from WhatsApp",
-      monday: "Imported from Monday.com",
+      monday: "Imported",
       manual: "Entered by hand",
     },
     by: (action, name) => `${action} · ${name}`,
@@ -241,10 +241,9 @@ export const customersCopy: Widen<typeof he> = {
       facebook: "Facebook",
       whatsapp: "WhatsApp",
       referral: "Referral",
-      monday: "Monday",
+      monday: "Import",
       manual: "Entered by hand",
     },
-    fromMonday: (board) => `From Monday, board ${board}`,
     openLead: "Open the lead",
     noLead: "No linked lead",
   },
