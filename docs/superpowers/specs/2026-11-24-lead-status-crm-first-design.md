@@ -260,7 +260,7 @@ the test fixtures and the demo data gain the same field.
 - **The pull request:** to `faphetS/Ronit-Project`, with a security review, then merge.
 - **The new server:** a backup of the live database and a rollback image first. Then pull, and rebuild the crm, which
   applies migration 009 at startup.
-  - The live database is Ronit's Supabase, since 2026-11-25. The server's `.env` points at it. Back it up with
+  - The live database is Ronit's Supabase, since 2026-11-24 13:51 Israel time. The server's `.env` points at it. Back it up with
     `pg_dump`, run through the server's Supabase docker command (`--env-file /root/supabase/pg.env`). The server's local
     Postgres is a frozen fallback.
   - Migration 009 adds columns and an index to `leads`, and no new table, so Supabase's `lockdown.sql` isn't needed.
