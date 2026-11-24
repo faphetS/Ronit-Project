@@ -252,3 +252,81 @@ describe("mirrorSoon", () => {
     await expect(mirrorSoon(broken, "any-id", 50)).resolves.toBeUndefined();
   });
 });
+
+describe("the 2-hourly copy", () => {
+  const later = () => {
+    clock = new Date(clock.getTime() + 2 * 3_600_000);
+  };
+  const recopy = () => copyFromMonday(copyDeps(), "schedule");
+  const mondayRow = (itemId: string) => monday.boards[0].rows.find((candidate) => candidate.id === itemId)!;
+
+  it("keeps the CRM's status while its label is on the way to Monday", async () => {
+    await waiting("101", "no-answer", "אין מענה");
+    later();
+    await recopy();
+    expect(await row("101")).toMatchObject({ status: "no-answer", contact_status: "נוצר קשר", monday_label_pending: "אין מענה" });
+  });
+
+  it("keeps a status changed in the CRM after the copy began reading Monday", async () => {
+    later();
+    const gql = monday.gql;
+    let changed = false;
+    const copying: CopyDeps = {
+      ...copyDeps(),
+      gql: (async (query: string, variables?: Record<string, unknown>) => {
+        const answer = await gql(query, variables);
+        if (!changed && query.includes("items_page")) {
+          // A drag lands while the copy reads Monday, and Monday takes the label at once. The copy still saw the old one.
+          changed = true;
+          await db.query("UPDATE leads SET status = 'no-answer', status_changed_at = $2, contact_status = 'אין מענה' WHERE monday_item_id = $1", [
+            "101",
+            new Date(clock.getTime() + 1000),
+          ]);
+        }
+        return answer;
+      }) as CopyDeps["gql"],
+    };
+    await copyFromMonday(copying, "schedule");
+    expect((await row("101")).status).toBe("no-answer");
+  });
+
+  it("keeps the CRM's status when nothing about it changed in Monday", async () => {
+    await waiting("101", "no-answer", "אין מענה");
+    await mirrorStatus(deps(), await leadId("101"));
+    later();
+    await recopy();
+    expect((await row("101")).status).toBe("no-answer");
+  });
+
+  it("takes Monday's status when the office changed the label there", async () => {
+    await waiting("101", "no-answer", "אין מענה");
+    await mirrorStatus(deps(), await leadId("101"));
+    mondayRow("101").values.contact = "לא רלוונטי";
+    later();
+    await recopy();
+    expect(await row("101")).toMatchObject({ status: "not-relevant", contact_status: "לא רלוונטי" });
+  });
+
+  it("takes Monday's status when the office moved the lead to another group", async () => {
+    monday.boards[0].groups.push({ id: "g_followup", title: "פולואפ" });
+    // שירה כהן has no label: in a follow-up group she counts as in talks.
+    mondayRow("103").group = "g_followup";
+    later();
+    await recopy();
+    expect((await row("103")).status).toBe("talking");
+  });
+
+  it("gives a lead that's new to the CRM Monday's status", async () => {
+    monday.boards[0].rows.push({
+      id: "104",
+      name: "דנה לוי",
+      group: "g_new",
+      created: "2026-11-24T07:00:00Z",
+      updated: "2026-11-24T07:00:00Z",
+      values: { phone: "0500000004", contact: "אין מענה", source: "אורגני" },
+    });
+    later();
+    await recopy();
+    expect((await row("104")).status).toBe("no-answer");
+  });
+});
