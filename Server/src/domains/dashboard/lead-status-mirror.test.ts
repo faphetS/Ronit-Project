@@ -40,8 +40,10 @@ async function row(itemId: string) {
     monday_sync_attempts: number;
     monday_sync_error: string | null;
     monday_sync_next_at: Date | null;
+    monday_label_sent_at: Date | null;
   }>(
-    `SELECT status, contact_status, monday_label_pending, monday_sync_attempts, monday_sync_error, monday_sync_next_at
+    `SELECT status, contact_status, monday_label_pending, monday_sync_attempts, monday_sync_error, monday_sync_next_at,
+       monday_label_sent_at
      FROM leads WHERE monday_item_id = $1`,
     [itemId],
   );
@@ -80,6 +82,7 @@ describe("mirrorStatus", () => {
     expect(await mirrorStatus(deps(), await leadId("101"))).toBe("done");
     expect(monday.writes).toEqual([{ boardId: CRM, itemId: "101", columnId: "contact", label: "אין מענה" }]);
     expect(await row("101")).toMatchObject({ status: "no-answer", contact_status: "אין מענה", monday_label_pending: null, monday_sync_attempts: 0 });
+    expect((await row("101")).monday_label_sent_at?.getTime()).toBe(clock.getTime());
   });
 
   it("clears the label for New", async () => {
@@ -262,6 +265,8 @@ describe("the 2-hourly copy", () => {
 
   it("keeps the CRM's status while its label is on the way to Monday", async () => {
     await waiting("101", "no-answer", "אין מענה");
+    // Monday's label differs from the copy's, so only the waiting label keeps the CRM's status.
+    mondayRow("101").values.contact = "לא רלוונטי";
     later();
     await recopy();
     expect(await row("101")).toMatchObject({ status: "no-answer", contact_status: "נוצר קשר", monday_label_pending: "אין מענה" });
@@ -278,9 +283,10 @@ describe("the 2-hourly copy", () => {
         if (!changed && query.includes("items_page")) {
           // A drag lands while the copy reads Monday, and Monday takes the label at once. The copy still saw the old one.
           changed = true;
+          clock = new Date(clock.getTime() + 5000);
           await db.query("UPDATE leads SET status = 'no-answer', status_changed_at = $2, contact_status = 'אין מענה' WHERE monday_item_id = $1", [
             "101",
-            new Date(clock.getTime() + 1000),
+            new Date(clock.getTime() - 4000),
           ]);
         }
         return answer;
@@ -328,5 +334,60 @@ describe("the 2-hourly copy", () => {
     later();
     await recopy();
     expect((await row("104")).status).toBe("no-answer");
+  });
+
+  it("keeps the CRM's status when its label reaches Monday while the copy is reading", async () => {
+    await waiting("101", "no-answer", "אין מענה");
+    later();
+    const gql = monday.gql;
+    let sent = false;
+    const copying: CopyDeps = {
+      ...copyDeps(),
+      gql: (async (query: string, variables?: Record<string, unknown>) => {
+        const answer = await gql(query, variables);
+        if (!sent && query.includes("items_page")) {
+          // The copy has Monday's old label; then the retry lands and Monday takes the new one.
+          sent = true;
+          clock = new Date(clock.getTime() + 1000);
+          await mirrorStatus({ ...deps(), gql }, await leadId("101"));
+        }
+        return answer;
+      }) as CopyDeps["gql"],
+    };
+    await copyFromMonday(copying, "schedule");
+    expect(await row("101")).toMatchObject({ status: "no-answer", monday_label_pending: null, contact_status: "אין מענה" });
+  });
+
+  it("keeps a status the CRM changed even where Monday's mapping reads it differently", async () => {
+    monday.boards[0].groups.push({ id: "g_followup", title: "פולואפ" });
+    mondayRow("103").group = "g_followup";
+    later();
+    await recopy();
+    expect((await row("103")).status).toBe("talking");
+    await waiting("103", "new", "");
+    await mirrorStatus(deps(), await leadId("103"));
+    later();
+    await recopy();
+    expect((await row("103")).status).toBe("new");
+  });
+
+  it("applies a group move that arrived during a CRM change at the next copy", async () => {
+    await waiting("103", "no-answer", "אין מענה");
+    monday.boards[0].groups.push({ id: "g_closed", title: "נסגרו" });
+    mondayRow("103").group = "g_closed";
+    later();
+    await recopy();
+    expect(await row("103")).toMatchObject({ status: "no-answer", monday_label_pending: "אין מענה" });
+    await mirrorStatus(deps(), await leadId("103"));
+    later();
+    await recopy();
+    expect((await row("103")).status).toBe("registered");
+  });
+
+  it("gives a lead the CRM never changed Monday's status at every copy", async () => {
+    await db.query("UPDATE leads SET status = 'registered' WHERE monday_item_id = '103'");
+    later();
+    await recopy();
+    expect((await row("103")).status).toBe("new");
   });
 });

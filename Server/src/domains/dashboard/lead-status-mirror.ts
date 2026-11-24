@@ -148,9 +148,9 @@ async function writeLabel(deps: MirrorDeps, leadId: string): Promise<MirrorResul
 
   await deps.db.query(
     `UPDATE leads SET monday_label_pending = NULL, contact_status = $3, monday_sync_attempts = 0, monday_sync_error = NULL,
-       monday_sync_next_at = NULL
+       monday_sync_next_at = NULL, monday_label_sent_at = $4
      WHERE id = $1 AND monday_label_pending = $2`,
-    [leadId, label, label || null],
+    [leadId, label, label || null, deps.now()],
   );
   return "done";
 }

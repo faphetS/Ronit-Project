@@ -93,15 +93,21 @@ export async function removeBoard(tx: Queryable, boardId: string, now: Date): Pr
 // ---- Leads ----
 
 /**
- * When the copy leaves a lead's status as the CRM has it (spec 2026-11-24):
- * - a change made in the CRM is still on its way to Monday;
- * - or the change was made after this copy began reading Monday ($2 is the copy's start);
- * - or nothing about the status changed in Monday: the same group and the same label.
- * Otherwise the change was made in Monday, and Monday's is newer.
+ * The CRM's own change to a lead is on its way to Monday, or was made, or was taken by Monday, after this copy began
+ * reading ($2 is the copy's start). What the copy read may predate it, so the copy leaves the lead's status, label
+ * and group as they are, and the next copy compares again (spec 2026-11-24).
  */
-const KEEP_CRM_STATUS = `(leads.monday_label_pending IS NOT NULL
+const CRM_CHANGE_IN_FLIGHT = `(leads.monday_label_pending IS NOT NULL
   OR leads.status_changed_at > $2
-  OR (leads.monday_group = EXCLUDED.monday_group AND leads.contact_status IS NOT DISTINCT FROM EXCLUDED.contact_status))`;
+  OR leads.monday_label_sent_at > $2)`;
+
+/**
+ * A lead the CRM changed, with nothing status-related changed in Monday since: the same group and the same label.
+ * Leads the CRM never changed always take Monday's status, as before this feature.
+ */
+const UNCHANGED_SINCE_CRM = `(leads.status_changed_at IS NOT NULL
+  AND leads.monday_group = EXCLUDED.monday_group
+  AND leads.contact_status IS NOT DISTINCT FROM EXCLUDED.contact_status)`;
 
 /** Upserts a CRM board's leads, and hides the ones no longer on it (or without a phone now). */
 export async function saveLeads(tx: Queryable, boardId: string, leads: LeadRecord[], now: Date): Promise<void> {
@@ -139,10 +145,12 @@ export async function saveLeads(tx: Queryable, boardId: string, leads: LeadRecor
          inquiry_on date, last_message text, next_step text, archived boolean, created_at timestamptz,
          updated_at timestamptz)
        ON CONFLICT (monday_item_id) DO UPDATE SET
-         monday_board_id = EXCLUDED.monday_board_id, monday_group = EXCLUDED.monday_group, name = EXCLUDED.name,
+         monday_board_id = EXCLUDED.monday_board_id,
+         monday_group = CASE WHEN ${CRM_CHANGE_IN_FLIGHT} THEN leads.monday_group ELSE EXCLUDED.monday_group END,
+         name = EXCLUDED.name,
          phone = EXCLUDED.phone, email = EXCLUDED.email, service = EXCLUDED.service,
-         status = CASE WHEN ${KEEP_CRM_STATUS} THEN leads.status ELSE EXCLUDED.status END,
-         contact_status = CASE WHEN ${KEEP_CRM_STATUS} THEN leads.contact_status ELSE EXCLUDED.contact_status END,
+         status = CASE WHEN ${CRM_CHANGE_IN_FLIGHT} OR ${UNCHANGED_SINCE_CRM} THEN leads.status ELSE EXCLUDED.status END,
+         contact_status = CASE WHEN ${CRM_CHANGE_IN_FLIGHT} THEN leads.contact_status ELSE EXCLUDED.contact_status END,
          source = EXCLUDED.source, calls = EXCLUDED.calls,
          last_call_on = EXCLUDED.last_call_on, inquiry_on = EXCLUDED.inquiry_on, last_message = EXCLUDED.last_message,
          next_step = EXCLUDED.next_step, archived = EXCLUDED.archived, created_at = EXCLUDED.created_at,

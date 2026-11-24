@@ -114,11 +114,11 @@ The mirror lives in one new unit with one job, `lead-status-mirror.ts` in the da
     reason is kept in `monday_sync_error`, and nothing is sent.
   - **One write per lead at a time, in order:** calls for the same lead wait for each other, so an older label never
     lands in Monday after a newer one. This holds for one server process.
-  - **When Monday accepts:** compare and clear.
+  - **When Monday accepts:** compare and clear. It also records `monday_label_sent_at`, when Monday took the label.
 
     ```sql
     UPDATE leads SET monday_label_pending = NULL, contact_status = <label, or NULL when cleared>,
-           monday_sync_attempts = 0, monday_sync_error = NULL
+           monday_sync_attempts = 0, monday_sync_error = NULL, monday_label_sent_at = now
      WHERE id = $1 AND monday_label_pending = <the label sent>
     ```
 
@@ -138,17 +138,26 @@ has the staff member.
 
 ### The copy brings in Monday's edits, not echoes of the CRM's
 
-`saveLeads` in `monday-copy.repository.ts` stops overwriting `status` and `contact_status` unconditionally. It keeps
-the CRM's values when any of these is true:
+`saveLeads` in `monday-copy.repository.ts` stops overwriting `status`, `contact_status` and `monday_group`
+unconditionally.
 
-1. **A change is on its way to Monday:** `leads.monday_label_pending IS NOT NULL`.
-2. **The CRM changed the status after this copy began:** `leads.status_changed_at > $copyStart`. `$copyStart` is the
-   `at` that `copyBoards` takes before reading any board, so it covers a drag made while the copy was reading Monday.
-3. **Nothing about the status changed in Monday:** `monday_group` and `contact_status` equal what Monday says now, NULL
-   matching NULL.
+- **While the CRM's change is in flight for a copy, the copy leaves status, label and group as they are.** That is
+  when any of these is true:
+  1. A change is on its way to Monday: `leads.monday_label_pending IS NOT NULL`.
+  2. The CRM changed the status after this copy began: `leads.status_changed_at > $copyStart`. `$copyStart` is the
+     `at` that `copyBoards` takes before reading any board, so it covers a drag made while the copy was reading Monday.
+  3. Monday took the CRM's label after this copy began: `leads.monday_label_sent_at > $copyStart`. This covers a retry
+     that lands while the copy is reading, when the copy still holds Monday's old label.
 
-Otherwise it takes Monday's: an edit made in Monday is newer. `monday_group` and every other column always take
-Monday's value, as today. A lead that is new to the CRM takes Monday's status, as today.
+  What the copy read may predate the change, so the next copy compares again. The group is left as it is too, so a
+  group move that arrives meanwhile isn't stored as "seen" and then never applied.
+- **A lead the CRM changed keeps its status while Monday's group and label are unchanged:** `status_changed_at IS NOT
+  NULL`, and `monday_group` and `contact_status` equal what Monday says now, NULL matching NULL.
+- **Otherwise it takes Monday's status:** an edit made in Monday is newer. A lead the CRM never changed always takes
+  Monday's status, as before this feature, so a later fix to how a status is worked out re-derives it. A lead that is
+  new to the CRM takes Monday's status too.
+
+Every other column always takes Monday's value, as today.
 
 ### Data: migration `009_lead_status_in_crm`
 
@@ -162,6 +171,7 @@ New columns on `leads`:
 | `monday_sync_attempts` | `integer NOT NULL DEFAULT 0` |
 | `monday_sync_error` | `text NULL` |
 | `monday_sync_next_at` | `timestamptz NULL` |
+| `monday_label_sent_at` | `timestamptz NULL` |
 
 There is also a partial index on `leads (monday_sync_next_at) WHERE monday_label_pending IS NOT NULL`, for the retry
 job.
