@@ -111,13 +111,15 @@ export interface FakeMonday {
   gql: Gql;
   boards: FakeBoard[];
   calls: string[];
+  /** Labels set with change_column_value (the lead status mirror), oldest first. null: cleared. */
+  writes: Array<{ boardId: string; itemId: string; columnId: string; label: string | null }>;
   /** Throws on every call from now on. */
   fail?: Error;
 }
 
-/** Answers the reader's five queries from `boards`, 2 rows and 1 note per page to exercise paging. */
+/** Answers the reader's five queries from `boards`, 2 rows and 1 note per page to exercise paging, and the lead status mirror's label writes. */
 export function fakeMonday(boards: FakeBoard[]): FakeMonday {
-  const fake: FakeMonday = { boards, calls: [], gql: undefined as unknown as Gql };
+  const fake: FakeMonday = { boards, calls: [], writes: [], gql: undefined as unknown as Gql };
   const rowJson = (row: FakeRow) => ({
     id: row.id,
     name: row.name,
@@ -133,6 +135,15 @@ export function fakeMonday(boards: FakeBoard[]): FakeMonday {
   fake.gql = (async (query: string, variables: Record<string, unknown> = {}) => {
     if (fake.fail) throw fake.fail;
     const find = (id: unknown) => fake.boards.find((board) => board.id === String(id));
+    if (query.includes("change_column_value")) {
+      fake.calls.push("set-label");
+      const row = find(variables.boardId)?.rows.find((candidate) => candidate.id === String(variables.itemId));
+      if (!row) throw new Error(`Monday GraphQL error: item ${String(variables.itemId)} not found`);
+      const label = (JSON.parse(String(variables.value)) as { label?: string }).label ?? null;
+      row.values[String(variables.columnId)] = label ?? "";
+      fake.writes.push({ boardId: String(variables.boardId), itemId: row.id, columnId: String(variables.columnId), label });
+      return { change_column_value: { id: row.id } };
+    }
     if (query.includes("state: active")) {
       fake.calls.push("list");
       return {
