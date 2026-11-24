@@ -4,7 +4,7 @@ import { cx } from "../../lib/cx";
 import { Button } from "../../ui/Button";
 import { SidePanel } from "../../ui/SidePanel";
 import { EmptyState, ErrorState } from "../../ui/states";
-import { LeadBodySkeleton, LeadContactLinks, LeadFacts, LeadHeader, LeadHeaderSkeleton, LeadGroups, LeadHistory, LeadInMonday } from "./LeadDetailParts";
+import { LeadBodySkeleton, LeadContactLinks, LeadExtras, LeadFacts, LeadHeader, LeadHeaderSkeleton, LeadGroups, LeadHistory } from "./LeadDetailParts";
 import { useLeadDetail } from "./leads-data";
 
 interface LeadSidePanelProps {
@@ -30,7 +30,7 @@ export function LeadSidePanel({ leadId, onClose, surface = "glass", className }:
       <>
         <LeadContactLinks phone={lead.phone} />
         <LeadFacts lead={lead} surface={surface} />
-        <LeadInMonday lead={lead} level={3} />
+        <LeadExtras lead={lead} />
         <LeadGroups lead={lead} level={3} />
         <LeadHistory lead={lead} level={3} surface={surface} />
       </>

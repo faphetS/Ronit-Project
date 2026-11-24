@@ -86,7 +86,7 @@ export const groupsCopy: Widen<typeof he> = {
     allReceived: "All passports in",
     columns: { name: "Name", phone: "Phone", passport: "Passport", expiry: "Expires", notes: "Notes" },
     passport: { received: "Received", missing: "Missing" },
-    mondayPassport: { yes: "Has one · per Monday", "in-progress": "Being issued · per Monday" },
+    mondayPassport: { yes: "Has one · not scanned", "in-progress": "Being issued" },
     blank: "·",
     noValue: "None",
     empty: "No participants in this group yet.",

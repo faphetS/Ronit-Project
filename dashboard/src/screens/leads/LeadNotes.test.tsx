@@ -65,10 +65,10 @@ describe("LeadHistory notes", () => {
     await waitFor(() => expect(screen.getAllByRole("button", { name: "עריכה" })).toHaveLength(2));
   });
 
-  it("tags Monday notes", async () => {
+  it("shows earlier notes with their author and no outside tool named", async () => {
     await setup("admin");
     const item = (await screen.findByText("מונדיי")).closest("li")!;
-    expect(within(item).getByText("Monday")).toBeInTheDocument();
+    expect(within(item).queryByText("Monday")).not.toBeInTheDocument();
     expect(within(item).getByText(/אורטל/)).toBeInTheDocument();
   });
 });

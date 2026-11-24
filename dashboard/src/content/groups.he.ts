@@ -91,8 +91,8 @@ export const groupsCopy = {
     allReceived: "כל הדרכונים התקבלו",
     columns: { name: "שם", phone: "טלפון", passport: "דרכון", expiry: "תוקף", notes: "הערות" },
     passport: { received: "התקבל", missing: "חסר" },
-    /** Monday's own passport column, while no passport is on file. */
-    mondayPassport: { yes: "יש · לפי Monday", "in-progress": "בהנפקה · לפי Monday" },
+    /** The trip list marks a passport, while none is on file. */
+    mondayPassport: { yes: "יש · לא נסרק", "in-progress": "בהנפקה" },
     /** An empty cell shows a dot; screen readers hear noValue instead. */
     blank: "·",
     noValue: "אין",

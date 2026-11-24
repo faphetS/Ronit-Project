@@ -111,7 +111,7 @@ export const overview: Widen<typeof he> = {
     lead: (source, service) => (service ? `New lead · ${source} · ${service}` : `New lead · ${source}`),
     registration: (group) => `Registered · ${group}`,
     passport: { matched: "Passport added to her card", "new-card": "Passport opened a new card", "needs-review": "Passport waiting for review" },
-    importTitle: "Copy from Monday",
+    importTitle: "Data refresh",
     importDetail: (leads, customers) => `${leads} leads · ${customers} customers`,
   },
 };

@@ -37,7 +37,8 @@ export function ActivityCard({ phone, className }: { phone: boolean; className?:
   const activity = useActivity();
   const headingId = useId();
   const count = phone ? SHOWN.activity.phone : SHOWN.activity.desktop;
-  const items = activity.data?.slice(0, count) ?? [];
+  // Data refreshes run in the background; the feed is about the business.
+  const items = activity.data?.filter((item) => item.kind !== "import").slice(0, count) ?? [];
   const isFirst = useFirstKeys(items.map((item) => item.id));
   const allToday = items.length > 0 && items.every((item) => isToday(item.at));
   return (

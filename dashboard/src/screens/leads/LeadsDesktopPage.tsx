@@ -11,7 +11,6 @@ import { SelectChip, type SelectChipOption } from "../../ui/SelectChip";
 import { LeadSidePanel } from "./LeadSidePanel";
 import { LeadsDayPanel } from "./LeadsDayPanel";
 import { LeadsKanban } from "./LeadsKanban";
-import { MondaySyncLine } from "./MondaySyncLine";
 import { useSettledLeads } from "./leads-data";
 import { useChangeLeadStatus } from "./useChangeLeadStatus";
 import { useCloseOnOutsidePress } from "./useCloseOnOutsidePress";
@@ -80,7 +79,6 @@ export function LeadsDesktopPage({ leadId }: { leadId?: string }) {
 
       <div className="flex flex-col gap-2 px-1 pt-1.5">
         <Headline title={copy.title} soft={copy.summary(openCount, newThisWeek)} size="display" />
-        <MondaySyncLine />
       </div>
 
       <LeadsDayPanel day={url.state.day} onDay={(next) => update({ day: next })} shown={shown} filtered={filtered} />

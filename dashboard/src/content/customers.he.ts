@@ -80,8 +80,8 @@ export const customersCopy = {
       updated: "עדכון",
     },
     missingPassport: "חסר דרכון",
-    /** Monday's own passport column, while no passport is on file. */
-    mondayPassport: { yes: "יש · לפי Monday", "in-progress": "בהנפקה · לפי Monday" } satisfies Record<MondayPassport, string>,
+    /** The trip list marks a passport, while none is on file. */
+    mondayPassport: { yes: "יש · לא נסרק", "in-progress": "בהנפקה" } satisfies Record<MondayPassport, string>,
     expiringSoon: "פג בקרוב",
     expired: "פג תוקף",
     fromWhatsapp: (time: string) => `מוואטסאפ, ${time}`,
@@ -140,7 +140,7 @@ export const customersCopy = {
     expiredOn: (date: string) => `פג ב-${date}`,
     received: {
       whatsapp: (when: string) => `התקבל בוואטסאפ ${when}`,
-      monday: (when: string) => `יובא מ-Monday.com ${when}`,
+      monday: (when: string) => `יובא ${when}`,
       manual: (when: string) => `הוזן ידנית ${when}`,
     } satisfies Record<PassportSource, (when: string) => string>,
     at: {
@@ -183,8 +183,8 @@ export const customersCopy = {
     } satisfies Record<IntakeResult, (reason: string) => string>,
     missingTitle: "עוד לא התקבל דרכון",
     missingBody: "כשצילום הדרכון יגיע בוואטסאפ, הפרטים ייקלטו כאן אוטומטית.",
-    /** No passport on file, but Monday's trip board marks one. */
-    mondayTitle: { yes: "ב-Monday מסומן שיש לה דרכון", "in-progress": "ב-Monday מסומן שהדרכון בהנפקה" } satisfies Record<MondayPassport, string>,
+    /** No passport on file, but the trip list marks one. */
+    mondayTitle: { yes: "מסומן שיש לה דרכון", "in-progress": "מסומן שהדרכון בהנפקה" } satisfies Record<MondayPassport, string>,
     mondayBody: "הפרטים עצמם ייקלטו כאן כשצילום הדרכון יגיע בוואטסאפ.",
   },
   accessLog: {
@@ -193,7 +193,7 @@ export const customersCopy = {
     photoView: (name: string | null) => (name ? `צפייה בצילום הדרכון · ${name}` : "צפייה בצילום הדרכון"),
     received: {
       whatsapp: "עדכון אוטומטי מוואטסאפ",
-      monday: "יובא מ-Monday.com",
+      monday: "יובא",
       manual: "הוזן ידנית",
     } satisfies Record<PassportSource, string>,
     by: (action: string, name: string) => `${action} · ${name}`,
@@ -250,10 +250,9 @@ export const customersCopy = {
       facebook: "פייסבוק",
       whatsapp: "וואטסאפ",
       referral: "המלצה",
-      monday: "Monday",
+      monday: "ייבוא",
       manual: "הוזן ידנית",
     } satisfies Record<CustomerSource, string>,
-    fromMonday: (board: string) => `מ-Monday, לוח ${board}`,
     openLead: "פתיחת הליד",
     noLead: "אין ליד מקושר",
   },
