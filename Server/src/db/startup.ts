@@ -2,6 +2,7 @@ import { logger } from "../config/logger.js";
 import { getCrmDb, type Db } from "../config/pg.js";
 import { startGreetingsCrons } from "../domains/greetings/greetings.cron.js";
 import { startMondayCopy } from "../domains/monday-copy/monday-copy.cron.js";
+import { startLeadStatusMirror } from "../domains/dashboard/lead-status-mirror.cron.js";
 import { startPassportCrons } from "../domains/passports/passports.cron.js";
 import { migrate } from "./migrate.js";
 
@@ -42,4 +43,5 @@ export async function startCrmAutomations(): Promise<void> {
   startPassportCrons(db);
   startGreetingsCrons(db);
   startMondayCopy(db);
+  startLeadStatusMirror(db);
 }

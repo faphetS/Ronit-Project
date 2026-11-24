@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ACCESS_LEVELS, PERMISSION_AREAS, ROLES } from "./dashboard.access.js";
 import { SECURITY_SWITCHES } from "./users.service.js";
+import { SETTABLE_STATUSES } from "./lead-status-mirror.js";
 
 // Query strings are parsed in the handlers: Express 5 makes req.query read-only.
 
@@ -21,6 +22,9 @@ export const LeadListQuerySchema = z.object({
   search: z.string().max(100).optional(),
   day: z.string().refine(isDay, "Expected a day as YYYY-MM-DD").optional(),
 });
+
+/** A status someone gives a lead: the board's five columns. "details-sent" stays Monday's own. */
+export const LeadStatusSchema = z.object({ status: z.enum(SETTABLE_STATUSES) }).strict();
 
 export const CustomerListQuerySchema = z.object({
   filter: z.enum(["all", "whatsapp-today", "expiring", "missing-passport"]).optional(),

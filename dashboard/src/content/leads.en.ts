@@ -104,6 +104,18 @@ export const leadsCopy: Widen<typeof he> = {
     attempts: (count) => (count === 1 ? "1 attempt" : `${count} attempts`),
     whatsapp: (name) => `WhatsApp ${name}`,
     call: (name) => `Call ${name}`,
+    drag: {
+      pickedUp: (name) => `Picked up ${name}'s card`,
+      over: (column) => `Over the ${column} column`,
+      dropped: (name, column) => `Moved ${name}'s card to ${column}`,
+      cancelled: (name) => `Cancelled. ${name}'s card stayed where it was`,
+    },
+  },
+
+  statusChange: {
+    gone: "The status didn't change: this lead is no longer on the board",
+    "no-access": "The status didn't change: your account can't change statuses",
+    failed: "The status didn't change. Try again",
   },
 
   empty: {
@@ -126,7 +138,9 @@ export const leadsCopy: Widen<typeof he> = {
     callsLine: (count, last) => (count === 0 ? "None yet" : last ? `${count} · last ${last}` : String(count)),
     inMonday: "In Monday",
     openInMonday: "Open in Monday",
-    editInMonday: "Statuses and notes are changed in Monday until the switch-over.",
+    editInMonday: "Statuses change here, and Monday follows. Notes are still written in Monday.",
+    statusLabel: "Change status",
+    mondayPending: "The status hasn't reached Monday yet. The CRM keeps trying.",
     nextStep: "Next step",
     lastMessage: "Last Instagram message",
     history: "Notes and calls",

@@ -22,6 +22,7 @@ import { createZernioWebhookRouter } from "../greetings/zernio.webhook.js";
 import { ARCHIVE, CRM, fakeAccount, fakeMonday, type FakeMonday } from "../monday-copy/monday-copy.fake.js";
 import { copyFromMonday, type CopyDeps } from "../monday-copy/monday-copy.service.js";
 import { createDashboardRouter, type DashboardOptions } from "./dashboard.routes.js";
+import { forgetMondayColumns, type MirrorDeps } from "./lead-status-mirror.js";
 
 const DASHBOARD = "https://app.example.com";
 const API = "/api/dashboard";
@@ -53,8 +54,9 @@ const deps = (): AuthDeps => ({
 });
 
 const copyDeps = (): CopyDeps => ({ db, gql: monday.gql, boards: { crm: CRM, archive: ARCHIVE }, now: () => clock });
+const mirrorDeps = (): MirrorDeps => ({ db, gql: monday.gql, crmBoardId: CRM, now: () => clock });
 
-function app(options: DashboardOptions = { copy: { enabled: true, deps: copyDeps } }) {
+function app(options: DashboardOptions = { copy: { enabled: true, deps: copyDeps }, mirror: { enabled: true, deps: mirrorDeps } }) {
   const server = express();
   server.use(express.json());
   server.use(cookieParser());
@@ -156,6 +158,7 @@ describe("leads", () => {
       mondayUrl: "https://ronit550418.monday.com/boards/5101856136/pulses/101",
       lastNote: "שלחתי לה את המסלול",
       archived: false,
+      mondayPending: false,
       history: [],
     });
     expect((await get(moran, "/leads/counts").expect(200)).body.data).toEqual({
@@ -195,6 +198,59 @@ describe("leads", () => {
     expect(await names("day=2026-10-29")).toEqual([]);
     await get(moran, "/leads?day=2026-02-30").expect(400);
     await get(moran, "/leads?day=yesterday").expect(400);
+  });
+});
+
+describe("changing a lead's status", () => {
+  const leadIdOf = async (itemId: string) => (await db.query<{ id: string }>("SELECT id FROM leads WHERE monday_item_id = $1", [itemId])).rows[0].id;
+  const statusLog = async () =>
+    (await db.query<{ by_user_id: string; details: Record<string, string> }>("SELECT by_user_id, details FROM audit_log WHERE action = 'lead-status-changed'")).rows;
+
+  beforeEach(() => {
+    forgetMondayColumns();
+  });
+
+  it("saves it in the CRM, logs who changed it, and sets the label in Monday", async () => {
+    const id = await leadIdOf("101");
+    const lead = (await post(moran, `/leads/${id}/status`, { status: "no-answer" }).expect(200)).body.data;
+    expect(lead).toMatchObject({ id, status: "no-answer", mondayPending: false });
+    expect(monday.writes).toEqual([{ boardId: CRM, itemId: "101", columnId: "contact", label: "אין מענה" }]);
+    expect(await statusLog()).toEqual([{ by_user_id: moran.id, details: { leadId: id, from: "talking", to: "no-answer" } }]);
+    expect((await get(moran, "/leads/counts").expect(200)).body.data).toMatchObject({ talking: 0, "no-answer": 1 });
+  });
+
+  it("keeps the change when Monday is down, and says the label is waiting", async () => {
+    const id = await leadIdOf("101");
+    monday.fail = new Error("Monday HTTP 500: down");
+    const lead = (await post(moran, `/leads/${id}/status`, { status: "not-relevant" }).expect(200)).body.data;
+    expect(lead).toMatchObject({ status: "not-relevant", mondayPending: true });
+  });
+
+  it("changes old-board leads in the CRM only", async () => {
+    const id = await leadIdOf("91");
+    const lead = (await post(moran, `/leads/${id}/status`, { status: "registered" }).expect(200)).body.data;
+    expect(lead).toMatchObject({ status: "registered", mondayPending: false });
+    expect(monday.writes).toEqual([]);
+  });
+
+  it("does nothing when the lead already has that status", async () => {
+    const id = await leadIdOf("103");
+    await post(moran, `/leads/${id}/status`, { status: "new" }).expect(200);
+    expect(monday.writes).toEqual([]);
+    expect(await statusLog()).toEqual([]);
+  });
+
+  it("needs full access to leads, a known status, and a lead still in Monday", async () => {
+    const id = await leadIdOf("101");
+    await post(ronit, "/users/permissions", { role: "sales", area: "leads", access: "view" }).expect(200);
+    expect((await post(moran, `/leads/${id}/status`, { status: "new" }).expect(403)).body.code).toBe("NO_ACCESS");
+    await post(shira, `/leads/${id}/status`, { status: "details-sent" }).expect(400);
+    await post(shira, `/leads/${id}/status`, {}).expect(400);
+    await post(shira, "/leads/not-a-uuid/status", { status: "new" }).expect(404);
+    await db.query("UPDATE leads SET removed_at = $2 WHERE id = $1", [id, clock]);
+    await post(shira, `/leads/${id}/status`, { status: "new" }).expect(404);
+    await db.query("UPDATE staff_users SET is_demo = true WHERE id = $1", [shira.id]);
+    expect((await post(shira, `/leads/${id}/status`, { status: "new" }).expect(403)).body.code).toBe("DEMO_ACCOUNT");
   });
 });
 

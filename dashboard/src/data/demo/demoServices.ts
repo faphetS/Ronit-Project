@@ -121,6 +121,7 @@ function buildLeads(): Lead[] {
         inquiryOn: day,
         lastMessage: source === "instagram" ? "היי, אשמח לפרטים על הטיסה לאומן בחנוכה" : null,
         nextStep: NEXT_STEP[status] ?? null,
+        mondayPending: false,
         history: [],
       });
     }
@@ -130,6 +131,13 @@ function buildLeads(): Lead[] {
 
 function createLeads(leads: Lead[]): DataServices["leads"] {
   const arrived = (lead: Lead) => lead.inquiryOn ?? isoDay(new Date(lead.createdAt));
+  const get = async (id: string): Promise<Lead> => {
+    const lead = leads.find((entry) => entry.id === id);
+    if (!lead) throw new NotFoundError("Lead", id);
+    const first = { id: `${id}-first`, at: lead.createdAt, text: "פנתה דרך הטופס, ביקשה פרטים על הטיסה", byUserId: null, author: OFFICE_NOTES, mondayBoard: lead.mondayBoard };
+    const latest = { id: `${id}-note`, at: lead.updatedAt, text: lead.lastNote, byUserId: null, author: OFFICE_NOTES, mondayBoard: lead.mondayBoard };
+    return { ...lead, history: lead.status === "new" ? [latest] : [latest, first] };
+  };
   return {
     list: async (filters: LeadFilters = {}) => {
       const term = filters.search?.trim() ?? "";
@@ -156,12 +164,13 @@ function createLeads(leads: Lead[]): DataServices["leads"] {
       for (const lead of leads) tally.set(arrived(lead), (tally.get(arrived(lead)) ?? 0) + 1);
       return [...tally.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([day, count]) => ({ day, count }));
     },
-    get: async (id) => {
-      const lead = leads.find((entry) => entry.id === id);
-      if (!lead) throw new NotFoundError("Lead", id);
-      const first = { id: `${id}-first`, at: lead.createdAt, text: "פנתה דרך הטופס, ביקשה פרטים על הטיסה", byUserId: null, author: OFFICE_NOTES, mondayBoard: lead.mondayBoard };
-      const latest = { id: `${id}-note`, at: lead.updatedAt, text: lead.lastNote, byUserId: null, author: OFFICE_NOTES, mondayBoard: lead.mondayBoard };
-      return { ...lead, history: lead.status === "new" ? [latest] : [latest, first] };
+    get,
+    // In memory only, like every change in the demo: there's no Monday behind it, so nothing waits.
+    setStatus: async (id, status) => {
+      const index = leads.findIndex((entry) => entry.id === id);
+      if (index < 0) throw new NotFoundError("Lead", id);
+      leads[index] = { ...leads[index], status, mondayPending: false };
+      return get(id);
     },
   };
 }

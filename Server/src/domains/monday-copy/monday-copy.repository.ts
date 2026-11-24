@@ -92,6 +92,24 @@ export async function removeBoard(tx: Queryable, boardId: string, now: Date): Pr
 
 // ---- Leads ----
 
+/**
+ * The CRM's own change to a lead is on its way to Monday, or was made, or was taken by Monday, after this copy began
+ * reading ($2 is the copy's start). What the copy read may predate it, so the copy leaves the lead's status, label
+ * and group as they are, and the next copy compares again (spec 2026-11-24). A label Monday took counts for 2 more
+ * minutes: Monday's reads can lag its own write for a moment, so a read just after could still show the old label.
+ */
+const CRM_CHANGE_IN_FLIGHT = `(leads.monday_label_pending IS NOT NULL
+  OR leads.status_changed_at > $2
+  OR leads.monday_label_sent_at > $2 - interval '2 minutes')`;
+
+/**
+ * A lead the CRM changed, with nothing status-related changed in Monday since: the same group and the same label.
+ * Leads the CRM never changed always take Monday's status, as before this feature.
+ */
+const UNCHANGED_SINCE_CRM = `(leads.status_changed_at IS NOT NULL
+  AND leads.monday_group = EXCLUDED.monday_group
+  AND leads.contact_status IS NOT DISTINCT FROM EXCLUDED.contact_status)`;
+
 /** Upserts a CRM board's leads, and hides the ones no longer on it (or without a phone now). */
 export async function saveLeads(tx: Queryable, boardId: string, leads: LeadRecord[], now: Date): Promise<void> {
   const rows = leads.map((lead) => ({
@@ -128,9 +146,13 @@ export async function saveLeads(tx: Queryable, boardId: string, leads: LeadRecor
          inquiry_on date, last_message text, next_step text, archived boolean, created_at timestamptz,
          updated_at timestamptz)
        ON CONFLICT (monday_item_id) DO UPDATE SET
-         monday_board_id = EXCLUDED.monday_board_id, monday_group = EXCLUDED.monday_group, name = EXCLUDED.name,
-         phone = EXCLUDED.phone, email = EXCLUDED.email, service = EXCLUDED.service, status = EXCLUDED.status,
-         contact_status = EXCLUDED.contact_status, source = EXCLUDED.source, calls = EXCLUDED.calls,
+         monday_board_id = EXCLUDED.monday_board_id,
+         monday_group = CASE WHEN ${CRM_CHANGE_IN_FLIGHT} THEN leads.monday_group ELSE EXCLUDED.monday_group END,
+         name = EXCLUDED.name,
+         phone = EXCLUDED.phone, email = EXCLUDED.email, service = EXCLUDED.service,
+         status = CASE WHEN ${CRM_CHANGE_IN_FLIGHT} OR ${UNCHANGED_SINCE_CRM} THEN leads.status ELSE EXCLUDED.status END,
+         contact_status = CASE WHEN ${CRM_CHANGE_IN_FLIGHT} THEN leads.contact_status ELSE EXCLUDED.contact_status END,
+         source = EXCLUDED.source, calls = EXCLUDED.calls,
          last_call_on = EXCLUDED.last_call_on, inquiry_on = EXCLUDED.inquiry_on, last_message = EXCLUDED.last_message,
          next_step = EXCLUDED.next_step, archived = EXCLUDED.archived, created_at = EXCLUDED.created_at,
          updated_at = EXCLUDED.updated_at, removed_at = NULL, copied_at = EXCLUDED.copied_at`,

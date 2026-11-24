@@ -12,10 +12,10 @@ import type { IconName } from "../../ui/icons";
 import { KeyValue, type KeyValueItem } from "../../ui/KeyValue";
 import { Ltr } from "../../ui/Ltr";
 import { Skeleton } from "../../ui/states";
-import { StatusTag } from "../../ui/StatusTag";
 import type { SurfaceVariant } from "../../ui/Surface";
 import { Timeline, type TimelineEntry } from "../../ui/Timeline";
-import { initialOf, STATUS_TONE, telHref, whatsappHref } from "./leads-model";
+import { initialOf, telHref, whatsappHref } from "./leads-model";
+import { LeadStatusControl } from "./LeadStatusControl";
 
 const HEADING = { 1: "h1", 2: "h2", 3: "h3" } as const;
 
@@ -35,7 +35,7 @@ export function LeadHeader({ lead, level, stacked = false }: LeadHeaderProps) {
   const { leadsCopy: copy } = useCopy();
   const Heading = HEADING[level];
   const service = lead.service ? copy.services[lead.service] : copy.noService;
-  const status = <StatusTag tone={STATUS_TONE[lead.status]}>{copy.status[lead.status]}</StatusTag>;
+  const status = <LeadStatusControl lead={lead} />;
   return (
     <div className="flex items-center gap-3.5">
       <Avatar initial={initialOf(lead.name)} tone="glass" size="lg" />
@@ -118,8 +118,8 @@ interface LeadInMondayProps {
 }
 
 /**
- * Where the lead is worked until the switch-over: what Monday says comes next, her last Instagram
- * message, and the way to her row in Monday, where the status and notes change.
+ * The lead in Monday: what Monday says comes next, her last Instagram message, and the way to her row there. The status
+ * changes here and Monday follows; a status still on its way to Monday says so. Notes are still written in Monday.
  */
 export function LeadInMonday({ lead, level }: LeadInMondayProps) {
   const { leadsCopy: copy } = useCopy();
@@ -132,6 +132,11 @@ export function LeadInMonday({ lead, level }: LeadInMondayProps) {
       </Heading>
       {lead.nextStep ? <MondayText label={copy.detail.nextStep} text={lead.nextStep} /> : null}
       {lead.lastMessage ? <MondayText label={copy.detail.lastMessage} text={lead.lastMessage} /> : null}
+      {lead.mondayPending ? (
+        <p role="status" className="text-small text-status-warning">
+          {copy.detail.mondayPending}
+        </p>
+      ) : null}
       <p className="text-small text-mute">{copy.detail.editInMonday}</p>
       <div className="flex">
         <ContactLink href={lead.mondayUrl} icon="forward" label={copy.detail.openInMonday} newTabLabel={copy.detail.newTab(copy.detail.openInMonday)} />

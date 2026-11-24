@@ -57,6 +57,7 @@ function ToastBody({ toast, onDismiss }: { toast: ToastEntry; onDismiss: (id: st
 
   return (
     <div
+      data-toast=""
       onPointerEnter={() => setPaused(true)}
       onPointerLeave={() => setPaused(false)}
       onFocus={() => setPaused(true)}

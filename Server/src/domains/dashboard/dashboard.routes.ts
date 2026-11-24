@@ -27,6 +27,9 @@ import {
 } from "./customers.service.js";
 import { can, loadAccess, requireAccess, staffOf } from "./dashboard.access.js";
 import { idParam, sendData } from "./dashboard.format.js";
+import { mirrorDepsFromEnv } from "./lead-status-mirror.cron.js";
+import { mirrorSoon, type MirrorDeps } from "./lead-status-mirror.js";
+import { setLeadStatus } from "./lead-status.service.js";
 import {
   AccessSchema,
   BirthdaySettingsSchema,
@@ -34,6 +37,7 @@ import {
   CustomerListQuerySchema,
   InviteSchema,
   LeadListQuerySchema,
+  LeadStatusSchema,
   NoteSchema,
   OwnPasswordSchema,
   PassportViewSchema,
@@ -131,6 +135,8 @@ function refuseDemo(req: Request, _res: Response, next: NextFunction): void {
 export interface DashboardOptions {
   /** The copy from Monday: whether it's on, and how to reach Monday. Tests pass a fake. */
   copy?: { enabled: boolean; deps: (db: Db) => CopyDeps };
+  /** Monday's label after a status change: whether it's sent, and how to reach Monday. Tests pass a fake. */
+  mirror?: { enabled: boolean; deps: (db: Db) => MirrorDeps };
   /** Requests per minute per session. */
   requestsPerMinute?: number;
   /** WhatsApp for greetings: Zernio (null while it isn't connected), and whether greetings go out. Tests pass a fake. */
@@ -151,6 +157,7 @@ const whatsappFromEnv: NonNullable<DashboardOptions["whatsapp"]> = {
 export function createDashboardRouter(resolveDeps: AuthDepsResolver, options: DashboardOptions = {}): Router {
   const copy = options.copy ?? { enabled: env.MONDAY_COPY_ENABLED, deps: copyDepsFromEnv };
   const whatsapp = options.whatsapp ?? whatsappFromEnv;
+  const mirror = options.mirror ?? { enabled: env.MONDAY_COPY_ENABLED, deps: mirrorDepsFromEnv };
   const router = express.Router();
   router.use(
     noStore,
@@ -174,7 +181,7 @@ export function createDashboardRouter(resolveDeps: AuthDepsResolver, options: Da
     now: () => now(res),
   });
 
-  // ---- Leads (read-only: edited in Monday until the switch-over) ----
+  // ---- Leads (copied from Monday; the status can change here too, and Monday's label follows) ----
   router.get("/leads", requireAccess("leads", "view"), async (req, res) => {
     sendData(res, await listLeads(db(res), LeadListQuerySchema.parse(req.query)));
   });
@@ -186,6 +193,13 @@ export function createDashboardRouter(resolveDeps: AuthDepsResolver, options: Da
   });
   router.get("/leads/:id", requireAccess("leads", "view"), async (req, res) => {
     sendData(res, await getLead(db(res), idParam(req.params.id, "Lead")));
+  });
+  router.post("/leads/:id/status", requireAccess("leads", "full"), validate({ body: LeadStatusSchema }), async (req, res) => {
+    const id = idParam(req.params.id, "Lead");
+    const deps = mirror.deps(db(res));
+    const change = await setLeadStatus(db(res), deps.crmBoardId, { leadId: id, status: req.body.status, byUserId: staffOf(req).user.id }, now(res));
+    if (change === "changed" && mirror.enabled) await mirrorSoon(deps, id);
+    sendData(res, await getLead(db(res), id));
   });
 
   // ---- Customers and passports ----

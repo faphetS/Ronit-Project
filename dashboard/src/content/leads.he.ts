@@ -113,6 +113,20 @@ export const leadsCopy = {
     attempts: (count: number) => (count === 1 ? "ניסיון אחד" : `${count} ניסיונות`),
     whatsapp: (name: string) => `וואטסאפ ל${name}`,
     call: (name: string) => `שיחה ל${name}`,
+    /** Read out to screen readers while a card is dragged. */
+    drag: {
+      pickedUp: (name: string) => `הכרטיס של ${name} נגרר`,
+      over: (column: string) => `מעל העמודה ${column}`,
+      dropped: (name: string, column: string) => `הכרטיס של ${name} הועבר לעמודה ${column}`,
+      cancelled: (name: string) => `הגרירה בוטלה. הכרטיס של ${name} נשאר במקומו`,
+    },
+  },
+
+  /** When a status change didn't go through: a drop on the board, or the status menu. */
+  statusChange: {
+    gone: "הסטטוס לא השתנה: הליד הזה כבר לא בלוח",
+    "no-access": "הסטטוס לא השתנה: אין לך הרשאה לשנות סטטוסים",
+    failed: "הסטטוס לא השתנה. כדאי לנסות שוב",
   },
 
   empty: {
@@ -137,7 +151,11 @@ export const leadsCopy = {
     /** Where the lead is edited until the switch-over. */
     inMonday: "ב-Monday",
     openInMonday: "פתיחה ב-Monday",
-    editInMonday: "שינוי סטטוס והוספת הערות נעשים ב-Monday, עד המעבר למערכת.",
+    editInMonday: "את הסטטוס משנים כאן, והוא מתעדכן גם ב-Monday. הערות עדיין נכתבות שם.",
+    /** The status menu in the lead's header. */
+    statusLabel: "שינוי סטטוס",
+    /** A status changed here that Monday hasn't taken yet. */
+    mondayPending: "הסטטוס עוד לא הגיע ל-Monday. המערכת ממשיכה לנסות.",
     nextStep: "שלב הבא",
     lastMessage: "הודעה אחרונה באינסטגרם",
     history: "הערות ושיחות",

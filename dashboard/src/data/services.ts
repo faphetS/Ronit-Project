@@ -26,6 +26,7 @@ import type {
   SecuritySettings,
   SecuritySwitch,
   Session,
+  SettableLeadStatus,
   StaffUser,
   UserAccount,
   UserDirectory,
@@ -139,7 +140,7 @@ export interface SessionService {
   signOut(): Promise<void>;
 }
 
-/** Leads are copied from Monday and edited there until the switch-over, so this only reads. */
+/** Leads are copied from Monday. Their status can also change here: the server saves it, then sets Monday's label. */
 export interface LeadsService {
   /** The open pipeline, newest Monday update first. */
   list(filters?: LeadFilters): Promise<Lead[]>;
@@ -148,6 +149,8 @@ export interface LeadsService {
   days(): Promise<LeadDay[]>;
   /** With its Monday notes. */
   get(id: string): Promise<Lead>;
+  /** Gives the lead a new status. Resolves with the lead as saved; mondayPending until Monday has the label. */
+  setStatus(id: string, status: SettableLeadStatus): Promise<Lead>;
 }
 
 export interface CustomersService {

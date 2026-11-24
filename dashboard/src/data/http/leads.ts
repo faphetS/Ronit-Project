@@ -14,5 +14,6 @@ export function createHttpLeadsService(api: ApiClient): LeadsService {
     counts: () => http.get<LeadCounts>("/leads/counts"),
     days: () => http.get<LeadDay[]>("/leads/days"),
     get: (id) => http.get<Lead>(`/leads/${segment(id)}`, "Lead", id),
+    setStatus: (id, status) => http.post<Lead>(`/leads/${segment(id)}/status`, { status }, "Lead", id),
   };
 }
