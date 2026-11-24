@@ -1,4 +1,6 @@
-import type { Lead, LeadService, LeadStatus } from "../../data/types";
+import { ApiError } from "../../data/http/client";
+import { NotFoundError } from "../../data/services";
+import type { Lead, LeadService, LeadStatus, SettableLeadStatus } from "../../data/types";
 import { isoDay } from "../../lib/clock";
 import type { StatusTone } from "../../ui/StatusTag";
 
@@ -14,6 +16,76 @@ export const BOARD_COLUMNS: ReadonlyArray<{ key: BoardColumnKey; statuses: reado
   { key: "no-answer", statuses: ["no-answer"] },
   { key: "registered", statuses: ["registered"] },
 ];
+
+/** Where a card can be dropped: an open column, or the folded not-relevant one. */
+export type DropTarget = BoardColumnKey | "not-relevant";
+
+/** The leads in each column. */
+export type Board = Record<DropTarget, Lead[]>;
+
+/** The status a column gives a lead dropped on it (In progress gives "in talks"), in board order. */
+const DROP_STATUS: Record<DropTarget, SettableLeadStatus> = {
+  new: "new",
+  working: "talking",
+  "no-answer": "no-answer",
+  registered: "registered",
+  "not-relevant": "not-relevant",
+};
+
+/** The status menu's choices: the board's five columns, in order. */
+export const STATUS_CHOICES: ReadonlyArray<{ target: DropTarget; status: SettableLeadStatus }> = (Object.keys(DROP_STATUS) as DropTarget[]).map(
+  (target) => ({ target, status: DROP_STATUS[target] }),
+);
+
+/** The column a status sits in. "Details sent" shares In progress with "in talks". */
+export function columnOf(status: LeadStatus): DropTarget {
+  return BOARD_COLUMNS.find((column) => column.statuses.includes(status))?.key ?? "not-relevant";
+}
+
+/** The status a drop on `target` gives the lead, or null when the lead already sits there. */
+export function statusForDrop(lead: Pick<Lead, "status">, target: DropTarget): SettableLeadStatus | null {
+  return columnOf(lead.status) === target ? null : DROP_STATUS[target];
+}
+
+const DROP_TARGETS = new Set<string>(Object.keys(DROP_STATUS));
+
+export function isDropTarget(id: string): id is DropTarget {
+  return DROP_TARGETS.has(id);
+}
+
+/**
+ * The open and not-relevant lists as one board: each lead once, in the column its status says. A lead whose status
+ * just changed can still sit in its old list until the lists refresh; it shows in its new column all the same.
+ */
+export function boardLeads(open: Lead[], closed: Lead[]): Board {
+  const board: Board = { new: [], working: [], "no-answer": [], registered: [], "not-relevant": [] };
+  const seen = new Set<string>();
+  for (const lead of [...open, ...closed]) {
+    if (seen.has(lead.id)) continue;
+    seen.add(lead.id);
+    board[columnOf(lead.status)].push(lead);
+  }
+  return board;
+}
+
+/** What a drop asks for: the lead and its new status, or null when nothing changes. */
+export function moveFor(board: Board, leadId: string, overId: string | null): { lead: Lead; status: SettableLeadStatus } | null {
+  if (!overId || !isDropTarget(overId)) return null;
+  const lead = Object.values(board)
+    .flat()
+    .find((entry) => entry.id === leadId);
+  const status = lead ? statusForDrop(lead, overId) : null;
+  return lead && status ? { lead, status } : null;
+}
+
+export type StatusChangeProblem = "gone" | "no-access" | "failed";
+
+/** Why a status change didn't go through, for the toast: the lead left the board, no access, or anything else. */
+export function statusChangeProblem(error: unknown): StatusChangeProblem {
+  if (error instanceof NotFoundError) return "gone";
+  if (error instanceof ApiError && error.status === 403) return "no-access";
+  return "failed";
+}
 
 /** The day a lead came in, YYYY-MM-DD in Israel: Monday's "תאריך פנייה", or else the day its row was made. */
 export function arrivedOn(lead: Lead): string {
