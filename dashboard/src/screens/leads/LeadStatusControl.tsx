@@ -25,7 +25,7 @@ export function LeadStatusControl({ lead }: { lead: Lead }) {
           const choice = STATUS_CHOICES.find((option) => option.target === event.target.value);
           if (choice && choice.target !== current) changeStatus(lead, choice.status);
         }}
-        className="h-9 cursor-pointer appearance-none rounded-full bg-sand-light ps-3.5 pe-9 text-[13px] font-medium text-ink transition-colors hover:bg-sand"
+        className="h-11 cursor-pointer appearance-none rounded-full bg-sand-light ps-3.5 pe-9 text-[13px] font-medium text-ink transition-colors hover:bg-sand lg:h-9"
       >
         {STATUS_CHOICES.map((option) => (
           // Options keep their own colors: some systems paint the open list with the select's colors.

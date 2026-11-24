@@ -2,16 +2,20 @@ import {
   DndContext,
   DragOverlay,
   PointerSensor,
+  pointerWithin,
+  rectIntersection,
   useDraggable,
   useDroppable,
   useSensor,
   useSensors,
   type Announcements,
+  type CollisionDetection,
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useId, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Link } from "react-router";
 import { useCopy, useLocale } from "../../content/locale";
 import type { Lead, SettableLeadStatus } from "../../data/types";
@@ -43,6 +47,12 @@ const DROP_CLICK_MS = 300;
 
 /** The column a dragged card is over. */
 const DROP_HIGHLIGHT = "ring-2 ring-gold/70 ring-inset";
+
+/** The drop goes to the column under the pointer; with the pointer between columns, the one the card overlaps most. */
+const columnUnderPointer: CollisionDetection = (args) => {
+  const underPointer = pointerWithin(args);
+  return underPointer.length > 0 ? underPointer : rectIntersection(args);
+};
 
 /** Each column's heading, filled with its status's color: white text only on the shades dark enough for it. */
 const HEAD_CLASS: Record<DropTarget, string> = {
@@ -162,7 +172,14 @@ export function LeadsKanban({ open, closed, selectedId, leadHref, canMove = fals
   );
 
   return (
-    <DndContext sensors={sensors} onDragStart={startDrag} onDragEnd={endDrag} onDragCancel={cancelDrag} accessibility={{ announcements }}>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={columnUnderPointer}
+      onDragStart={startDrag}
+      onDragEnd={endDrag}
+      onDragCancel={cancelDrag}
+      accessibility={{ announcements }}
+    >
       <section
         ref={boardRef}
         aria-label={copy.board.label}
@@ -178,8 +195,12 @@ export function LeadsKanban({ open, closed, selectedId, leadHref, canMove = fals
           )}
         </div>
       </section>
-      {/* No drop animation: the card itself moves into its new column with the board's own motion. */}
-      <DragOverlay dropAnimation={null}>{dragged ? <DraggedCard lead={dragged} /> : null}</DragOverlay>
+      {/*
+        The floating card is drawn on the page's body: the screens slide in with transforms, and inside a transformed
+        parent a fixed element is placed against that parent, far from the pointer. No drop animation: the card itself
+        moves into its new column with the board's own motion.
+      */}
+      {createPortal(<DragOverlay dropAnimation={null}>{dragged ? <DraggedCard lead={dragged} /> : null}</DragOverlay>, document.body)}
     </DndContext>
   );
 }
@@ -396,6 +417,7 @@ function ContactLink({ href, icon, label, newTab = false }: { href: string; icon
     <a
       href={href}
       aria-label={label}
+      draggable={false}
       target={newTab ? "_blank" : undefined}
       rel={newTab ? "noreferrer" : undefined}
       className="inline-flex size-10 items-center justify-center rounded-full bg-sand-light text-ink transition-colors hover:bg-cream"
