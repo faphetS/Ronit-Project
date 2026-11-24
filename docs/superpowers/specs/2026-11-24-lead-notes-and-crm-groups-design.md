@@ -44,7 +44,7 @@
 
 ## Groups in the CRM
 
-- **Migration:** `groups.kind` also allows `'project'`. Its CHECK constraint is `groups_kind_check`.
+- **Migration:** `groups.kind` also allows `'project'`. It drops whatever CHECK constraint covers `kind` (found in `pg_constraint`), adds `groups_kind_check` again with flight/event/project, and adds an index on `leads.customer_id`.
 - **`GroupDto`:** `type` gains `"project"`, and a new field `fromCrm: boolean` is true when the group has no `monday_key`. Only
   groups made in the CRM can be edited or removed in the CRM.
 - **Routes for groups**, all needing `requireAccess("customers", "full")`:
@@ -62,7 +62,7 @@
   1. **Checks:** the group exists and isn't removed, and the lead exists and isn't removed. Otherwise 404.
   2. **The customer card:**
      - the lead's linked customer (`leads.customer_id`);
-     - else the newest customer with the same phone;
+     - else the newest customer with the same phone AND the same normalized name (the copy's rule: a relative on a shared phone is someone else);
      - else a new customer: `splitName(lead.name)` for the names, `phone = lead.phone`, `source = lead.source`, `from_monday = false`.
   3. **Membership:**
      - if the customer already has any membership in the group, nothing is added and `alreadyMember` is true;
@@ -85,7 +85,7 @@
   active groups its customer is in.
 - **The Monday copy** leaves all of this alone:
   - it touches only groups with a `monday_key`;
-  - it deletes only members with a `monday_item_id`;
+  - it deletes only members with a `monday_item_id`, even when a Monday trip is removed: members added in the CRM stay on the (soft-removed) group and return with it;
   - it deletes only customers it made (`from_monday`).
 
 ## Dashboard

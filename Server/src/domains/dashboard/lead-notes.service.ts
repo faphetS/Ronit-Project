@@ -42,7 +42,10 @@ export async function addLeadNote(db: Queryable, leadId: string, byUserId: strin
 
 /** Checks the note is on that lead and that this editor may change it. */
 async function checkOwn(db: Queryable, editor: Editor, leadId: string, noteId: string): Promise<void> {
-  const { rows } = await db.query<{ by_user_id: string | null }>("SELECT by_user_id FROM lead_notes WHERE id = $1 AND lead_id = $2", [noteId, leadId]);
+  const { rows } = await db.query<{ by_user_id: string | null }>(
+    "SELECT n.by_user_id FROM lead_notes n JOIN leads l ON l.id = n.lead_id WHERE n.id = $1 AND n.lead_id = $2 AND l.removed_at IS NULL",
+    [noteId, leadId],
+  );
   if (!rows[0]) throw new NotFoundError("Note");
   if (rows[0].by_user_id !== editor.id && editor.role !== "admin") {
     throw new AppError(403, "Only the note's author or an admin can change it", "NOT_YOUR_NOTE");
@@ -52,13 +55,14 @@ async function checkOwn(db: Queryable, editor: Editor, leadId: string, noteId: s
 export async function editLeadNote(db: Queryable, editor: Editor, leadId: string, noteId: string, text: string, now: Date): Promise<LeadNoteDto> {
   await checkOwn(db, editor, leadId, noteId);
   const { rows } = await db.query<NoteRow>(
-    "UPDATE lead_notes SET text = $2, edited_at = $3 WHERE id = $1 RETURNING id, at, text, by_user_id, edited_at",
-    [noteId, text.trim(), now],
+    "UPDATE lead_notes SET text = $3, edited_at = $4 WHERE id = $1 AND lead_id = $2 RETURNING id, at, text, by_user_id, edited_at",
+    [noteId, leadId, text.trim(), now],
   );
+  if (!rows[0]) throw new NotFoundError("Note");
   return toNote(rows[0]);
 }
 
 export async function deleteLeadNote(db: Queryable, editor: Editor, leadId: string, noteId: string): Promise<void> {
   await checkOwn(db, editor, leadId, noteId);
-  await db.query("DELETE FROM lead_notes WHERE id = $1", [noteId]);
+  await db.query("DELETE FROM lead_notes WHERE id = $1 AND lead_id = $2", [noteId, leadId]);
 }

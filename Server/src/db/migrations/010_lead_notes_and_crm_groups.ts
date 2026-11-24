@@ -13,6 +13,13 @@ CREATE TABLE lead_notes (
 );
 CREATE INDEX lead_notes_lead_idx ON lead_notes (lead_id, at DESC);
 ALTER TABLE leads ADD COLUMN customer_id uuid REFERENCES customers (id) ON DELETE SET NULL;
-ALTER TABLE groups DROP CONSTRAINT groups_kind_check;
+DO $$
+DECLARE c record;
+BEGIN
+  FOR c IN SELECT conname FROM pg_constraint WHERE conrelid = 'groups'::regclass AND contype = 'c' AND pg_get_constraintdef(oid) LIKE '%kind%' LOOP
+    EXECUTE format('ALTER TABLE groups DROP CONSTRAINT %I', c.conname);
+  END LOOP;
+END $$;
 ALTER TABLE groups ADD CONSTRAINT groups_kind_check CHECK (kind IN ('flight', 'event', 'project'));
+CREATE INDEX leads_customer_idx ON leads (customer_id) WHERE customer_id IS NOT NULL;
 `;

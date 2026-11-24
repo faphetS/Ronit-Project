@@ -287,6 +287,18 @@ describe("lead notes", () => {
     expect(await history(shira, id)).toHaveLength(2);
   });
 
+  it("refuses note edit and delete without full access, and for a removed lead", async () => {
+    const id = await leadIdOf("101");
+    const note = (await post(shira, `/leads/${id}/notes`, { text: "mine" }).expect(201)).body.data;
+    await post(ronit, "/users/permissions", { role: "office", area: "leads", access: "view" }).expect(200);
+    await post(shira, `/leads/${id}/notes/${note.id}`, { text: "x" }).expect(403);
+    await post(shira, `/leads/${id}/notes/${note.id}/delete`).expect(403);
+    await post(ronit, "/users/permissions", { role: "office", area: "leads", access: "full" }).expect(200);
+    await db.query("UPDATE leads SET removed_at = $2 WHERE id = $1", [id, clock]);
+    await post(shira, `/leads/${id}/notes/${note.id}`, { text: "x" }).expect(404);
+    await post(shira, `/leads/${id}/notes/${note.id}/delete`).expect(404);
+  });
+
   it("removes a deleted note from the history", async () => {
     const id = await leadIdOf("101");
     const note = (await post(shira, `/leads/${id}/notes`, { text: "gone soon" }).expect(201)).body.data;
@@ -452,6 +464,85 @@ describe("groups in the CRM", () => {
     expect((await db.query<{ n: number }>("SELECT count(*)::int AS n FROM customers")).rows[0].n).toBe(before);
     expect((await db.query<{ first_name: string }>("SELECT first_name FROM customers WHERE id = $1", [joined.customerId])).rows[0].first_name).toBe("שירה");
     expect(await people(group.id)).toMatchObject([{ customerId: joined.customerId, addedInCrm: true }]);
+  });
+
+  it("never picks a relative who shares the phone: same phone and the same name, else a new card", async () => {
+    const group = await newGroup();
+    const { id: shiraCard, phone } = (await db.query<{ id: string; phone: string }>("SELECT id, phone FROM customers WHERE first_name = 'שירה'")).rows[0];
+    const rachel = (
+      await db.query<{ id: string }>(
+        "INSERT INTO customers (first_name, last_name, phone, source, from_monday, created_at, updated_at) VALUES ('רחל', 'כהן', $1, 'manual', false, $2, $2) RETURNING id",
+        [phone, new Date("2026-11-01T00:00:00Z")],
+      )
+    ).rows[0].id;
+    const joined = (await post(shira, `/groups/${group.id}/members`, { leadId: await leadIdOf("103") }).expect(200)).body.data;
+    expect(joined.customerId).toBe(shiraCard);
+    // A lead whose name matches nobody on that phone gets a card of her own.
+    await db.query("UPDATE leads SET name = 'דנה כהן', customer_id = NULL WHERE monday_item_id = '103'");
+    const other = (await post(shira, `/groups/${group.id}/members`, { leadId: await leadIdOf("103") }).expect(200)).body.data;
+    expect([shiraCard, rachel]).not.toContain(other.customerId);
+  });
+
+  it("uses the phone digits when a lead has no name, and keeps the lead's source on the card", async () => {
+    const group = await newGroup();
+    const id = await leadIdOf("101");
+    await db.query("UPDATE leads SET name = phone WHERE id = $1", [id]);
+    const joined = (await post(shira, `/groups/${group.id}/members`, { leadId: id }).expect(200)).body.data;
+    const card = (await db.query<{ first_name: string; source: string }>("SELECT first_name, source FROM customers WHERE id = $1", [joined.customerId])).rows[0];
+    const lead = (await db.query<{ phone: string; source: string }>("SELECT phone, source FROM leads WHERE id = $1", [id])).rows[0];
+    expect(card.first_name).toBe(lead.phone);
+    expect(card.source).toBe(lead.source);
+  });
+
+  it("leaves CRM data alone when the Monday copy runs again, even if a trip board vanishes and returns", async () => {
+    const group = await newGroup();
+    const flight = (await get(shira, "/groups").expect(200)).body.data.find((g: { type: string; fromCrm: boolean }) => g.type === "flight" && !g.fromCrm);
+    const a = await leadIdOf("101");
+    const b = await leadIdOf("103");
+    const joinedA = (await post(shira, `/groups/${group.id}/members`, { leadId: a }).expect(200)).body.data;
+    await post(shira, `/groups/${group.id}/members`, { leadId: b }).expect(200);
+    await post(shira, `/groups/${flight.id}/members`, { leadId: a }).expect(200);
+    const snapshot = async () => ({
+      group: (await db.query("SELECT id, removed_at FROM groups WHERE id = $1", [group.id])).rows,
+      members: (await db.query("SELECT group_id, customer_id FROM group_members WHERE monday_item_id IS NULL ORDER BY group_id, customer_id")).rows,
+      card: (await db.query("SELECT id, from_monday FROM customers WHERE id = $1", [joinedA.customerId])).rows,
+      links: (await db.query("SELECT id, customer_id, status FROM leads WHERE id = ANY($1::uuid[]) ORDER BY id", [[a, b]])).rows,
+    });
+    const before = await snapshot();
+    expect(before.members).toHaveLength(3);
+    clock = new Date("2026-11-02T10:00:00Z");
+    await copyFromMonday(copyDeps(), "schedule");
+    expect(await snapshot()).toEqual(before);
+    const flightBoard = monday.boards.find((x) => x.name.includes("טיסה"))!;
+    monday.boards = monday.boards.filter((x) => x !== flightBoard);
+    clock = new Date("2026-11-02T11:00:00Z");
+    await copyFromMonday(copyDeps(), "schedule");
+    expect((await snapshot()).members).toEqual(before.members);
+    monday.boards.push(flightBoard);
+    clock = new Date("2026-11-02T12:00:00Z");
+    await copyFromMonday(copyDeps(), "schedule");
+    expect(await snapshot()).toEqual(before);
+    expect(before.links.every((l) => l.status === "registered")).toBe(true);
+  });
+
+  it("answers 404 for an unknown group and a removed lead, and 403 without full access", async () => {
+    const group = await newGroup();
+    const id = await leadIdOf("101");
+    await post(shira, `/groups/00000000-0000-4000-8000-000000000000/members`, { leadId: id }).expect(404);
+    await db.query("UPDATE leads SET removed_at = $2 WHERE id = $1", [id, clock]);
+    await post(shira, `/groups/${group.id}/members`, { leadId: id }).expect(404);
+    await post(ronit, "/users/permissions", { role: "sales", area: "customers", access: "view" }).expect(200);
+    await post(moran, `/groups/${group.id}`, { name: "x" }).expect(403);
+    await post(moran, `/groups/${group.id}/members/00000000-0000-4000-8000-000000000000/remove`).expect(403);
+  });
+
+  it("keeps the lead registered when a member is removed", async () => {
+    const group = await newGroup();
+    const id = await leadIdOf("101");
+    await post(shira, `/groups/${group.id}/members`, { leadId: id }).expect(200);
+    const [member] = await people(group.id);
+    await post(shira, `/groups/${group.id}/members/${member.id}/remove`).expect(200);
+    expect((await get(shira, `/leads/${id}`).expect(200)).body.data.status).toBe("registered");
   });
 
   it("adds an old-board lead without writing to Monday", async () => {

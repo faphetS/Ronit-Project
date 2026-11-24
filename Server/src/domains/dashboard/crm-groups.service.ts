@@ -57,8 +57,11 @@ export async function removeGroup(db: Queryable, id: string, now: Date): Promise
   await db.query("UPDATE groups SET removed_at = $2, updated_at = $2 WHERE id = $1", [id, now]);
 }
 
+/** "שרה  כהן " and "שרה כהן" are the same name (the copy's rule). */
+const SAME_NAME = "regexp_replace(btrim(first_name || ' ' || last_name), '\\s+', ' ', 'g')";
+
 /**
- * Puts a lead in a group, in one transaction: the customer card (the lead's own, else the newest with the same phone,
+ * Puts a lead in a group, in one transaction: the customer card (the lead's own, else the newest with the same phone and name,
  * else a new one), the membership, the link on the lead, the "registered" status and the audit row.
  * statusChanged tells the route whether Monday's label needs a push.
  */
@@ -86,11 +89,17 @@ export async function joinGroup(
       if (!kept.rows[0]) customerId = null;
     }
     if (!customerId && lead.phone) {
-      const same = await tx.query<{ id: string }>("SELECT id FROM customers WHERE phone = $1 ORDER BY created_at DESC LIMIT 1", [lead.phone]);
+      const { firstName, lastName } = splitName(lead.name);
+      const same = await tx.query<{ id: string }>(
+        `SELECT id FROM customers WHERE phone = $1 AND ${SAME_NAME} = $2 ORDER BY created_at DESC, id LIMIT 1`,
+        [lead.phone, [firstName, lastName].filter(Boolean).join(" ")],
+      );
       customerId = same.rows[0]?.id ?? null;
     }
     if (!customerId) {
-      const { firstName, lastName } = splitName(lead.name);
+      const split = splitName(lead.name);
+      const firstName = split.firstName || lead.name || lead.phone || "";
+      const lastName = split.lastName;
       const made = await tx.query<{ id: string }>(
         `INSERT INTO customers (first_name, last_name, phone, source, from_monday, created_at, updated_at)
          VALUES ($1, $2, $3, $4, false, $5, $5) RETURNING id`,
@@ -99,11 +108,11 @@ export async function joinGroup(
       customerId = made.rows[0].id;
     }
 
-    const member = await tx.query("SELECT 1 FROM group_members WHERE group_id = $1 AND customer_id = $2 LIMIT 1", [groupId, customerId]);
-    const alreadyMember = member.rows.length > 0;
-    if (!alreadyMember) {
-      await tx.query("INSERT INTO group_members (group_id, customer_id, added_at) VALUES ($1, $2, $3)", [groupId, customerId, now]);
-    }
+    const inserted = await tx.query(
+      "INSERT INTO group_members (group_id, customer_id, added_at) VALUES ($1, $2, $3) ON CONFLICT (group_id, customer_id) WHERE monday_item_id IS NULL DO NOTHING RETURNING id",
+      [groupId, customerId, now],
+    );
+    const alreadyMember = inserted.rows.length === 0;
     await tx.query("UPDATE leads SET customer_id = $2 WHERE id = $1", [leadId, customerId]);
     const status = await applyStatusChange(tx, crmBoardId, { leadId, status: "registered", byUserId }, now);
     await tx.query("INSERT INTO audit_log (at, by_user_id, action, customer_id, details) VALUES ($1, $2, 'lead-joined-group', $3, $4::text::jsonb)", [

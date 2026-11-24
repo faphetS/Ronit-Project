@@ -196,7 +196,7 @@ function tripKeysOf(boardId: string): string[] {
   return [`board:${boardId}`, `month:${boardId}:%`];
 }
 
-/** Hides a board's trips that aren't in `keep`, and takes their people off them. */
+/** Hides a board's trips that aren't in `keep`, and takes their Monday people off them (people added in the CRM stay, and return with the trip). */
 async function removeTripsExcept(tx: Queryable, boardId: string, keep: string[], now: Date): Promise<void> {
   const [boardKey, monthPattern] = tripKeysOf(boardId);
   const { rows } = await tx.query<{ id: string }>(
@@ -205,7 +205,7 @@ async function removeTripsExcept(tx: Queryable, boardId: string, keep: string[],
      RETURNING id`,
     [boardKey, monthPattern, keep, now],
   );
-  if (rows.length > 0) await tx.query("DELETE FROM group_members WHERE group_id = ANY($1::uuid[])", [rows.map((row) => row.id)]);
+  if (rows.length > 0) await tx.query("DELETE FROM group_members WHERE group_id = ANY($1::uuid[]) AND monday_item_id IS NOT NULL", [rows.map((row) => row.id)]);
 }
 
 /** "שרה  כהן " and "שרה כהן" are the same name. */
