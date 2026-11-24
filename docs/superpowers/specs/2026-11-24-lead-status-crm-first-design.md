@@ -121,8 +121,8 @@ The mirror lives in one new unit with one job, `lead-status-mirror.ts` in the da
     A newer drag made meanwhile stays pending.
   - **When Monday fails:** `monday_sync_attempts + 1`, a short `monday_sync_error`, and `monday_sync_next_at`. That's
     now + 2 minutes for the first 30 attempts (about an hour), then now + 1 hour. The lead stays pending.
-  - **When Monday says the item no longer exists:** pending is cleared with the error kept, since there's nothing left
-    to update.
+  - **When the lead has left Monday:** the copy has marked it removed (`removed_at`). Pending is cleared with that
+    reason kept, since there's nothing left to update. Monday's own error texts aren't parsed for this.
 - **The retry job:** a cron job every 2 minutes.
   - It takes at most 20 pending leads whose `monday_sync_next_at` is empty or due, oldest first.
   - Each is retried until Monday accepts.
@@ -219,7 +219,7 @@ the test fixtures and the demo data gain the same field.
   - **The mirror:**
     - each label, including clearing;
     - compare and clear keeps a newer pending label;
-    - an item no longer in Monday clears pending with the error kept;
+    - a lead the copy marked removed clears pending with the reason kept;
     - a rate limit ends the run.
   - **The copy:**
     - keeps the CRM's status while a change is pending;
