@@ -3,6 +3,8 @@ import type { HolidayKey } from "../lib/holidays";
 export type Role = "admin" | "office" | "sales";
 /** "no-answer" is Monday's "אין מענה": called, and nobody answered yet. */
 export type LeadStatus = "new" | "no-answer" | "talking" | "details-sent" | "registered" | "not-relevant";
+/** The statuses a person can give a lead: the board's five columns. "details-sent" stays Monday's own, under In progress. */
+export type SettableLeadStatus = Exclude<LeadStatus, "details-sent">;
 export type LeadSource = "landing-page" | "instagram" | "facebook" | "whatsapp" | "referral";
 /** What the lead asked about, from Monday's "שירות". Monday doesn't say which trip. */
 export type LeadService = "uman" | "challah";
@@ -67,6 +69,8 @@ export interface Lead {
   lastMessage: string | null;
   /** Monday's "שלב הבא": what the team said comes next. */
   nextStep: string | null;
+  /** A status changed here whose label hasn't reached Monday yet. */
+  mondayPending: boolean;
   /** Newest first. Empty in lists. */
   history: LeadEvent[];
 }

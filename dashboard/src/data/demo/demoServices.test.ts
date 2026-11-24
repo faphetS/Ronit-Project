@@ -46,6 +46,14 @@ describe("the demo's sample data", () => {
     expect((await demo.imports.latest()).boards).toHaveLength(4);
   });
 
+  it("changes a lead's status in memory, so the demo board drags", async () => {
+    const demo = createDemoServices(ME);
+    const [lead] = await demo.leads.list({ status: "new" });
+    expect(await demo.leads.setStatus(lead.id, "no-answer")).toMatchObject({ id: lead.id, status: "no-answer", mondayPending: false });
+    expect((await demo.leads.get(lead.id)).status).toBe("no-answer");
+    await expect(demo.leads.setStatus("no-such-lead", "new")).rejects.toThrow();
+  });
+
   it("takes a greeting through writing, WhatsApp's review, a test and approval", async () => {
     const demo = createDemoServices(ME);
     const current = await demo.greetings.current();

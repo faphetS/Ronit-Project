@@ -20,11 +20,13 @@ import type {
   BirthdaySettings,
   Customer,
   HolidayCampaign,
+  Lead,
   MondayCopy,
   PermissionArea,
   PermissionMatrix,
   SecuritySettings,
   SecuritySwitch,
+  SettableLeadStatus,
   StaffAccess,
 } from "./types";
 
@@ -177,6 +179,43 @@ export function useLeadDays() {
 export function useLead(id: string) {
   const { leads } = useServices();
   return useQuery({ queryKey: queryKeys.lead(id), queryFn: () => leads.get(id) });
+}
+
+/** What a status change put aside, to put back if the call fails. */
+interface LeadStatusSnapshot {
+  id: string;
+  lists: Array<[QueryKey, Lead[] | undefined]>;
+  detail: Lead | undefined;
+}
+
+/**
+ * Gives a lead a new status. It changes at once in every cached list and in the lead's own card, so the board moves the
+ * card while the call is out. A failed call puts everything back. Then the leads and the overview refresh.
+ */
+export function useSetLeadStatus() {
+  const { leads } = useServices();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, status }: { id: string; status: SettableLeadStatus }) => leads.setStatus(id, status),
+    onMutate: async ({ id, status }): Promise<LeadStatusSnapshot> => {
+      await client.cancelQueries({ queryKey: ["leads"] });
+      const lists = client.getQueriesData<Lead[]>({ queryKey: ["leads", "list"] });
+      const detail = client.getQueryData<Lead>(queryKeys.lead(id));
+      client.setQueriesData<Lead[]>({ queryKey: ["leads", "list"] }, (list) => list?.map((lead) => (lead.id === id ? { ...lead, status } : lead)));
+      if (detail) client.setQueryData<Lead>(queryKeys.lead(id), { ...detail, status });
+      return { id, lists, detail };
+    },
+    onError: (_error, _variables, snapshot) => {
+      if (!snapshot) return;
+      for (const [key, list] of snapshot.lists) client.setQueryData(key, list);
+      if (snapshot.detail) client.setQueryData(queryKeys.lead(snapshot.id), snapshot.detail);
+    },
+    onSuccess: (lead) => client.setQueryData(queryKeys.lead(lead.id), lead),
+    onSettled: async () => {
+      await client.invalidateQueries({ queryKey: ["leads"] });
+      await client.invalidateQueries({ queryKey: ["overview"] });
+    },
+  });
 }
 
 // ---- Customers and passports ----
