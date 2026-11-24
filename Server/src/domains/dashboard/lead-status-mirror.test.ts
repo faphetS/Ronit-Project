@@ -8,7 +8,7 @@ import { createTestDb, TEST_DB_TIMEOUT_MS, type TestDb } from "../../db/test-db.
 import { MondayRateLimitError } from "../monday/monday.client.js";
 import { ARCHIVE, CRM, fakeAccount, fakeMonday, type FakeMonday } from "../monday-copy/monday-copy.fake.js";
 import { copyFromMonday, type CopyDeps } from "../monday-copy/monday-copy.service.js";
-import { forgetMondayColumns, labelFor, mirrorStatus, retryPending, RETRY_FAST_MS, RETRY_SLOW_MS, type MirrorDeps } from "./lead-status-mirror.js";
+import { forgetMondayColumns, labelFor, mirrorSoon, mirrorStatus, retryPending, RETRY_FAST_MS, RETRY_SLOW_MS, type MirrorDeps } from "./lead-status-mirror.js";
 
 let db: TestDb;
 let monday: FakeMonday;
@@ -135,6 +135,49 @@ describe("mirrorStatus", () => {
     expect(await row("101")).toMatchObject({ monday_label_pending: null, monday_sync_error: "The lead is no longer in Monday" });
   });
 
+  it("keeps a lead on the old board out of Monday, keeping the reason", async () => {
+    await waiting("91", "no-answer", "אין מענה");
+    expect(await mirrorStatus(deps(), await leadId("91"))).toBe("skipped");
+    expect(monday.writes).toEqual([]);
+    expect(await row("91")).toMatchObject({ monday_label_pending: null, monday_sync_error: "The lead is not on the live CRM board" });
+  });
+
+  it("writes one lead's labels one at a time, in order", async () => {
+    await waiting("101", "no-answer", "אין מענה");
+    const id = await leadId("101");
+    const gql = monday.gql;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let reached!: () => void;
+    const reachedFirst = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    let first = true;
+    const slow: MirrorDeps = {
+      ...deps(),
+      gql: (async (query: string, variables?: Record<string, unknown>) => {
+        if (query.includes("change_column_value") && first) {
+          first = false;
+          reached();
+          await gate;
+        }
+        return gql(query, variables);
+      }) as MirrorDeps["gql"],
+    };
+    const older = mirrorStatus(slow, id);
+    await reachedFirst;
+    await waiting("101", "registered", "נסגר");
+    const newer = mirrorStatus(slow, id);
+    // Monday answers the older write late: without the queue, the newer write would land first.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    release();
+    await Promise.all([older, newer]);
+    expect(monday.writes.map((w) => w.label)).toEqual(["אין מענה", "נסגר"]);
+    expect(await row("101")).toMatchObject({ monday_label_pending: null, contact_status: "נסגר" });
+  });
+
   it("does nothing for a lead with no label waiting", async () => {
     expect(await mirrorStatus(deps(), await leadId("101"))).toBe("skipped");
     expect(monday.calls).toEqual([]);
@@ -158,5 +201,54 @@ describe("retryPending", () => {
     await waiting("103", "talking", "נוצר קשר");
     monday.fail = new MondayRateLimitError("minute", 30, "limited");
     expect(await retryPending(deps())).toEqual({ done: 0, failed: 1 });
+    const attempts = [(await row("101")).monday_sync_attempts, (await row("103")).monday_sync_attempts].sort();
+    expect(attempts).toEqual([0, 1]);
+  });
+
+  it("sends the oldest change first", async () => {
+    await waiting("101", "no-answer", "אין מענה");
+    await waiting("103", "talking", "נוצר קשר");
+    await db.query("UPDATE leads SET status_changed_at = $2 WHERE monday_item_id = $1", ["103", new Date(clock.getTime() - 3600_000)]);
+    await db.query("UPDATE leads SET monday_sync_next_at = $2 WHERE monday_item_id = $1", ["101", new Date(clock.getTime() - 60_000)]);
+    await db.query("UPDATE leads SET monday_sync_next_at = $2 WHERE monday_item_id = $1", ["103", new Date(clock.getTime() - 30_000)]);
+    await retryPending(deps());
+    expect(monday.writes.map((w) => w.itemId)).toEqual(["103", "101"]);
+  });
+
+  it("carries on when one lead's try throws", async () => {
+    await waiting("101", "no-answer", "אין מענה");
+    await waiting("103", "talking", "נוצר קשר");
+    const bad = await leadId("101");
+    const flaky: MirrorDeps = {
+      ...deps(),
+      db: {
+        ...db,
+        query: (async (sql: string, values?: unknown[]) => {
+          if (sql.startsWith("SELECT monday_item_id") && values?.[0] === bad) throw new Error("db hiccup");
+          return db.query(sql, values);
+        }) as MirrorDeps["db"]["query"],
+      },
+    };
+    expect(await retryPending(flaky)).toEqual({ done: 1, failed: 1 });
+    expect((await row("103")).monday_label_pending).toBeNull();
+  });
+});
+
+describe("mirrorSoon", () => {
+  it("returns after the wait when Monday is slow, leaving the label waiting", async () => {
+    await waiting("101", "no-answer", "אין מענה");
+    const stuck: MirrorDeps = { ...deps(), gql: (() => new Promise(() => {})) as MirrorDeps["gql"] };
+    const started = Date.now();
+    await mirrorSoon(stuck, await leadId("101"), 50);
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect((await row("101")).monday_label_pending).toBe("אין מענה");
+  });
+
+  it("never throws", async () => {
+    const broken: MirrorDeps = {
+      ...deps(),
+      db: { ...db, query: (() => Promise.reject(new Error("db down"))) as MirrorDeps["db"]["query"] },
+    };
+    await expect(mirrorSoon(broken, "any-id", 50)).resolves.toBeUndefined();
   });
 });

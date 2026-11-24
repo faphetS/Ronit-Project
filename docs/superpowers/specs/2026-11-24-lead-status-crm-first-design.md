@@ -110,6 +110,10 @@ The mirror lives in one new unit with one job, `lead-status-mirror.ts` in the da
   - **The call:** `change_column_value` through `gql` in `monday.client.ts`, so it shares the rate-limit circuit
     breaker with the automations and the copy. The value is `{"label": "…"}`, or `{}` to clear the label. Labels are
     never created: a missing label is an error.
+  - **Only the live board:** a lead on any other board gets no label in Monday. Its pending label is cleared, the
+    reason is kept in `monday_sync_error`, and nothing is sent.
+  - **One write per lead at a time, in order:** calls for the same lead wait for each other, so an older label never
+    lands in Monday after a newer one. This holds for one server process.
   - **When Monday accepts:** compare and clear.
 
     ```sql

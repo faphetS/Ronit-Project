@@ -78,10 +78,28 @@ interface WaitingLead {
 }
 
 /**
+ * The call in flight for each lead, so one lead's writes to Monday go one at a time, in the order they were asked.
+ * This assumes one server process: with several, this map would not see the others' calls.
+ */
+const inFlight = new Map<string, Promise<unknown>>();
+
+/**
  * Writes a lead's waiting label to Monday, once. On success the lead is in step, unless a newer change arrived
  * meanwhile: that one stays waiting. On failure the try is counted and the next one scheduled.
+ * Calls for the same lead wait for each other, so an older label never lands in Monday after a newer one.
  */
-export async function mirrorStatus(deps: MirrorDeps, leadId: string): Promise<MirrorResult> {
+export function mirrorStatus(deps: MirrorDeps, leadId: string): Promise<MirrorResult> {
+  const previous = inFlight.get(leadId);
+  const run = previous ? previous.then(() => writeLabel(deps, leadId), () => writeLabel(deps, leadId)) : writeLabel(deps, leadId);
+  inFlight.set(leadId, run);
+  const cleanup = () => {
+    if (inFlight.get(leadId) === run) inFlight.delete(leadId);
+  };
+  run.then(cleanup, cleanup);
+  return run;
+}
+
+async function writeLabel(deps: MirrorDeps, leadId: string): Promise<MirrorResult> {
   const { rows } = await deps.db.query<WaitingLead>(
     "SELECT monday_item_id, monday_board_id, monday_label_pending, monday_sync_attempts, removed_at FROM leads WHERE id = $1",
     [leadId],
@@ -95,6 +113,15 @@ export async function mirrorStatus(deps: MirrorDeps, leadId: string): Promise<Mi
     await deps.db.query(
       "UPDATE leads SET monday_label_pending = NULL, monday_sync_next_at = NULL, monday_sync_error = $3 WHERE id = $1 AND monday_label_pending = $2",
       [leadId, label, "The lead is no longer in Monday"],
+    );
+    return "skipped";
+  }
+
+  if (lead.monday_board_id !== deps.crmBoardId) {
+    // Only the live CRM board is kept in step; leads on the old board change in the CRM only.
+    await deps.db.query(
+      "UPDATE leads SET monday_label_pending = NULL, monday_sync_next_at = NULL, monday_sync_error = $3 WHERE id = $1 AND monday_label_pending = $2",
+      [leadId, label, "The lead is not on the live CRM board"],
     );
     return "skipped";
   }
@@ -133,13 +160,20 @@ export async function retryPending(deps: MirrorDeps, limit = 20): Promise<{ done
   const { rows } = await deps.db.query<{ id: string }>(
     `SELECT id FROM leads
      WHERE monday_label_pending IS NOT NULL AND (monday_sync_next_at IS NULL OR monday_sync_next_at <= $1)
-     ORDER BY monday_sync_next_at NULLS FIRST, status_changed_at
+     ORDER BY status_changed_at
      LIMIT $2`,
     [deps.now(), limit],
   );
   const tally = { done: 0, failed: 0 };
   for (const { id } of rows) {
-    const result = await mirrorStatus(deps, id);
+    let result: MirrorResult;
+    try {
+      result = await mirrorStatus(deps, id);
+    } catch (err) {
+      logger.error({ err, leadId: id }, "Lead status mirror failed");
+      tally.failed += 1;
+      continue;
+    }
     if (result === "done") tally.done += 1;
     if (result === "failed" || result === "rate-limited") tally.failed += 1;
     if (result === "rate-limited") break;
