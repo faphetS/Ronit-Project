@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { TestProviders, createTestClient, createTestServices } from "../test/app";
 import { queryKeys, useCopyNow, useImportRun, useOverview, useSession, useSetLeadStatus, useStartGoogle, useVerifyCode } from "./queries";
 import type { Lead, MondayCopy } from "./types";
@@ -60,7 +60,9 @@ describe("query hooks", () => {
       return stored;
     };
     client.setQueryData(queryKeys.leads({}), [stored]);
+    client.setQueryData(queryKeys.lead(stored.id), stored);
     const { result } = renderHook(() => useSetLeadStatus(), { wrapper });
+    const detailStatus = () => client.getQueryData<Lead>(queryKeys.lead(stored.id))?.status;
 
     await act(() => result.current.mutateAsync({ id: stored.id, status: "no-answer" }));
     expect(client.getQueryData<Lead[]>(queryKeys.leads({}))?.[0].status).toBe("no-answer");
@@ -74,7 +76,50 @@ describe("query hooks", () => {
       result.current.mutate({ id: stored.id, status: "registered" });
     });
     await waitFor(() => expect(client.getQueryData<Lead[]>(queryKeys.leads({}))?.[0].status).toBe("registered"));
+    expect(detailStatus()).toBe("registered");
     await act(async () => fail(new Error("offline")));
     await waitFor(() => expect(client.getQueryData<Lead[]>(queryKeys.leads({}))?.[0].status).toBe("no-answer"));
+    expect(detailStatus()).toBe("no-answer");
+  });
+
+  /** Two moves of one lead, each answered when the test says so. */
+  function twoSlowMoves() {
+    const ctx = setup();
+    const lead = testLead({ status: "talking" });
+    const calls: Array<{ resolve: (lead: Lead) => void; reject: (error: Error) => void }> = [];
+    ctx.services.leads.setStatus = () =>
+      new Promise<Lead>((resolve, reject) => {
+        calls.push({ resolve, reject });
+      });
+    ctx.client.setQueryData(queryKeys.leads({}), [lead]);
+    const shown = () => ctx.client.getQueryData<Lead[]>(queryKeys.leads({}))?.[0].status;
+    const hook = renderHook(() => useSetLeadStatus(), { wrapper: ctx.wrapper });
+    return { ...ctx, lead, calls, shown, hook };
+  }
+
+  it("keeps a later move when an earlier one fails", async () => {
+    const { lead, calls, shown, hook } = twoSlowMoves();
+    act(() => hook.result.current.mutate({ id: lead.id, status: "registered" }));
+    await waitFor(() => expect(shown()).toBe("registered"));
+    act(() => hook.result.current.mutate({ id: lead.id, status: "not-relevant" }));
+    await waitFor(() => expect(shown()).toBe("not-relevant"));
+    await act(async () => calls[0].reject(new Error("offline")));
+    expect(shown()).toBe("not-relevant");
+    await act(async () => calls[1].resolve({ ...lead, status: "not-relevant" }));
+    expect(shown()).toBe("not-relevant");
+  });
+
+  it("refreshes the leads only after the last of several quick moves", async () => {
+    const { client, lead, calls, shown, hook } = twoSlowMoves();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    act(() => hook.result.current.mutate({ id: lead.id, status: "registered" }));
+    await waitFor(() => expect(shown()).toBe("registered"));
+    act(() => hook.result.current.mutate({ id: lead.id, status: "not-relevant" }));
+    await waitFor(() => expect(shown()).toBe("not-relevant"));
+    await act(async () => calls[0].resolve({ ...lead, status: "registered" }));
+    expect(invalidate).not.toHaveBeenCalledWith({ queryKey: ["leads"] });
+    await act(async () => calls[1].resolve({ ...lead, status: "not-relevant" }));
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["leads"] }));
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["overview"] });
   });
 });

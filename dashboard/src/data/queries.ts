@@ -21,6 +21,7 @@ import type {
   Customer,
   HolidayCampaign,
   Lead,
+  LeadStatus,
   MondayCopy,
   PermissionArea,
   PermissionMatrix,
@@ -181,37 +182,53 @@ export function useLead(id: string) {
   return useQuery({ queryKey: queryKeys.lead(id), queryFn: () => leads.get(id) });
 }
 
-/** What a status change put aside, to put back if the call fails. */
-interface LeadStatusSnapshot {
-  id: string;
-  lists: Array<[QueryKey, Lead[] | undefined]>;
-  detail: Lead | undefined;
+const setStatusKey = ["leads", "set-status"] as const;
+
+/** A lead's status as the cache has it: its own card first, else the first cached list that holds it. */
+function cachedStatus(client: QueryClient, id: string): LeadStatus | undefined {
+  const detail = client.getQueryData<Lead>(queryKeys.lead(id));
+  if (detail) return detail.status;
+  for (const [, list] of client.getQueriesData<Lead[]>({ queryKey: ["leads", "list"] })) {
+    const found = list?.find((lead) => lead.id === id);
+    if (found) return found.status;
+  }
+  return undefined;
+}
+
+/** Sets a lead's status in every cached list and in its own card. With `only`, just where it still has that status. */
+function setCachedStatus(client: QueryClient, id: string, status: LeadStatus, only?: LeadStatus) {
+  const applies = (lead: Lead) => lead.status !== status && (only === undefined || lead.status === only);
+  client.setQueriesData<Lead[]>({ queryKey: ["leads", "list"] }, (list) =>
+    list?.some((lead) => lead.id === id && applies(lead)) ? list.map((lead) => (lead.id === id ? { ...lead, status } : lead)) : list,
+  );
+  client.setQueryData<Lead>(queryKeys.lead(id), (lead) => (lead && applies(lead) ? { ...lead, status } : lead));
 }
 
 /**
  * Gives a lead a new status. It changes at once in every cached list and in the lead's own card, so the board moves the
- * card while the call is out. A failed call puts everything back. Then the leads and the overview refresh.
+ * card while the call is out. A failed call puts the lead back, unless a later move has moved it since. The leads and the
+ * overview refresh once the last of several quick moves has settled.
  */
 export function useSetLeadStatus() {
   const { leads } = useServices();
   const client = useQueryClient();
   return useMutation({
+    mutationKey: setStatusKey,
     mutationFn: ({ id, status }: { id: string; status: SettableLeadStatus }) => leads.setStatus(id, status),
-    onMutate: async ({ id, status }): Promise<LeadStatusSnapshot> => {
+    onMutate: async ({ id, status }): Promise<{ previous: LeadStatus | undefined }> => {
       await client.cancelQueries({ queryKey: ["leads"] });
-      const lists = client.getQueriesData<Lead[]>({ queryKey: ["leads", "list"] });
-      const detail = client.getQueryData<Lead>(queryKeys.lead(id));
-      client.setQueriesData<Lead[]>({ queryKey: ["leads", "list"] }, (list) => list?.map((lead) => (lead.id === id ? { ...lead, status } : lead)));
-      if (detail) client.setQueryData<Lead>(queryKeys.lead(id), { ...detail, status });
-      return { id, lists, detail };
+      const previous = cachedStatus(client, id);
+      setCachedStatus(client, id, status);
+      return { previous };
     },
-    onError: (_error, _variables, snapshot) => {
-      if (!snapshot) return;
-      for (const [key, list] of snapshot.lists) client.setQueryData(key, list);
-      if (snapshot.detail) client.setQueryData(queryKeys.lead(snapshot.id), snapshot.detail);
+    onError: (_error, { id, status }, context) => {
+      if (context?.previous) setCachedStatus(client, id, context.previous, status);
     },
-    onSuccess: (lead) => client.setQueryData(queryKeys.lead(lead.id), lead),
+    onSuccess: (lead) => {
+      if (client.isMutating({ mutationKey: setStatusKey }) === 1) client.setQueryData(queryKeys.lead(lead.id), lead);
+    },
     onSettled: async () => {
+      if (client.isMutating({ mutationKey: setStatusKey }) > 1) return;
       await client.invalidateQueries({ queryKey: ["leads"] });
       await client.invalidateQueries({ queryKey: ["overview"] });
     },
