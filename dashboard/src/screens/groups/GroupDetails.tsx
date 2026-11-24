@@ -23,6 +23,7 @@ import { EmptyState, ErrorState } from "../../ui/states";
 import { StatusTag } from "../../ui/StatusTag";
 import { Surface } from "../../ui/Surface";
 import { TextLink } from "../../ui/TextLink";
+import { RemoveMemberButton } from "./GroupManage";
 import { RowsSkeleton } from "./GroupsSkeleton";
 import { MISSING_SECTION, PARTICIPANTS_SECTION, fullName, groupDate, groupWhenShort, plainName, seatsFree } from "./groups";
 
@@ -89,6 +90,8 @@ export function ParticipantsCard({ group, className }: GroupProps) {
   const text = copy.participants;
   const flight = group.type === "flight";
   const name = plainName(group.shortName);
+  // The column shows only when someone in the list was added here.
+  const canRemove = Boolean(participants.data?.some((person) => person.addedInCrm));
   const passportColumns: DataColumn<GroupParticipant>[] = flight
     ? [
         {
@@ -114,6 +117,9 @@ export function ParticipantsCard({ group, className }: GroupProps) {
     ...passportColumns,
     { key: "notes", header: text.columns.notes, wrap: true, className: "text-mute", cell: (row) => personNotes(row, copy.sep, locale) ?? <Blank /> },
   ];
+  if (canRemove) {
+    columns.push({ key: "actions", header: copy.manage.member.column, cell: (row) => <RemoveMemberButton group={group} person={row} /> });
+  }
   const tag = !flight ? null : group.missingPassports > 0 ? (
     <StatusTag tone="warning">{text.missingTag(group.missingPassports)}</StatusTag>
   ) : (
@@ -218,6 +224,7 @@ export function ParticipantsList({ group }: { group: GroupSummary }) {
               leading={<Avatar initial={person.firstName.charAt(0)} />}
               title={fullName(person)}
               description={<ContactLine person={person} />}
+              trailing={<RemoveMemberButton group={group} person={person} />}
             />
           ))}
         </ul>
