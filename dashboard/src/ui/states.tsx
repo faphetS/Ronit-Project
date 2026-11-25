@@ -2,6 +2,28 @@ import type { ReactNode } from "react";
 import { useCopy } from "../content/locale";
 import { cx } from "../lib/cx";
 import { Button } from "./Button";
+import { IconCircle, type IconCircleTone } from "./IconCircle";
+import type { SurfaceVariant } from "./Surface";
+import { MUTE_TEXT, STRONG_TEXT } from "./surface-tones";
+
+const LOCK_TONE: Record<SurfaceVariant, IconCircleTone> = { card: "sand", glass: "glass", ink: "ink" };
+
+/**
+ * A card the person's role doesn't open: a lock, "locked for your role" and who can see it, in place of the content
+ * (and of the error the API's refusal would show). The rest of the screen stays theirs.
+ */
+export function LockedState({ message, surface = "card", className }: { message: string; surface?: SurfaceVariant; className?: string }) {
+  const { states } = useCopy();
+  return (
+    <div className={cx("flex flex-col items-center justify-center gap-3 py-6 text-center", className)}>
+      <IconCircle icon="lock" tone={LOCK_TONE[surface]} size="md" />
+      <div className="flex flex-col gap-1">
+        <p className={cx("text-small font-medium", STRONG_TEXT[surface])}>{states.lockedTitle}</p>
+        <p className={cx("max-w-[42ch] text-small", MUTE_TEXT[surface])}>{message}</p>
+      </div>
+    </div>
+  );
+}
 
 /** Soft placeholder block, shaped like the content that is loading. No pulse under Reduce Motion. */
 export function Skeleton({ onDark = false, className }: { onDark?: boolean; className?: string }) {

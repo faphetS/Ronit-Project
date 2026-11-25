@@ -352,9 +352,14 @@ export function usePassportAccessLog(id: string) {
   return useQuery({ queryKey: queryKeys.passportAccess(id), queryFn: () => customers.accessLog(id) });
 }
 
+/**
+ * The passports that came in on WhatsApp. Asked once the role table says the person may see passports, never by
+ * anyone it keeps out of them (the API would refuse them; the inbox shows a lock instead).
+ */
 export function usePassportIntakes() {
   const { customers } = useServices();
-  return useQuery({ queryKey: queryKeys.intakes, queryFn: () => customers.intakes() });
+  const enabled = useCan("passports", "view");
+  return useQuery({ queryKey: queryKeys.intakes, queryFn: () => customers.intakes(), enabled });
 }
 
 /** Adds an internal note: it shows at the top right away, rolls back if the call fails, then refreshes the card and the list. */
@@ -476,20 +481,26 @@ export function useActivity() {
 /** While WhatsApp reviews the text, ask again every minute: Meta usually answers within minutes. */
 const REVIEW_POLL_MS = 60_000;
 
-/** The next greeting that has not gone out, or null. Followed every minute while WhatsApp reviews it. */
+/**
+ * The next greeting that has not gone out, or null. Followed every minute while WhatsApp reviews it. The bell asks
+ * for it on every screen, so only once the role table says the person may see greetings.
+ */
 export function useCurrentCampaign() {
   const { greetings } = useServices();
+  const enabled = useCan("greetings", "view");
   return useQuery({
     queryKey: queryKeys.campaign,
     queryFn: () => greetings.current(),
+    enabled,
     refetchInterval: (query) => (query.state.data?.status === "in-review" ? REVIEW_POLL_MS : false),
   });
 }
 
-/** Whether WhatsApp is connected, and whether greetings go out. */
+/** Whether WhatsApp is connected, and whether greetings go out. Only for people who may see greetings. */
 export function useWhatsAppStatus() {
   const { greetings } = useServices();
-  return useQuery({ queryKey: queryKeys.whatsapp, queryFn: () => greetings.whatsapp() });
+  const enabled = useCan("greetings", "view");
+  return useQuery({ queryKey: queryKeys.whatsapp, queryFn: () => greetings.whatsapp(), enabled });
 }
 
 /** Starts the next holiday's greeting; the screen opens on it. */
@@ -652,10 +663,13 @@ export function useAccess(): StaffAccess | null {
   return user && permissions.data ? accessFor(permissions.data, user) : null;
 }
 
-/** Whether an area's content shows. True until the role table says otherwise, so nothing flickers away while it loads. */
-export function useMaySee(area: PermissionArea): boolean {
+/**
+ * Whether an area's content shows, at view level unless said otherwise (the access log needs full). True until the
+ * role table says otherwise, so nothing flickers away while it loads; false means a lock or a "no access" page.
+ */
+export function useMaySee(area: PermissionArea, level: "view" | "full" = "view"): boolean {
   const access = useAccess();
-  return !access || atLeast(access[area] ?? "none", "view");
+  return !access || atLeast(access[area] ?? "none", level);
 }
 
 /** Whether the signed-in person may do this. False until it's known: for the actions only some people get. */
@@ -753,10 +767,11 @@ export function useUpdateProfile() {
   });
 }
 
-/** Sensitive actions, newest first. */
+/** Sensitive actions, newest first. Only admins (full access to users) may read them; everyone else sees a lock. */
 export function useAuditLog() {
   const { users } = useServices();
-  return useQuery({ queryKey: queryKeys.audit, queryFn: () => users.audit() });
+  const enabled = useCan("users", "full");
+  return useQuery({ queryKey: queryKeys.audit, queryFn: () => users.audit(), enabled });
 }
 
 /** Gives someone an account and emails the invite; the team list and the log pick it up. */

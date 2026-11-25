@@ -146,10 +146,14 @@ export const usersCopy = {
     turnedOn: (setting: string) => `ההגדרה הופעלה: ${setting}`,
     turnedOff: (setting: string) => `ההגדרה כובתה: ${setting}`,
     failed: "השינוי לא נשמר. נסי שוב.",
+    /** Under the switches, beside a lock, for anyone who doesn't manage users. */
+    locked: "רק משתמשים בתפקיד ניהול משנים את ההגדרות האלה.",
   },
   audit: {
     title: "פעולות רגישות אחרונות",
     empty: "עדיין אין פעולות רגישות.",
+    /** Under the lock, for anyone who doesn't manage users. */
+    locked: "רק משתמשים בתפקיד ניהול רואים את הפעולות האלה.",
     /** Who did an automatic action. */
     system: "המערכת",
     meta: (who: string, when: string) => `${who} · ${when}`,

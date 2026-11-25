@@ -1,7 +1,7 @@
 import { motion } from "motion/react";
 import { useId } from "react";
 import { useCopy, useLocale } from "../../content/locale";
-import { usePassportIntakes } from "../../data/queries";
+import { useMaySee, usePassportIntakes } from "../../data/queries";
 import type { IntakeResult, PassportIntake } from "../../data/types";
 import { now } from "../../lib/clock";
 import { cx } from "../../lib/cx";
@@ -14,7 +14,7 @@ import { CountPill } from "../../ui/CountPill";
 import { ListRow } from "../../ui/ListRow";
 import { Ltr } from "../../ui/Ltr";
 import { SectionHeader } from "../../ui/SectionHeader";
-import { EmptyState, ErrorState } from "../../ui/states";
+import { EmptyState, ErrorState, LockedState } from "../../ui/states";
 import { StatusTag, type StatusTone } from "../../ui/StatusTag";
 import { Surface } from "../../ui/Surface";
 import { TextLink } from "../../ui/TextLink";
@@ -65,12 +65,16 @@ function IntakeTile({ intake, row }: { intake: PassportIntake; row: RowMotion })
   );
 }
 
-/** Desktop: the black WhatsApp passport inbox, with today's count and the passports waiting for a manual review. */
+/**
+ * Desktop: the black WhatsApp passport inbox, with today's count and the passports waiting for a manual review. A role
+ * without passports (sales, by default) sees a lock in it instead; the inbox is never asked for then.
+ */
 export function IntakeInbox({ className }: { className?: string }) {
   const { customersCopy: copy } = useCopy();
   const headingId = useId();
+  const locked = !useMaySee("passports");
   const intakes = usePassportIntakes();
-  const all = intakes.data;
+  const all = locked ? undefined : intakes.data;
   const today = all ? intakesOn(all, now()).length : null;
   const waiting = all?.filter((intake) => intake.result === "needs-review").length ?? 0;
   const isFirst = useFirstKeys(all?.map((intake) => intake.id) ?? []);
@@ -90,8 +94,9 @@ export function IntakeInbox({ className }: { className?: string }) {
           ) : undefined
         }
       />
-      {intakes.isPending ? <TilesSkeleton /> : null}
-      {intakes.isError && !intakes.data ? <ErrorState onDark onRetry={() => void intakes.refetch()} /> : null}
+      {locked ? <LockedState surface="ink" message={copy.inbox.locked} className="flex-1" /> : null}
+      {!locked && intakes.isPending ? <TilesSkeleton /> : null}
+      {!locked && intakes.isError && !intakes.data ? <ErrorState onDark onRetry={() => void intakes.refetch()} /> : null}
       {all && all.length === 0 ? <EmptyState onDark message={copy.inbox.empty} /> : null}
       {all && all.length > 0 ? (
         <ul className="grid grid-cols-2 gap-2.5">
@@ -104,12 +109,13 @@ export function IntakeInbox({ className }: { className?: string }) {
   );
 }
 
-/** Phone: today's WhatsApp passports as a list on the black card. Rows with a card open it. */
+/** Phone: today's WhatsApp passports as a list on the black card. Rows with a card open it. A lock for roles without passports. */
 export function IntakeList() {
   const { customersCopy: copy } = useCopy();
   const headingId = useId();
+  const locked = !useMaySee("passports");
   const intakes = usePassportIntakes();
-  const today = intakes.data ? intakesOn(intakes.data, now()) : null;
+  const today = !locked && intakes.data ? intakesOn(intakes.data, now()) : null;
   const isFirst = useFirstKeys(today?.map((intake) => intake.id) ?? []);
   return (
     <Surface variant="ink" compact aria-labelledby={headingId} className="pb-2">
@@ -120,8 +126,9 @@ export function IntakeList() {
         title={copy.inbox.title}
         trailing={today ? <CountPill surface="ink">{copy.inbox.today(today.length)}</CountPill> : undefined}
       />
-      {intakes.isPending ? <RowsSkeleton onDark rows={3} /> : null}
-      {intakes.isError && !intakes.data ? <ErrorState onDark onRetry={() => void intakes.refetch()} /> : null}
+      {locked ? <LockedState surface="ink" message={copy.inbox.locked} /> : null}
+      {!locked && intakes.isPending ? <RowsSkeleton onDark rows={3} /> : null}
+      {!locked && intakes.isError && !intakes.data ? <ErrorState onDark onRetry={() => void intakes.refetch()} /> : null}
       {today && today.length === 0 ? <EmptyState onDark message={copy.inbox.emptyToday} /> : null}
       {today && today.length > 0 ? (
         <ul className="mt-1.5">

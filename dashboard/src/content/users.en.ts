@@ -131,10 +131,12 @@ export const usersCopy: Widen<typeof he> = {
     turnedOn: (setting) => `Turned on: ${setting}`,
     turnedOff: (setting) => `Turned off: ${setting}`,
     failed: "The change wasn’t saved. Please try again.",
+    locked: "Only admins can change these settings.",
   },
   audit: {
     title: "Recent sensitive actions",
     empty: "No sensitive actions yet.",
+    locked: "Only admins can see these actions.",
     system: "System",
     meta: (who, when) => `${who} · ${when}`,
     passportView: (customer) => `Passport viewed · ${customer}`,

@@ -39,6 +39,8 @@ export const customersCopy = {
     whose: (name: string) => `, ${name}`,
     empty: "עוד לא הגיעו דרכונים בוואטסאפ.",
     emptyToday: "היום עוד לא הגיעו דרכונים בוואטסאפ.",
+    /** Under the lock, for a role without passports (sales, by default). */
+    locked: "דרכונים פתוחים רק למשתמשים עם הרשאת דרכונים. אפשר לבקש מהניהול לפתוח.",
   },
   capture: {
     title: "איך דרכון נקלט",
