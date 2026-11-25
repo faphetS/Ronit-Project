@@ -12,7 +12,7 @@ export function createHttpLeadsService(api: ApiClient): LeadsService {
   return {
     list: (filters = {}) =>
       http.get<Lead[]>(
-        `/leads${queryString({ status: filters.status, service: filters.service, source: filters.source, search: filters.search?.trim(), day: filters.day })}`,
+        `/leads${queryString({ status: filters.status, service: filters.service, source: filters.source, search: filters.search?.trim(), day: filters.day, tagged: filters.tagged })}`,
       ),
     counts: () => http.get<LeadCounts>("/leads/counts"),
     days: () => http.get<LeadDay[]>("/leads/days"),

@@ -125,6 +125,7 @@ function buildLeads(): Lead[] {
         nextStep: NEXT_STEP[status] ?? null,
         mondayPending: false,
         customerId: null,
+        tagged: [],
         history: [],
       });
     }
@@ -174,6 +175,23 @@ function createLeads(leads: Lead[], me: StaffUser): DataServices["leads"] {
       mentions: [me.id],
     });
   }
+  // And the demo user passed a new lead to Michal two hours ago, so the board shows a teammate's face on a card too.
+  const passed = leads.findLast((lead) => lead.status === "new");
+  if (passed) {
+    write(passed, {
+      id: nextId("ln"),
+      at: iso(new Date(now().getTime() - 2 * 60 * 60_000)),
+      text: "@מיכל לוי את לוקחת אותה? ביקשה שיחזרו אליה בערב",
+      byUserId: me.id,
+      author: me.name,
+      mondayBoard: null,
+      source: "crm",
+      editedAt: null,
+      mentions: [STAFF.michal],
+    });
+  }
+  // Who a lead's notes tag, each once, the most recently tagged first (notes are kept newest first).
+  const taggedOf = (id: string) => [...new Set(notesOf(id).flatMap((note) => note.mentions))];
   // The notes that tag the demo user, newest first. Tagging yourself doesn't ring the bell.
   const myMentions = (): Mention[] =>
     [...crmNotes.entries()]
@@ -192,7 +210,7 @@ function createLeads(leads: Lead[], me: StaffUser): DataServices["leads"] {
     const monday = mondayNote.get(id) ?? { text: lead.lastNote, at: lead.updatedAt };
     const latest = { id: `${id}-note`, at: monday.at, text: monday.text, byUserId: null, author: OFFICE_NOTES, mondayBoard: lead.mondayBoard, source: "monday" as const, editedAt: null, mentions: [] };
     const fromMonday = lead.status === "new" ? [latest] : [latest, first];
-    return { ...lead, history: [...notesOf(id).map(copyNote), ...fromMonday] };
+    return { ...lead, tagged: taggedOf(id), history: [...notesOf(id).map(copyNote), ...fromMonday] };
   };
   return {
     list: async (filters: LeadFilters = {}) => {
@@ -204,6 +222,8 @@ function createLeads(leads: Lead[], me: StaffUser): DataServices["leads"] {
         .filter((lead) => !filters.source || lead.source === filters.source)
         .filter((lead) => !filters.service || lead.service === filters.service)
         .filter((lead) => !term || lead.name.includes(term) || (digits.length > 0 && lead.phone.includes(digits)))
+        .filter((lead) => filters.tagged !== "me" || taggedOf(lead.id).includes(me.id))
+        .map((lead) => ({ ...lead, tagged: taggedOf(lead.id) }))
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     },
     counts: async () => {

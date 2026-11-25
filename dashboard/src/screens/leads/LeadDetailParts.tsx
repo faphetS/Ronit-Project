@@ -27,30 +27,33 @@ interface LeadHeaderProps {
   lead: Lead;
   /** h2 in the desktop panel, h1 on the phone screen. */
   level: 1 | 2;
-  /** Phones: the status goes under the service, so long names keep their width. */
-  stacked?: boolean;
+  /** The desktop panel's 400px column: a smaller face, so the name keeps its width. */
+  compact?: boolean;
+  /** "card" on the white panel over the board, where a glass face wouldn't show. */
+  surface?: "glass" | "card";
 }
 
-/** Avatar, name, what she asked about and the Monday group, and the status. */
-export function LeadHeader({ lead, level, stacked = false }: LeadHeaderProps) {
+/**
+ * Avatar, name, what she asked about, and under them the status, so long names keep their width (beside the name,
+ * the status left the panel's name a word per line).
+ */
+export function LeadHeader({ lead, level, compact = false, surface = "glass" }: LeadHeaderProps) {
   const { leadsCopy: copy } = useCopy();
   const Heading = HEADING[level];
   const service = lead.service ? copy.services[lead.service] : copy.noService;
-  const status = <LeadStatusControl lead={lead} />;
   return (
     <div className="flex items-center gap-3.5">
-      <Avatar initial={initialOf(lead.name)} tone="glass" size="lg" />
+      <Avatar initial={initialOf(lead.name)} tone={surface === "card" ? "sand" : "glass"} size={compact ? "md" : "lg"} />
       <div className="min-w-0 flex-1">
-        <Heading className="text-display-3 font-light break-words text-ink">{lead.name}</Heading>
+        <Heading className="text-display-3 font-light text-balance break-words text-ink">{lead.name}</Heading>
         <p className="mt-1 text-small text-mute">
           {service}
-          {copy.separator}
-          <bdi>{lead.mondayGroup}</bdi>
           {lead.archived ? `${copy.separator}${copy.archived}` : null}
         </p>
-        {stacked ? <div className="mt-2.5">{status}</div> : null}
+        <div className="mt-2.5">
+          <LeadStatusControl lead={lead} />
+        </div>
       </div>
-      {stacked ? null : status}
     </div>
   );
 }

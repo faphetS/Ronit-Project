@@ -20,10 +20,12 @@ import { SectionHeader } from "../../ui/SectionHeader";
 import { ErrorState, Skeleton } from "../../ui/states";
 import { StatusTag } from "../../ui/StatusTag";
 import { Surface } from "../../ui/Surface";
-import { LeadsEmpty, StatusChips } from "./LeadsFilterBar";
+import { cx } from "../../lib/cx";
+import { LeadsEmpty, StatusChips, TaggedMeChip } from "./LeadsFilterBar";
 import { useSearchDraft, useSettledLeads } from "./leads-data";
 import { groupByService, initialOf, STATUS_TONE } from "./leads-model";
-import { countActiveFilters, toLeadFilters, useLeadsUrl } from "./leads-url";
+import { ALL, countActiveFilters, toLeadFilters, useLeadsUrl } from "./leads-url";
+import { TaggedPeople } from "./TaggedPeople";
 
 /** The phone leads list: the count, search, status chips, and the leads grouped by service. */
 export function LeadsPhoneList() {
@@ -63,6 +65,9 @@ export function LeadsPhoneList() {
       <Headline title={copy.title} soft={copy.summaryPhone(open)} size="display-2" className="mx-0.5" />
       <Field label={copy.search} icon="search" name="q" type="search" value={draft} onChange={setDraft} />
       <StatusChips value={url.state.status} onChange={(status) => update({ status })} scroll />
+      <div className="flex">
+        <TaggedMeChip on={url.state.tagged === "me"} onChange={(on) => update({ tagged: on ? "me" : ALL })} />
+      </div>
       {content}
     </ScreenFrame>
   );
@@ -100,14 +105,20 @@ function TripSection({ title, leads, leadHref }: TripSectionProps) {
               custom={{ index, cascade: isFirst(lead.id) } satisfies RowMotion}
               exit="exit"
               transition={{ layout: springs.surface }}
-              className="border-t border-line first:border-t-0"
+              // A lead whose notes tag someone is outlined in gold, like its card on the desktop board.
+              className={cx("first:border-t-0", lead.tagged.length > 0 ? "-mx-2 my-1 rounded-inner px-2 ring-2 ring-gold ring-inset" : "border-t border-line")}
             >
               <ListRow
                 to={leadHref(lead.id)}
                 align="start"
                 leading={<Avatar initial={initialOf(lead.name)} />}
                 title={lead.name}
-                titleEnd={<StatusTag tone={STATUS_TONE[lead.status]}>{copy.status[lead.status]}</StatusTag>}
+                titleEnd={
+                  <span className="flex shrink-0 items-center gap-1.5">
+                    <TaggedPeople ids={lead.tagged} names={false} />
+                    <StatusTag tone={STATUS_TONE[lead.status]}>{copy.status[lead.status]}</StatusTag>
+                  </span>
+                }
                 description={
                   <>
                     <Ltr>{lead.phone}</Ltr>

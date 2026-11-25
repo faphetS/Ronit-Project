@@ -24,6 +24,8 @@ export interface LeadsUrlState {
   status: LeadStatusFilter;
   source: LeadSource | typeof ALL;
   service: LeadService | typeof ALL;
+  /** "me": only the leads whose notes tag the signed-in person. */
+  tagged: "me" | typeof ALL;
   /** The phone screen's search field. */
   search: string;
 }
@@ -33,11 +35,12 @@ const PARAM: Record<keyof LeadsUrlState, string> = {
   status: "status",
   source: "source",
   service: "service",
+  tagged: "tagged",
   search: "q",
 };
 
 /** Defaults stay out of the address. */
-const DEFAULTS: LeadsUrlState = { day: TODAY, status: ALL, source: ALL, service: ALL, search: "" };
+const DEFAULTS: LeadsUrlState = { day: TODAY, status: ALL, source: ALL, service: ALL, tagged: ALL, search: "" };
 
 function oneOf<T extends string>(value: string | null, options: readonly T[], fallback: T): T {
   return options.find((option) => option === value) ?? fallback;
@@ -59,6 +62,7 @@ export function readLeadsUrl(params: URLSearchParams): LeadsUrlState {
     status: oneOf(params.get(PARAM.status), LEAD_STATUS_FILTERS, DEFAULTS.status),
     source: oneOf(params.get(PARAM.source), SOURCE_FILTERS, DEFAULTS.source),
     service: oneOf(params.get(PARAM.service), SERVICE_FILTERS, DEFAULTS.service),
+    tagged: params.get(PARAM.tagged) === "me" ? "me" : ALL,
     search: params.get(PARAM.search) ?? "",
   };
 }
@@ -80,6 +84,7 @@ export function toLeadFilters(state: LeadsUrlState, scope: FilterScope): LeadFil
   if (scope.status && state.status !== ALL) filters.status = state.status;
   if (state.source !== ALL) filters.source = state.source;
   if (state.service !== ALL) filters.service = state.service;
+  if (state.tagged === "me") filters.tagged = "me";
   const search = state.search.trim();
   if (scope.search && search) filters.search = search;
   return filters;
@@ -116,7 +121,7 @@ export function useLeadsUrl() {
     [setParams],
   );
 
-  const clearFilters = useCallback(() => update({ status: ALL, source: ALL, service: ALL, search: "" }), [update]);
+  const clearFilters = useCallback(() => update({ status: ALL, source: ALL, service: ALL, tagged: ALL, search: "" }), [update]);
   const leadHref = useCallback((id: string) => `/leads/${encodeURIComponent(id)}${search}`, [search]);
 
   return { state, update, clearFilters, leadHref, listHref: `/leads${search}` };

@@ -19,7 +19,7 @@ export function LeadPhoneDetail({ leadId }: { leadId: string }) {
     content = (
       <>
         <Surface variant="glass" compact className="flex flex-col gap-4">
-          <LeadHeader lead={lead} level={1} stacked />
+          <LeadHeader lead={lead} level={1} />
           <LeadContactLinks phone={lead.phone} />
           <LeadFacts lead={lead} surface="glass" />
         </Surface>

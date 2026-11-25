@@ -15,12 +15,14 @@ import { useSettledLeads } from "./leads-data";
 import { useChangeLeadStatus } from "./useChangeLeadStatus";
 import { useCloseOnOutsidePress } from "./useCloseOnOutsidePress";
 import { focusLeadLink } from "./leads-model";
-import { ALL, boardDay, LEAD_SERVICES, LEAD_SOURCES, toLeadFilters, useLeadsUrl, type LeadsUrlState } from "./leads-url";
+import { TaggedMeChip } from "./LeadsFilterBar";
+import { ALL, boardDay, LEAD_SERVICES, LEAD_SOURCES, TODAY, toLeadFilters, useLeadsUrl, type LeadsUrlState } from "./leads-url";
 
 /**
- * The desktop leads page: the count of open leads and when Monday was last copied; how many leads came in today,
- * or on any day picked in the panel; then those leads on a board by status, filtered by source and service.
- * A lead opens in a panel that floats over the board and stays in view while the page scrolls; a press outside it closes it.
+ * The desktop leads page: the count of open leads; how many leads came in today, or on any day picked in the panel;
+ * then those leads on a board by status, filtered by source and service, or to the ones whose notes tag you ("תויגתי",
+ * which looks at every day). A lead opens in a panel that floats over the board and stays in view while the page
+ * scrolls; a press outside it closes it.
  */
 export function LeadsDesktopPage({ leadId }: { leadId?: string }) {
   const { leadsCopy: copy } = useCopy();
@@ -36,12 +38,13 @@ export function LeadsDesktopPage({ leadId }: { leadId?: string }) {
   const open = useSettledLeads(filters);
   const closed = useSettledLeads({ ...filters, status: "not-relevant" });
   const shown = open.data && closed.data ? [...open.data, ...closed.data] : undefined;
-  const filtered = url.state.source !== ALL || url.state.service !== ALL;
+  const taggedMe = url.state.tagged === "me";
+  const filtered = url.state.source !== ALL || url.state.service !== ALL || taggedMe;
 
   const openCount = counts.data ? formatNumber(counts.data.all) : copy.pending;
   const newThisWeek = overview.data ? formatNumber(overview.data.newLeadsThisWeek) : copy.pending;
   const day = boardDay(url.state.day);
-  let boardTitle: string = copy.board.title.all;
+  let boardTitle: string = taggedMe ? copy.board.title.tagged : copy.board.title.all;
   if (day) boardTitle = day === isoDay(now()) ? copy.board.title.today : copy.board.title.day(formatDayMonth(dayAt(day), locale));
 
   const sources: SelectChipOption<LeadsUrlState["source"]>[] = [
@@ -86,6 +89,11 @@ export function LeadsDesktopPage({ leadId }: { leadId?: string }) {
       <div className="flex flex-wrap items-center justify-between gap-3 px-1">
         <h2 className="text-title font-medium text-ink">{boardTitle}</h2>
         <div role="group" aria-label={copy.filters.label} className="flex flex-wrap items-center gap-2">
+          {/* Tags can be on any day's lead, so the filter opens on every day, and going back to all leads returns to today. */}
+          <TaggedMeChip
+            on={taggedMe}
+            onChange={(on) => update(on ? { tagged: "me", day: ALL } : { tagged: ALL, ...(url.state.day === ALL ? { day: TODAY } : {}) })}
+          />
           <SelectChip label={copy.filters.source} options={sources} value={url.state.source} onChange={(source) => update({ source })} />
           <SelectChip label={copy.filters.service} options={services} value={url.state.service} onChange={(service) => update({ service })} />
         </div>

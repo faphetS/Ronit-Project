@@ -68,6 +68,8 @@ export const leadsCopy = {
     allSources: "כל המקורות",
     service: "שירות",
     allServices: "כל השירותים",
+    /** A toggle: only the leads whose notes tag the signed-in person, on every day. */
+    taggedMe: "תויגתי",
     clear: "ניקוי הסינון",
   },
 
@@ -98,9 +100,12 @@ export const leadsCopy = {
       today: "הלידים של היום, לפי סטטוס",
       day: (date: string) => `הלידים מ-${date}, לפי סטטוס`,
       all: "כל הלידים הפתוחים, לפי סטטוס",
+      tagged: "הלידים שתויגת בהם, לפי סטטוס",
     },
     columns: { new: "חדש", working: "בטיפול", "no-answer": "אין מענה", registered: "נרשמו", "not-relevant": "לא רלוונטי" },
     empty: "אין לידים כאן",
+    /** Read out on a card whose notes tag people; the card shows their faces and the first name. */
+    tagged: (names: string) => `מתויגים: ${names}`,
     more: (count: number) => `הצגת עוד ${count}`,
     showCards: "הצגת הכרטיסים",
     hideCards: "הסתרת הכרטיסים",

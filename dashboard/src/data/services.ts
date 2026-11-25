@@ -47,6 +47,8 @@ export interface LeadFilters {
   search?: string;
   /** Only the leads that came in on this day (YYYY-MM-DD in Israel), archived ones too. */
   day?: string;
+  /** "me": only the leads whose notes tag the signed-in person. */
+  tagged?: "me";
 }
 
 export type LeadCounts = Record<LeadStatusFilter, number>;

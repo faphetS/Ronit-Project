@@ -47,6 +47,8 @@ export interface LeadDto {
   mondayPending: boolean;
   /** The customer card this lead is linked to, once it joined a group. */
   customerId: string | null;
+  /** The staff tagged in the lead's CRM notes, each once, the most recently tagged first. Lists fill it too (the board marks these cards). */
+  tagged: string[];
   /** The active groups this lead's customer is in. Only getLead fills it; lists leave it out. */
   groups?: Array<{ id: string; name: string; type: string }>;
   /** Newest first. Empty in lists; filled by getLead. */
@@ -62,6 +64,8 @@ export interface LeadFilters {
   search?: string;
   /** Only the leads that came in on this day (YYYY-MM-DD in Israel), archived ones too. */
   day?: string;
+  /** Only the leads whose CRM notes tag this staff member: "tagged=me" on the route, for the person asking. */
+  taggedUserId?: string;
 }
 
 export type LeadCounts = Record<LeadStatusFilter, number>;
@@ -98,7 +102,12 @@ interface LeadRow {
   last_note: string | null;
   monday_label_pending: string | null;
   customer_id: string | null;
+  tagged: string[];
 }
+
+/** Leads whose CRM notes tag this staff member ($n). */
+const TAGS = (n: number) =>
+  `EXISTS (SELECT 1 FROM lead_notes c JOIN lead_note_mentions m ON m.note_id = c.id WHERE c.lead_id = l.id AND m.user_id = $${n})`;
 
 const LEAD_SELECT = `
   SELECT l.id, l.monday_item_id, l.monday_board_id, l.monday_group, b.name AS board_name, l.name, l.phone, l.source,
@@ -107,7 +116,12 @@ const LEAD_SELECT = `
          (SELECT t.body FROM (
             SELECT n.body, n.at FROM monday_notes n WHERE n.monday_item_id = l.monday_item_id
             UNION ALL SELECT c.text, c.at FROM lead_notes c WHERE c.lead_id = l.id
-          ) t ORDER BY t.at DESC LIMIT 1) AS last_note
+          ) t ORDER BY t.at DESC LIMIT 1) AS last_note,
+         (SELECT coalesce(array_agg(t.user_id::text ORDER BY t.last_at DESC, t.user_id), '{}') FROM (
+            SELECT m.user_id, max(m.created_at) AS last_at
+            FROM lead_notes c JOIN lead_note_mentions m ON m.note_id = c.id
+            WHERE c.lead_id = l.id GROUP BY m.user_id
+          ) t) AS tagged
   FROM leads l LEFT JOIN monday_boards b ON b.id = l.monday_board_id`;
 
 /** Where a row opens in Monday. */
@@ -139,6 +153,7 @@ function toLead(row: LeadRow): LeadDto {
     nextStep: row.next_step,
     mondayPending: row.monday_label_pending !== null,
     customerId: row.customer_id,
+    tagged: row.tagged,
     history: [],
   };
 }
@@ -163,6 +178,7 @@ export async function listLeads(db: Queryable, filters: LeadFilters = {}): Promi
   if (filters.service) add((n) => `l.service = $${n}`, filters.service);
   if (filters.source) add((n) => `l.source = $${n}`, filters.source);
   if (filters.day) add((n) => `${ARRIVED_ON} = $${n}::date`, filters.day);
+  if (filters.taggedUserId) add(TAGS, filters.taggedUserId);
   const term = filters.search?.trim();
   if (term) {
     values.push(`%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);

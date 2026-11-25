@@ -99,6 +99,8 @@ export interface Lead {
   mondayPending: boolean;
   /** The customer card made for this lead once it joined a group. */
   customerId: string | null;
+  /** The staff tagged in the lead's notes (their ids), each once, the most recently tagged first. Lists have it too. */
+  tagged: string[];
   /** The CRM groups the lead was added to. */
   groups?: Array<{ id: string; name: string; type: GroupType }>;
   /** Newest first. Empty in lists. */
