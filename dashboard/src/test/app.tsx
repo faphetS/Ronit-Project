@@ -3,12 +3,34 @@ import { render } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { createMemoryRouter, type RouteObject } from "react-router";
 import { RouterProvider } from "react-router/dom";
+import { useAccess } from "../data/queries";
+import type { Role } from "../data/types";
 import type { Services } from "../data/services";
 import { ServicesProvider } from "../data/ServicesProvider";
 import { MotionRoot } from "../motion/MotionRoot";
 import { createTestServices, type TestServicesOptions } from "./services";
 
 export { createTestServices } from "./services";
+
+/** Ronit's test services with the signed-in person in another role, as the starting role table gives it. */
+export async function signedInAs(role: Role, options: Omit<TestServicesOptions, "signedIn"> = {}): Promise<Services> {
+  const base = await signedInServices(options);
+  return {
+    ...base,
+    session: {
+      ...base.session,
+      current: async () => {
+        const current = await base.session.current();
+        return current && { ...current, user: { ...current.user, role } };
+      },
+    },
+  };
+}
+
+/** Says "role known" once the session and the role table are in, so a test can tell "never asked" from "not asked yet". */
+export function RoleKnown() {
+  return useAccess() ? <p>role known</p> : null;
+}
 
 /** Test services with Ronit already signed in, so guarded screens render. */
 export async function signedInServices(options: Omit<TestServicesOptions, "signedIn"> = {}): Promise<Services> {

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useCopy, useLocale } from "../../content/locale";
-import { useAuditLog, useCan, usePermissions, useSession, useUsers } from "../../data/queries";
+import { useAuditLog, useCan, useMaySee, usePermissions, useSession, useUsers } from "../../data/queries";
 import type { AccessLevel, PermissionRow, Role } from "../../data/types";
 import { now } from "../../lib/clock";
 import { formatDayMonth } from "../../lib/format";
@@ -12,7 +12,7 @@ import { IconCircle } from "../../ui/IconCircle";
 import { PersonCell } from "../../ui/PersonCell";
 import { ScreenFrame } from "../../ui/ScreenFrame";
 import { SectionHeader } from "../../ui/SectionHeader";
-import { EmptyState, ErrorState } from "../../ui/states";
+import { EmptyState, ErrorState, LockedState } from "../../ui/states";
 import { StatusTag } from "../../ui/StatusTag";
 import { Surface } from "../../ui/Surface";
 import { Timeline, type TimelineEntry } from "../../ui/Timeline";
@@ -243,15 +243,19 @@ function PermissionsCard({ className }: { className?: string }) {
   );
 }
 
-/** The latest sensitive actions: who did what, to which customer, greeting, person or setting, and when. */
+/**
+ * The latest sensitive actions: who did what, to which customer, greeting, person or setting, and when. Only admins
+ * may read them; everyone else sees a lock here (the page itself is open to all, for the team list).
+ */
 function AuditCard({ className }: { className?: string }) {
   const { usersCopy: copy, holidayNames } = useCopy();
   const { locale } = useLocale();
+  const locked = !useMaySee("users", "full");
   const audit = useAuditLog();
   const directory = useUsers();
   const reference = now();
 
-  const entries = audit.data?.slice(0, RECENT_ACTIONS).map((entry): TimelineEntry => {
+  const entries = locked ? undefined : audit.data?.slice(0, RECENT_ACTIONS).map((entry): TimelineEntry => {
     const who = auditWho(entry, directory.data?.users, copy.audit);
     const when = formatWhen(entry.at, reference, locale, copy);
     return { key: entry.id, title: auditTitle(entry, copy, holidayNames), meta: who ? copy.audit.meta(who, when) : when };
@@ -260,7 +264,9 @@ function AuditCard({ className }: { className?: string }) {
   return (
     <Surface variant="glass" aria-label={copy.audit.title} className={className}>
       <SectionHeader surface="glass" title={copy.audit.title} />
-      {entries ? (
+      {locked ? (
+        <LockedState surface="glass" message={copy.audit.locked} />
+      ) : entries ? (
         entries.length > 0 ? (
           <Timeline entries={entries} surface="glass" />
         ) : (

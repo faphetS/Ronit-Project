@@ -8,13 +8,15 @@ interface SwitchProps {
   onChange: (checked: boolean) => void;
   label: string;
   onDark?: boolean;
+  /** Shows the setting without letting it change: for people whose role can't change it. */
+  disabled?: boolean;
 }
 
 // The ::after extends the touch target to 44px tall without changing the look.
 const TRACK = "relative h-8 w-[52px] shrink-0 rounded-full transition-colors after:absolute after:-inset-x-1 after:-inset-y-1.5 after:content-['']";
 
 /** On/off switch. The knob rests at the start side and slides toward the end when on: leftward in Hebrew, rightward in English. */
-export function Switch({ checked, onChange, label, onDark = false }: SwitchProps) {
+export function Switch({ checked, onChange, label, onDark = false, disabled = false }: SwitchProps) {
   const travel = useDirection() === "rtl" ? -20 : 20;
   const fill = checked ? (onDark ? "bg-gold" : "bg-ink") : onDark ? "bg-white/20" : "bg-ink/16";
   return (
@@ -23,8 +25,9 @@ export function Switch({ checked, onChange, label, onDark = false }: SwitchProps
       role="switch"
       aria-checked={checked}
       aria-label={label}
+      disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={cx(TRACK, fill, onDark && "focus-visible:outline-cream")}
+      className={cx(TRACK, fill, onDark && "focus-visible:outline-cream", disabled && "cursor-not-allowed opacity-45")}
     >
       <motion.span
         aria-hidden="true"

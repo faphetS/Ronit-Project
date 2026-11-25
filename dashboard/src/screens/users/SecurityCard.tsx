@@ -1,5 +1,5 @@
 import { useCopy } from "../../content/locale";
-import { useSecuritySettings } from "../../data/queries";
+import { useCan, useMaySee, useSecuritySettings } from "../../data/queries";
 import { SECURITY_SWITCHES, type SecuritySwitch } from "../../data/types";
 import { cx } from "../../lib/cx";
 import { Icon } from "../../ui/Icon";
@@ -15,12 +15,15 @@ import { useSecurityToggle } from "./useSecurityToggle";
 /**
  * The black security card: one switch per rule, flipped at once and confirmed with a toast.
  * Phones show the three switches of the phone board, with smaller text.
+ * Only admins change them (the API refuses everyone else): others see the settings with locked switches and a note.
  */
 export function SecurityCard({ phone, className }: { phone: boolean; className?: string }) {
   const { usersCopy } = useCopy();
   const copy = usersCopy.security;
   const security = useSecuritySettings();
   const toggle = useSecurityToggle();
+  const canChange = useCan("users", "full");
+  const locked = !useMaySee("users", "full");
   const settings = security.data;
   const keys: readonly SecuritySwitch[] = phone ? PHONE_SWITCHES : SECURITY_SWITCHES;
 
@@ -46,7 +49,7 @@ export function SecurityCard({ phone, className }: { phone: boolean; className?:
                 title={label}
                 titleClassName={phone ? "text-small" : undefined}
                 className={phone ? "py-px" : "py-0.5"}
-                trailing={<Switch onDark checked={settings[key]} label={label} onChange={(checked) => toggle(key, checked, label)} />}
+                trailing={<Switch onDark checked={settings[key]} label={label} disabled={!canChange} onChange={(checked) => toggle(key, checked, label)} />}
               />
             );
           })}
@@ -56,6 +59,12 @@ export function SecurityCard({ phone, className }: { phone: boolean; className?:
       ) : (
         <LoadingRows shape="switch" count={keys.length} onDark />
       )}
+      {locked && settings ? (
+        <p className={cx("flex items-center gap-1.5 text-caption text-ink-mute", phone ? "mt-0.5 mb-1.5" : "mt-2")}>
+          <Icon name="lock" size={14} className="shrink-0" />
+          {copy.locked}
+        </p>
+      ) : null}
     </Surface>
   );
 }

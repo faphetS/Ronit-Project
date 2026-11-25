@@ -4,7 +4,7 @@ import type { ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { Services } from "../../data/services";
 import type { MentionFeed, UserAccount } from "../../data/types";
-import { renderApp, signedInServices } from "../../test/app";
+import { renderApp, RoleKnown, signedInAs, signedInServices } from "../../test/app";
 import { RONIT } from "../../test/services";
 import { setViewportWidth } from "../../test/viewport";
 import { PhoneTopBar } from "../phone/PhoneTopBar";
@@ -122,30 +122,32 @@ describe("the bell", () => {
     await closed();
   });
 
-  it("never asks for tags for someone the role table keeps out of Leads", async () => {
-    const base = await signedInServices();
+  it("never asks for tags, passports or greetings that the role table keeps from the person", async () => {
+    // Sales with Leads closed too: by the starting table, sales has no passports or greetings either.
+    const base = await signedInAs("sales");
     const mentions = vi.fn(async () => feed());
+    const intakes = vi.fn(base.customers.intakes);
+    const campaign = vi.fn(base.greetings.current);
     const services: Services = {
       ...base,
-      session: {
-        ...base.session,
-        current: async () => {
-          const current = await base.session.current();
-          return current && { ...current, user: { ...current.user, role: "sales" } };
-        },
-      },
       users: {
         ...base.users,
         permissions: async () => (await base.users.permissions()).map((row) => (row.area === "leads" ? { ...row, access: { ...row.access, sales: "none" } } : row)),
       },
       leads: { ...base.leads, mentions },
+      customers: { ...base.customers, intakes },
+      greetings: { ...base.greetings, current: campaign },
     };
-    renderApp([{ path: "*", element: <Bell /> }], { services });
-    await userEvent.click(await screen.findByRole("button", { name: "התראות, 1 חדשות" }));
+    renderApp([{ path: "*", element: <><Bell /><RoleKnown /></> }], { services });
+    await screen.findByText("role known");
+    await userEvent.click(screen.getByRole("button", { name: "התראות, 0 חדשות" }));
     const panel = screen.getByRole("dialog", { name: "התראות" });
-    expect(within(panel).getAllByRole("link")).toHaveLength(1);
+    expect(within(panel).queryByRole("link")).not.toBeInTheDocument();
+    expect(within(panel).getByText("אין התראות חדשות")).toBeInTheDocument();
     expect(within(panel).queryByRole("alert")).not.toBeInTheDocument();
     expect(mentions).not.toHaveBeenCalled();
+    expect(intakes).not.toHaveBeenCalled();
+    expect(campaign).not.toHaveBeenCalled();
   });
 
   it("opens in a sheet on phones", async () => {

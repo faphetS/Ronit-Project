@@ -7,4 +7,5 @@ export const states: Widen<typeof he> = {
   retry: "Try again",
   noAccessTitle: "You don't have access here",
   noAccess: "Your role doesn't include this part. You can ask an admin to open it for you.",
+  lockedTitle: "Locked for your role",
 };

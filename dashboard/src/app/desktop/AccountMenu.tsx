@@ -4,7 +4,7 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { languageNames, LOCALES } from "../../content/copy";
 import { useCopy, useDirection, useLocale } from "../../content/locale";
 import { ApiError } from "../../data/http/client";
-import { useSecuritySettings, useSession, useSignOut, useUpdateProfile, useUpdateSecuritySwitch, useUsers } from "../../data/queries";
+import { useCan, useSecuritySettings, useSession, useSignOut, useUpdateProfile, useUpdateSecuritySwitch, useUsers } from "../../data/queries";
 import { cx } from "../../lib/cx";
 import { fadeOut, PRESS_SCALE, springs } from "../../motion/springs";
 import { Avatar } from "../../ui/Avatar";
@@ -225,6 +225,8 @@ export function AccountMenu() {
   const users = useUsers();
   const security = useSecuritySettings();
   const updateSwitch = useUpdateSecuritySwitch();
+  // Hiding passport numbers is a setting for everyone: only admins change it, the rest see it locked.
+  const changesSecurity = useCan("users", "full");
   const signOut = useSignOut();
   // Open on the page it was opened on: going to another page closes it.
   const [openAt, setOpenAt] = useState<string | null>(null);
@@ -305,7 +307,14 @@ export function AccountMenu() {
             <RowBody
               icon="lock"
               label={copy.maskPassports}
-              trailing={<Switch checked={masked} onChange={(enabled) => updateSwitch.mutate({ key: "maskPassportNumbers", enabled })} label={copy.maskPassports} />}
+              trailing={
+                <Switch
+                  checked={masked}
+                  disabled={!changesSecurity}
+                  onChange={(enabled) => updateSwitch.mutate({ key: "maskPassportNumbers", enabled })}
+                  label={copy.maskPassports}
+                />
+              }
             />
           </div>
         )}

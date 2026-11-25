@@ -35,6 +35,7 @@ export const customersCopy: Widen<typeof he> = {
     whose: (name) => `, ${name}`,
     empty: "No passports have come in on WhatsApp yet.",
     emptyToday: "No passports have come in on WhatsApp today.",
+    locked: "Only users with passport access can see passports. You can ask an admin to open it for you.",
   },
   capture: {
     title: "How a passport comes in",
