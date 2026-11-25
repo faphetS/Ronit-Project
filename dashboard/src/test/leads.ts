@@ -26,6 +26,7 @@ export function testLead(overrides: Partial<Lead> = {}): Lead {
     history: [],
     mondayPending: false,
     customerId: null,
+    tagged: [],
     ...overrides,
   };
 }

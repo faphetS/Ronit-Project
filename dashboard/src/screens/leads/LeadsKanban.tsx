@@ -33,6 +33,7 @@ import { StatusTag, type StatusTone } from "../../ui/StatusTag";
 import { Surface } from "../../ui/Surface";
 import type { useSettledLeads } from "./leads-data";
 import { arrivedOn, BOARD_COLUMNS, boardLeads, moveFor, telHref, whatsappHref, type DropTarget } from "./leads-model";
+import { TaggedPeople } from "./TaggedPeople";
 
 type SettledLeads = ReturnType<typeof useSettledLeads>;
 
@@ -333,6 +334,8 @@ function LeadCard({ lead, selected, href, row, canMove, justDropped }: LeadCardP
   const { locale } = useLocale();
   const { setNodeRef, listeners, isDragging } = useDraggable({ id: lead.id, disabled: !canMove });
   const tag = cardTag(lead, copy);
+  // Someone was tagged in the lead's notes: the card gets a gold border and their faces.
+  const tagged = lead.tagged.length > 0;
   const openUnlessDropped = (event: MouseEvent<HTMLAnchorElement>) => {
     if (justDropped()) event.preventDefault();
   };
@@ -351,7 +354,8 @@ function LeadCard({ lead, selected, href, row, canMove, justDropped }: LeadCardP
       whileTap={{ scale: CARD_PRESS_SCALE }}
       className={cx(
         "lift-shadow relative rounded-inner p-3.5 shadow-card transition-[background-color,opacity]",
-        selected ? "bg-cream ring-1 ring-ink/15 ring-inset" : "bg-paper",
+        selected ? "bg-cream" : "bg-paper",
+        tagged ? "ring-2 ring-gold ring-inset" : selected ? "ring-1 ring-ink/15 ring-inset" : "",
         isDragging ? "opacity-40" : "",
       )}
     >
@@ -373,9 +377,10 @@ function LeadCard({ lead, selected, href, row, canMove, justDropped }: LeadCardP
         <Chip>{copy.sources[lead.source]}</Chip>
         {lead.archived ? <Chip>{copy.archived}</Chip> : null}
       </div>
-      {tag ? (
-        <div className="mt-2">
-          <StatusTag tone={tag.tone}>{tag.text}</StatusTag>
+      {tag || tagged ? (
+        <div className="mt-2 flex items-center gap-2">
+          {tag ? <StatusTag tone={tag.tone}>{tag.text}</StatusTag> : null}
+          <TaggedPeople ids={lead.tagged} className="ms-auto" />
         </div>
       ) : null}
       <div className="relative z-10 mt-3 flex items-center justify-between gap-2 border-t border-line pt-2.5">
@@ -396,7 +401,12 @@ function DraggedCard({ lead }: { lead: Lead }) {
   const { leadsCopy: copy } = useCopy();
   const { locale } = useLocale();
   return (
-    <div className="pointer-events-none w-full rotate-[1.5deg] rounded-inner bg-paper p-3.5 shadow-float ring-1 ring-ink/10">
+    <div
+      className={cx(
+        "pointer-events-none w-full rotate-[1.5deg] rounded-inner bg-paper p-3.5 shadow-float",
+        lead.tagged.length > 0 ? "ring-2 ring-gold" : "ring-1 ring-ink/10",
+      )}
+    >
       <div className="flex items-baseline justify-between gap-2">
         <span className="min-w-0 font-medium break-words text-ink">{lead.name}</span>
         <span className="shrink-0 text-caption text-mute">{formatDayMonth(dayAt(arrivedOn(lead)), locale)}</span>

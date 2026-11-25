@@ -191,7 +191,8 @@ export function createDashboardRouter(resolveDeps: AuthDepsResolver, options: Da
 
   // ---- Leads (copied from Monday; the status can change here too, and Monday's label follows) ----
   router.get("/leads", requireAccess("leads", "view"), async (req, res) => {
-    sendData(res, await listLeads(db(res), LeadListQuerySchema.parse(req.query)));
+    const { tagged, ...filters } = LeadListQuerySchema.parse(req.query);
+    sendData(res, await listLeads(db(res), { ...filters, taggedUserId: tagged === "me" ? staffOf(req).user.id : undefined }));
   });
   router.get("/leads/counts", requireAccess("leads", "view"), async (_req, res) => {
     sendData(res, await leadCounts(db(res)));

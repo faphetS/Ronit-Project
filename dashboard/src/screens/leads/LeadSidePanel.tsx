@@ -16,7 +16,7 @@ interface LeadSidePanelProps {
 }
 
 /**
- * The lead on desktop: status, contact, details, where it is worked in Monday, and Monday's notes.
+ * The lead on desktop: name and status, contact, details, groups and notes, in a 400px column over the board.
  * It scrolls on its own when it is taller than the window.
  */
 export function LeadSidePanel({ leadId, onClose, surface = "glass", className }: LeadSidePanelProps) {
@@ -55,7 +55,7 @@ export function LeadSidePanel({ leadId, onClose, surface = "glass", className }:
       onClose={onClose}
       focusOnOpen
       surface={surface}
-      header={lead ? <LeadHeader lead={lead} level={2} /> : detail.isPending ? <LeadHeaderSkeleton /> : null}
+      header={lead ? <LeadHeader lead={lead} level={2} compact surface={surface} /> : detail.isPending ? <LeadHeaderSkeleton /> : null}
       className={cx("max-h-[calc(100dvh-8.5rem)] overflow-y-auto [scrollbar-width:thin]", className)}
     >
       {body}

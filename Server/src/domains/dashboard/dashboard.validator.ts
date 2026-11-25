@@ -21,6 +21,8 @@ export const LeadListQuerySchema = z.object({
   source: z.enum(LEAD_SOURCES).optional(),
   search: z.string().max(100).optional(),
   day: z.string().refine(isDay, "Expected a day as YYYY-MM-DD").optional(),
+  /** "me": only the leads whose notes tag the person asking. */
+  tagged: z.literal("me").optional(),
 });
 
 /** A status someone gives a lead: the board's five columns. "details-sent" stays Monday's own. */

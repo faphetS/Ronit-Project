@@ -517,6 +517,27 @@ describe("note mentions", () => {
     expect(await mentionsOf(moran)).toEqual({ unread: 0, items: [] });
   });
 
+  it("marks each lead with who its notes tag, newest tag first, and lists only yours with tagged=me", async () => {
+    const yael = await leadIdOf("101");
+    const shiraCohen = await leadIdOf("103");
+    await note(shira, yael, { text: "for moran", mentions: [moran.id] });
+    clock = new Date("2026-11-02T09:05:00Z");
+    await note(shira, yael, { text: "for ronit", mentions: [ronit.id] });
+    // Tagged again later, Moran comes first again.
+    clock = new Date("2026-11-02T09:07:00Z");
+    await note(shira, yael, { text: "moran again", mentions: [moran.id] });
+    clock = new Date("2026-11-02T09:10:00Z");
+    await note(ronit, shiraCohen, { text: "for shira", mentions: [shira.id] });
+    const tagged = async (who: Person, query = "") =>
+      Object.fromEntries(((await get(who, `/leads${query}`).expect(200)).body.data as Array<{ id: string; tagged: string[] }>).map((lead) => [lead.id, lead.tagged]));
+    expect(await tagged(moran)).toEqual({ [yael]: [moran.id, ronit.id], [shiraCohen]: [shira.id] });
+    expect(await tagged(moran, "?tagged=me")).toEqual({ [yael]: [moran.id, ronit.id] });
+    expect(await tagged(shira, "?tagged=me")).toEqual({ [shiraCohen]: [shira.id] });
+    expect(await tagged(ronit, "?tagged=me&status=not-relevant")).toEqual({});
+    expect((await get(moran, `/leads/${yael}`).expect(200)).body.data.tagged).toEqual([moran.id, ronit.id]);
+    await get(moran, "/leads?tagged=someone").expect(400);
+  });
+
   it("saves a note and its tags together, or neither", async () => {
     const id = await leadIdOf("101");
     await db.exec(`
