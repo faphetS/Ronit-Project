@@ -20,10 +20,13 @@ describe("createServices", () => {
   it("reads the dashboard API with the sign-in cookie, and unwraps its answers", async () => {
     const fetch = stubFetch({ status: "ok", data: [{ id: "l-1", name: "נועה" }] });
     const services = createServices({ apiUrl: "", fetch });
-    expect(await services.leads.list({ status: "no-answer", search: " נועה " })).toEqual([{ id: "l-1", name: "נועה" }]);
+    // An answer without tags (a server from before tags on cards) reads as nobody tagged.
+    expect(await services.leads.list({ status: "no-answer", search: " נועה " })).toEqual([{ id: "l-1", name: "נועה", tagged: [] }]);
     const [url, init] = fetch.mock.calls[0];
     expect(url).toBe(`/api/dashboard/leads?status=no-answer&search=${encodeURIComponent("נועה")}`);
     expect(init).toMatchObject({ method: "GET", credentials: "include" });
+    await services.leads.list({ tagged: "me" });
+    expect(fetch.mock.calls[1][0]).toBe("/api/dashboard/leads?tagged=me");
   });
 
   it("sends changes as JSON posts", async () => {
