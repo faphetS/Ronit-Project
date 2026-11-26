@@ -1,5 +1,5 @@
-import { motion, useReducedMotion } from "motion/react";
-import type { ReactNode } from "react";
+import { animate, motion, useMotionValue, useMotionValueEvent, useReducedMotion } from "motion/react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { useCopy, useLocale } from "../../content/locale";
 import { useCan, useGroups, useMaySee } from "../../data/queries";
@@ -12,11 +12,12 @@ import { springs } from "../../motion/springs";
 import { cardVariants } from "../../motion/variants";
 import { BigNumber } from "../../ui/BigNumber";
 import { Icon } from "../../ui/Icon";
+import { ICONS } from "../../ui/icons";
 import { Skeleton } from "../../ui/states";
 import { groupDate } from "../groups/groups";
 import { tripsAhead, type TripAhead } from "./leads-model";
 
-/** The meter shows the last 30 days before a trip, a bar a day, and fills as they pass. */
+/** The tracker follows the last 30 days before a trip: the plane flies them, or an event's bars fill. */
 const RUN_UP_DAYS = 30;
 
 const groupHref = (group: GroupSummary) => `/groups/${encodeURIComponent(group.id)}`;
@@ -32,8 +33,9 @@ function tripClock(trip: TripAhead, today: string) {
 }
 
 /**
- * The card above the leads' day chart: the nearest flight or event, how many days until it, a bar for each of the 30
- * days before it that fills as they pass, how many are registered (and the passports in, for a flight), and the trip
+ * The card above the leads' day chart, a dark ticket: the nearest flight or event and how many days until it. A flight
+ * shows as a flight tracker, the plane along its arc as far as the 30 days before take-off have gone; an event has a
+ * bar for each of those days. Under them how many are registered (and the passports in, for a flight) and the trip
  * after it. A flight under way shows its day instead. Without a dated trip it says how to get one here.
  */
 export function NextTripCard({ className }: { className?: string }) {
@@ -45,10 +47,20 @@ export function NextTripCard({ className }: { className?: string }) {
   return known ? <TripCard className={className} /> : <LoadingCard className={className} />;
 }
 
+/**
+ * The card's frame: a dark ticket with a notch bitten out of each side, level with the dashed tear line above its
+ * footer. Laid out flat on a wide screen it has no footer line, so no notches.
+ */
 function Shell({ label, className, children }: { label: string; className?: string; children: ReactNode }) {
   return (
-    <motion.section variants={cardVariants} aria-label={label} className={cx("@container surface-ink rounded-card px-6 py-5", className)}>
-      {children}
+    <motion.section
+      variants={cardVariants}
+      aria-label={label}
+      className={cx("@container relative rounded-card", className)}
+    >
+      {/* The dark cards' shadow, on a layer of its own under the ticket: the notches would cut it off the ticket itself. */}
+      <span aria-hidden="true" className="absolute inset-0 rounded-card shadow-ink" />
+      <div className="surface-ink ticket h-full rounded-card px-6 py-5 shadow-none @3xl:[-webkit-mask:none] @3xl:[mask:none]">{children}</div>
     </motion.section>
   );
 }
@@ -119,27 +131,32 @@ function TripCard({ className }: { className?: string }) {
   const flight = group.type === "flight";
   const { days, tripDay, tripDays } = tripClock(trip, today);
   const start = dayAt(group.startsOn ?? today);
-  const label = underWay ? copy.underWay : copy.label[group.type === "event" ? "event" : "flight"];
+  const label = underWay ? copy.underWay : copy.label[flight ? "flight" : "event"];
   const kind = flight ? "flight" : "event";
 
+  // The dates beside the name: from and to, with the Hebrew date under them; the office's label for a whole month.
   let dates: string;
+  let hebrewDate: string | null = null;
   if (group.dateLabel) dates = groupDate(group, locale) ?? group.dateLabel;
   else if (underWay && group.endsOn) dates = copy.back(formatDayMonth(dayAt(group.endsOn), locale));
   else {
-    const range = group.endsOn && group.endsOn !== group.startsOn ? copy.dates(formatDayMonth(start, locale), formatDayMonth(dayAt(group.endsOn), locale)) : formatDayMonth(start, locale);
-    dates = `${range} · ${formatHebrewDate(start, locale)}`;
+    dates =
+      group.endsOn && group.endsOn !== group.startsOn
+        ? copy.dates(formatDayMonth(start, locale), formatDayMonth(dayAt(group.endsOn), locale))
+        : formatDayMonth(start, locale);
+    hebrewDate = formatHebrewDate(start, locale);
   }
 
   let figure: ReactNode;
   let unit: string;
   if (underWay) {
-    figure = <BigNumber value={tripDay} total={tripDays} size={64} surface="ink" />;
+    figure = <BigNumber value={tripDay} total={tripDays} size={52} surface="ink" />;
     unit = copy.tripDay;
   } else if (days === 0) {
-    figure = <BigNumber value={copy.todayNumber} size={56} surface="ink" />;
+    figure = <BigNumber value={copy.todayNumber} size={46} surface="ink" />;
     unit = copy.today[kind];
   } else {
-    figure = <BigNumber value={days} size={64} surface="ink" countUp />;
+    figure = <BigNumber value={days} size={flight ? 56 : 64} surface="ink" countUp />;
     unit = copy.unit[kind](days);
   }
 
@@ -148,51 +165,200 @@ function TripCard({ className }: { className?: string }) {
     flight && group.registered > 0 && group.readiness !== null ? copy.passports(formatNumber(group.readiness)) : null,
   ].filter(Boolean);
 
+  const header = (
+    <div className="flex items-start justify-between gap-4 @3xl:shrink-0 @3xl:flex-col @3xl:justify-center">
+      <div className="flex min-w-0 items-center gap-3">
+        <span aria-hidden="true" className="orb grid size-10 shrink-0 place-items-center text-ink">
+          <Icon name={flight ? "groups" : "calendar"} size={18} className={flight ? "rtl:-scale-x-100" : undefined} />
+        </span>
+        <div className="min-w-0">
+          <p className="text-small text-ink-soft">{label}</p>
+          <Link to={groupHref(group)} className="block truncate text-[18px] leading-snug font-medium text-cream transition-colors hover:text-gold">
+            <bdi>{group.shortName}</bdi>
+          </Link>
+        </div>
+      </div>
+      <div className="shrink-0 pt-0.5 text-end @3xl:ps-[52px] @3xl:text-start">
+        <p className="text-small text-cream tabular-nums">{dates}</p>
+        {hebrewDate ? <p className="text-caption text-ink-soft">{hebrewDate}</p> : null}
+      </div>
+    </div>
+  );
+
+  const footer = (
+    <div className="mt-auto flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-dashed border-white/20 pt-3 text-small @3xl:mt-0 @3xl:shrink-0 @3xl:flex-col @3xl:items-start @3xl:border-t-0 @3xl:pt-0">
+      <p className="text-ink-text tabular-nums">{stats.join(leadsCopy.separator)}</p>
+      {after ? (
+        <Link to={groupHref(after.group)} className="min-w-0 truncate text-ink-soft transition-colors hover:text-cream">
+          {copy.then} · <bdi>{after.group.shortName}</bdi> · {groupDate(after.group, locale, false)}
+        </Link>
+      ) : null}
+    </div>
+  );
+
   return (
     <Shell label={label} className={className}>
-      <div className="flex h-full flex-col gap-4 @3xl:flex-row @3xl:items-center @3xl:gap-10">
-        <div className="flex flex-col gap-4 @3xl:shrink-0">
-          <div className="flex items-center gap-3">
-            <span aria-hidden="true" className="orb grid size-10 shrink-0 place-items-center text-ink">
-              <Icon name={flight ? "groups" : "calendar"} size={18} className={flight ? "rtl:-scale-x-100" : undefined} />
-            </span>
-            <div className="min-w-0">
-              <p className="text-small text-ink-soft">{label}</p>
-              <Link to={groupHref(group)} className="block truncate text-[18px] leading-snug font-medium text-cream transition-colors hover:text-gold">
-                <bdi>{group.shortName}</bdi>
-              </Link>
-            </div>
-          </div>
-          <div className="flex items-end gap-3">
+      <div className="flex h-full flex-col gap-3 @3xl:flex-row @3xl:items-center @3xl:gap-10">
+        {header}
+        {flight ? (
+          <FlightPath
+            days={underWay ? 0 : days}
+            from={group.flight?.outbound?.from ?? copy.from}
+            to={group.flight?.outbound?.to ?? placeOf(group.shortName)}
+            takeOff={formatDayMonth(start, locale)}
+            className="@3xl:min-w-0 @3xl:flex-1"
+          >
             {figure}
-            <div className="min-w-0 pb-1">
-              <p className="text-body text-cream">{unit}</p>
-              <p className="text-small text-ink-soft">{dates}</p>
+            <p className="text-small text-cream">{unit}</p>
+          </FlightPath>
+        ) : (
+          <>
+            <div className="flex items-end gap-3 @3xl:shrink-0">
+              {figure}
+              <p className="pb-1.5 text-body text-cream">{unit}</p>
             </div>
-          </div>
-        </div>
-
-        <RunUp days={underWay ? 0 : days} departure={formatDayMonth(start, locale)} flight={flight} className="@3xl:flex-1" />
-
-        <div className="mt-auto flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-white/10 pt-3 text-small @3xl:mt-0 @3xl:flex-col @3xl:items-start @3xl:border-t-0 @3xl:pt-0">
-          <p className="text-ink-text tabular-nums">{stats.join(leadsCopy.separator)}</p>
-          {after ? (
-            <Link to={groupHref(after.group)} className="min-w-0 truncate text-ink-soft transition-colors hover:text-cream">
-              {copy.then} · <bdi>{after.group.shortName}</bdi> · {groupDate(after.group, locale, false)}
-            </Link>
-          ) : null}
-        </div>
+            <RunUp days={days} departure={formatDayMonth(start, locale)} className="@3xl:flex-1" />
+          </>
+        )}
+        {footer}
       </div>
     </Shell>
   );
 }
 
+/** "אומן · חנוכה" is a trip to אומן: the office names trips place first. Null when the name has no place part. */
+function placeOf(shortName: string): string | null {
+  const parts = shortName.split(/\s*·\s*/);
+  return parts.length > 1 && parts[0] ? parts[0] : null;
+}
+
+/** The flight path's height in px; its width follows the card. */
+const PATH_HEIGHT = 118;
+/** Room at each end for the end points, and above the arc's peak for the plane. */
+const PATH_INSET = 14;
+const PATH_PEAK = 22;
+// The plane icon's nose points up and to the right, 45° off the way the path runs.
+const PLANE_HEADING = 45;
+
+interface Point {
+  x: number;
+  y: number;
+}
+
+const lerp = (a: Point, b: Point, t: number): Point => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+
+/** The element's width as it changes, for drawing in pixels; the fallback until it's measured (and in tests). */
+function useWidth(fallback: number) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(fallback);
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setWidth(Math.round(entry.contentRect.width));
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  return [ref, width] as const;
+}
+
 /**
- * The last 30 days before a trip, a bar each: the days gone by in gold, today raised in cream, the rest faint, and the
- * plane (or the calendar, for an event) at the end with the day it starts. More than 30 days away, every bar is still
+ * The flight tracker: an arc from home to the trip's place, and the plane on it as far along as the 30 days before
+ * take-off have gone (at home while it's further off, landed while the trip is under way). Behind the plane the arc
+ * is a gold trail, ahead of it a dotted line. The days to go sit under the arc. On the first view the plane flies out
+ * to today's place; with Reduce Motion it's simply there.
+ */
+function FlightPath({
+  days,
+  from,
+  to,
+  takeOff,
+  className,
+  children,
+}: {
+  days: number;
+  from: string;
+  to: string | null;
+  takeOff: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  const { leadsCopy } = useCopy();
+  const copy = leadsCopy.nextTrip;
+  const reduceMotion = useReducedMotion();
+  const trailId = `trail-${useId().replace(/:/g, "")}`;
+  const [ref, width] = useWidth(320);
+  const target = Math.min(1, Math.max(0, (RUN_UP_DAYS - days) / RUN_UP_DAYS));
+  const progress = useMotionValue(reduceMotion ? target : 0);
+  const [flown, setFlown] = useState(progress.get());
+  useMotionValueEvent(progress, "change", setFlown);
+  useEffect(() => {
+    const flight = animate(progress, target, reduceMotion ? { duration: 0 } : { duration: 1.6, delay: 0.3, ease: [0.22, 1, 0.36, 1] });
+    return () => flight.stop();
+  }, [progress, target, reduceMotion]);
+
+  // A quadratic curve peaks halfway between its ends' height and its control point's.
+  const base = PATH_HEIGHT - PATH_INSET;
+  const home = { x: PATH_INSET, y: base };
+  const away = { x: Math.max(width - PATH_INSET, home.x + 1), y: base };
+  const control = { x: (home.x + away.x) / 2, y: 2 * PATH_PEAK - base };
+  // De Casteljau: the point at `flown`, the way the path runs there, and the part of the curve behind it.
+  const near = lerp(home, control, flown);
+  const far = lerp(control, away, flown);
+  const plane = lerp(near, far, flown);
+  const heading = (Math.atan2(far.y - near.y, far.x - near.x) * 180) / Math.PI + PLANE_HEADING;
+  const whole = `M ${home.x} ${home.y} Q ${control.x} ${control.y} ${away.x} ${away.y}`;
+  const behind = `M ${home.x} ${home.y} Q ${near.x} ${near.y} ${plane.x} ${plane.y}`;
+
+  return (
+    <div className={cx("flex flex-col gap-1", className)}>
+      <div ref={ref} role="img" aria-label={copy.runUp(days)} className="relative" style={{ height: PATH_HEIGHT }}>
+        {/* Drawn left to right; in Hebrew the whole drawing turns round, so the plane flies to the left. */}
+        <svg aria-hidden="true" width={width} height={PATH_HEIGHT} viewBox={`0 0 ${width} ${PATH_HEIGHT}`} className="absolute inset-0 overflow-visible rtl:-scale-x-100">
+          <defs>
+            <linearGradient id={trailId} gradientUnits="userSpaceOnUse" x1={home.x} y1={0} x2={plane.x} y2={0}>
+              <stop offset="0" stopColor="var(--color-gold)" stopOpacity={0.15} />
+              <stop offset="1" stopColor="var(--color-gold)" />
+            </linearGradient>
+          </defs>
+          <path d={whole} fill="none" stroke="rgb(255 255 255 / 0.28)" strokeWidth={1.6} strokeDasharray="0.1 7" strokeLinecap="round" />
+          <path d={behind} fill="none" stroke={`url(#${trailId})`} strokeWidth={2.2} strokeLinecap="round" />
+          <circle cx={home.x} cy={home.y} r={4.5} fill="var(--color-ink-soft)" />
+          <circle cx={away.x} cy={away.y} r={7.5} fill="none" stroke="var(--color-gold)" strokeWidth={1.5} />
+          <circle cx={away.x} cy={away.y} r={2.75} fill="var(--color-gold)" />
+          <g transform={`translate(${plane.x} ${plane.y})`}>
+            <circle r={23} fill="rgb(224 171 87 / 0.14)" />
+            <circle r={16.5} fill="var(--color-gold)" />
+            <g transform={`rotate(${heading}) translate(-9.6 -9.6) scale(0.8)`}>
+              {(ICONS.groups as readonly string[]).map((shape) => (
+                <path key={shape} d={shape} fill="none" stroke="var(--color-ink)" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" />
+              ))}
+            </g>
+          </g>
+        </svg>
+        <div className="pointer-events-none absolute inset-x-0 flex flex-col items-center" style={{ top: PATH_PEAK + 26 }}>
+          {children}
+        </div>
+      </div>
+      <div className="flex items-start justify-between gap-4 text-caption">
+        <p className="text-ink-soft">{from}</p>
+        <p className="text-end">
+          {to ? <bdi className="text-cream">{to}</bdi> : null}
+          {to ? " · " : null}
+          <span className="text-ink-soft">{copy.takeOff}</span> <span className="text-cream tabular-nums">{takeOff}</span>
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The last 30 days before an event, a bar each: the days gone by in gold, today raised in cream, the rest faint, and
+ * the calendar at the end with the day it starts. More than 30 days away, every bar is still
  * faint. The bars keep their width and spread out on a wide card.
  */
-function RunUp({ days, departure, flight, className }: { days: number; departure: string; flight: boolean; className?: string }) {
+function RunUp({ days, departure, className }: { days: number; departure: string; className?: string }) {
   const { leadsCopy } = useCopy();
   const copy = leadsCopy.nextTrip;
   const reduceMotion = useReducedMotion();
@@ -236,7 +402,7 @@ function RunUp({ days, departure, flight, className }: { days: number; departure
       </div>
       <div aria-hidden="true" className="flex shrink-0 flex-col items-center gap-1">
         <span className="grid size-9 place-items-center rounded-full bg-gold text-ink">
-          <Icon name={flight ? "groups" : "calendar"} size={17} className={flight ? "rtl:-scale-x-100" : undefined} />
+          <Icon name="calendar" size={17} />
         </span>
         <span className="text-caption text-ink-text tabular-nums">{departure}</span>
       </div>

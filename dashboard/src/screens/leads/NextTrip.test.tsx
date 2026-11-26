@@ -48,7 +48,7 @@ const renderCard = (services: Services) =>
   );
 
 describe("NextTripCard", () => {
-  it("counts the days to the nearest flight, with its seats, passports, the run-up meter and the trip after it", async () => {
+  it("counts the days to the nearest flight on a flight tracker, with its seats, passports and the trip after it", async () => {
     const services = await withGroups([
       trip({ id: "e-1", shortName: "חלה · דצמבר", type: "event", startsOn: "2026-12-01", endsOn: "2026-12-31", dateLabel: "דצמבר 2026" }),
       trip({ id: "f-1", shortName: "אומן · חנוכה", startsOn: "2026-11-07", endsOn: "2026-11-11", capacity: 40, registered: 12, readiness: 75 }),
@@ -59,7 +59,10 @@ describe("NextTripCard", () => {
     const name = await screen.findByRole("link", { name: "אומן · חנוכה" });
     const card = screen.getByRole("region", { name: "הטיסה הקרובה" });
     expect(name).toHaveAttribute("href", "/groups/f-1");
-    expect(within(card).getByText("ימים לטיסה")).toBeInTheDocument();
+    expect(within(card).getByText("ימים להמראה")).toBeInTheDocument();
+    // The flight tracker runs from home to the trip's place, which leads its name.
+    expect(within(card).getByText("ישראל")).toBeInTheDocument();
+    expect(within(card).getByText("אומן")).toBeInTheDocument();
     expect(within(card).getByText(/07\.11 – 11\.11/)).toBeInTheDocument();
     expect(within(card).getByRole("img", { name: "עוד 10 ימים עד היציאה" })).toBeInTheDocument();
     expect(within(card).getByText("12 מתוך 40 מקומות · דרכונים 75%")).toBeInTheDocument();

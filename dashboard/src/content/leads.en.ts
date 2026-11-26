@@ -137,7 +137,7 @@ export const leadsCopy: Widen<typeof he> = {
     underWay: "On the trip now",
     when: (days) => (days === 0 ? "today" : days === 1 ? "tomorrow" : `in ${days} days`),
     unit: {
-      flight: (days) => (days === 1 ? "day to the flight" : "days to the flight"),
+      flight: (days) => (days === 1 ? "day to take-off" : "days to take-off"),
       event: (days) => (days === 1 ? "day to the event" : "days to the event"),
     },
     today: { flight: "The flight leaves today", event: "The event is today" },
@@ -152,6 +152,8 @@ export const leadsCopy: Widen<typeof he> = {
     runUp: (days) => (days > 30 ? "More than a month to go" : days <= 0 ? "Leaving" : `${days} days to go`),
     runUpFar: "More than a month",
     todayMark: "Today",
+    from: "Israel",
+    takeOff: "Take-off",
     none: "No flight or event has a date yet",
     noneHint: "Give a group a date and it shows here, with a countdown.",
     toGroups: "Groups",

@@ -158,7 +158,7 @@ export const leadsCopy = {
     when: (days: number) => (days === 0 ? "היום" : days === 1 ? "מחר" : `בעוד ${days} ימים`),
     /** Beside the big number of days. */
     unit: {
-      flight: (days: number) => (days === 1 ? "יום לטיסה" : "ימים לטיסה"),
+      flight: (days: number) => (days === 1 ? "יום להמראה" : "ימים להמראה"),
       event: (days: number) => (days === 1 ? "יום לאירוע" : "ימים לאירוע"),
     },
     today: { flight: "הטיסה יוצאת היום", event: "האירוע היום" },
@@ -174,6 +174,9 @@ export const leadsCopy = {
     runUp: (days: number) => (days > 30 ? "יותר מחודש עד היציאה" : days <= 0 ? "יוצאים" : `עוד ${days} ימים עד היציאה`),
     runUpFar: "יותר מחודש",
     todayMark: "היום",
+    /** The flight tracker's two ends: home, and the trip's place with the day it takes off. */
+    from: "ישראל",
+    takeOff: "המראה",
     none: "אין עדיין טיסה או אירוע עם תאריך",
     noneHint: "תאריך שמוסיפים לקבוצה מופיע כאן, עם ספירה לאחור.",
     toGroups: "לקבוצות",
