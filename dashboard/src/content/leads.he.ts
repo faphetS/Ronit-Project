@@ -149,21 +149,18 @@ export const leadsCopy = {
   },
 
   /**
-   * The next trip: on desktop a card above the leads that counts the days to it, with a bar for each of the 30 days
-   * before it; on phones a pill. A flight that left and isn't back yet shows instead, by its day. Opens the group.
+   * The next flight: on desktop a dark boarding pass above the leads, a flight tracker counting down to take-off, with
+   * the nearest event on its stub when that comes first; on phones a pill. A flight under way shows its day.
    */
   nextTrip: {
-    label: { flight: "הטיסה הקרובה", event: "האירוע הקרוב" },
+    label: "הטיסה הקרובה",
     underWay: "בנסיעה עכשיו",
     when: (days: number) => (days === 0 ? "היום" : days === 1 ? "מחר" : `בעוד ${days} ימים`),
-    /** Beside the big number of days. */
-    unit: {
-      flight: (days: number) => (days === 1 ? "יום להמראה" : "ימים להמראה"),
-      event: (days: number) => (days === 1 ? "יום לאירוע" : "ימים לאירוע"),
-    },
-    today: { flight: "הטיסה יוצאת היום", event: "האירוע היום" },
+    /** Under the big number of days. */
+    unit: (days: number) => (days === 1 ? "יום להמראה" : "ימים להמראה"),
+    today: "הטיסה יוצאת היום",
     todayNumber: "היום",
-    /** A flight under way: "יום 2 מתוך 5". */
+    /** A flight under way: "2/5". */
     tripDay: "ימי הנסיעה",
     back: (date: string) => `חוזרים ב־${date}`,
     dates: (from: string, to: string) => `${from} – ${to}`,
@@ -171,16 +168,16 @@ export const leadsCopy = {
     registered: (registered: string) => `${registered} נרשמו`,
     passports: (percent: string) => `דרכונים ${percent}%`,
     then: "אחר כך",
-    runUp: (days: number) => (days > 30 ? "יותר מחודש עד היציאה" : days <= 0 ? "יוצאים" : `עוד ${days} ימים עד היציאה`),
-    runUpFar: "יותר מחודש",
-    todayMark: "היום",
+    event: "האירוע הקרוב",
+    /** What the flight tracker says to a screen reader. */
+    path: (days: number) => (days > 30 ? "יותר מחודש עד ההמראה" : days === 1 ? "יום אחד עד ההמראה" : `עוד ${days} ימים עד ההמראה`),
     /** The flight tracker's two ends: home, and the trip's place with the day it takes off. */
     from: "ישראל",
     takeOff: "המראה",
-    none: "אין עדיין טיסה או אירוע עם תאריך",
-    noneHint: "תאריך שמוסיפים לקבוצה מופיע כאן, עם ספירה לאחור.",
+    none: "אין עדיין טיסה עם תאריך",
+    noneHint: "תאריך שמוסיפים לטיסה בקבוצות מופיע כאן, עם ספירה לאחור.",
     toGroups: "לקבוצות",
-    failed: "הנסיעה הקרובה לא נטענה",
+    failed: "הטיסה הקרובה לא נטענה",
   },
 
   /** When a status change didn't go through: a drop on the board, or the status menu. */

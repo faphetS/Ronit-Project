@@ -48,9 +48,10 @@ const renderCard = (services: Services) =>
   );
 
 describe("NextTripCard", () => {
-  it("counts the days to the nearest flight on a flight tracker, with its seats, passports and the trip after it", async () => {
+  it("counts the days to the next flight on a flight tracker, with its seats, passports and the flight after it", async () => {
     const services = await withGroups([
       trip({ id: "e-1", shortName: "חלה · דצמבר", type: "event", startsOn: "2026-12-01", endsOn: "2026-12-31", dateLabel: "דצמבר 2026" }),
+      trip({ id: "f-2", shortName: "אומן · אדר", startsOn: "2027-03-03", endsOn: "2027-03-07" }),
       trip({ id: "f-1", shortName: "אומן · חנוכה", startsOn: "2026-11-07", endsOn: "2026-11-11", capacity: 40, registered: 12, readiness: 75 }),
       trip({ id: "f-old", shortName: "אומן · ט״ו באב", startsOn: "2026-08-01", endsOn: "2026-08-05" }),
     ]);
@@ -60,13 +61,28 @@ describe("NextTripCard", () => {
     const card = screen.getByRole("region", { name: "הטיסה הקרובה" });
     expect(name).toHaveAttribute("href", "/groups/f-1");
     expect(within(card).getByText("ימים להמראה")).toBeInTheDocument();
+    expect(within(card).getByRole("img", { name: "עוד 10 ימים עד ההמראה" })).toBeInTheDocument();
     // The flight tracker runs from home to the trip's place, which leads its name.
     expect(within(card).getByText("ישראל")).toBeInTheDocument();
     expect(within(card).getByText("אומן")).toBeInTheDocument();
     expect(within(card).getByText(/07\.11 – 11\.11/)).toBeInTheDocument();
-    expect(within(card).getByRole("img", { name: "עוד 10 ימים עד היציאה" })).toBeInTheDocument();
     expect(within(card).getByText("12 מתוך 40 מקומות · דרכונים 75%")).toBeInTheDocument();
-    expect(within(card).getByRole("link", { name: /אחר כך · חלה · דצמבר · דצמבר 2026/ })).toHaveAttribute("href", "/groups/e-1");
+    expect(within(card).getByRole("link", { name: /אחר כך · אומן · אדר · 03\.03/ })).toHaveAttribute("href", "/groups/f-2");
+    // The event comes after the flight, so the flight is the nearest thing and the stub doesn't name it.
+    expect(within(card).queryByText("האירוע הקרוב")).not.toBeInTheDocument();
+  });
+
+  it("keeps the flight on the card, and puts an event that comes first on its stub", async () => {
+    const services = await withGroups([
+      trip({ id: "e-1", shortName: "ערב חלה", type: "event", startsOn: "2026-10-31" }),
+      trip({ id: "f-1", shortName: "אומן · חנוכה", startsOn: "2026-11-07" }),
+    ]);
+    renderCard(services);
+    await screen.findByRole("link", { name: "אומן · חנוכה" });
+    const card = screen.getByRole("region", { name: "הטיסה הקרובה" });
+    expect(within(card).getByText("האירוע הקרוב")).toBeInTheDocument();
+    expect(within(card).getByRole("link", { name: "ערב חלה" })).toHaveAttribute("href", "/groups/e-1");
+    expect(within(card).getByText("· בעוד 3 ימים")).toBeInTheDocument();
   });
 
   it("shows a flight under way by its day, and when it comes back", async () => {
@@ -81,16 +97,23 @@ describe("NextTripCard", () => {
     expect(within(card).getByText("חוזרים ב־30.10")).toBeInTheDocument();
   });
 
-  it("says when the nearest event is today", async () => {
-    renderCard(await withGroups([trip({ id: "e-1", shortName: "ערב נשים", type: "event", startsOn: "2026-10-28" })]));
-    const card = await screen.findByRole("region", { name: "האירוע הקרוב" });
-    expect(within(card).getByText("האירוע היום")).toBeInTheDocument();
+  it("says when the flight leaves today", async () => {
+    renderCard(await withGroups([trip({ id: "f-1", shortName: "אומן · חשוון", startsOn: "2026-10-28" })]));
+    await screen.findByRole("link", { name: "אומן · חשוון" });
+    const card = screen.getByRole("region", { name: "הטיסה הקרובה" });
+    expect(within(card).getByRole("img", { name: "הטיסה יוצאת היום" })).toBeInTheDocument();
   });
 
-  it("points to the groups when no flight or event has a date", async () => {
-    renderCard(await withGroups([trip({ id: "f-1", shortName: "אומן · ט״ו באב" })]));
-    expect(await screen.findByText("אין עדיין טיסה או אירוע עם תאריך")).toBeInTheDocument();
+  it("points to the groups when no flight has a date, and still names the nearest event", async () => {
+    renderCard(
+      await withGroups([
+        trip({ id: "f-1", shortName: "אומן · ט״ו באב" }),
+        trip({ id: "e-1", shortName: "חלה · נובמבר", type: "event", startsOn: "2026-11-01", endsOn: "2026-11-30", dateLabel: "נובמבר 2026" }),
+      ]),
+    );
+    expect(await screen.findByText("אין עדיין טיסה עם תאריך")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "לקבוצות" })).toHaveAttribute("href", "/groups");
+    expect(screen.getByRole("link", { name: "חלה · נובמבר" })).toHaveAttribute("href", "/groups/e-1");
   });
 
   it("isn't there for a role that may not see the groups", async () => {

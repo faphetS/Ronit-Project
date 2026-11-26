@@ -133,14 +133,11 @@ export const leadsCopy: Widen<typeof he> = {
   },
 
   nextTrip: {
-    label: { flight: "Next flight", event: "Next event" },
+    label: "Next flight",
     underWay: "On the trip now",
     when: (days) => (days === 0 ? "today" : days === 1 ? "tomorrow" : `in ${days} days`),
-    unit: {
-      flight: (days) => (days === 1 ? "day to take-off" : "days to take-off"),
-      event: (days) => (days === 1 ? "day to the event" : "days to the event"),
-    },
-    today: { flight: "The flight leaves today", event: "The event is today" },
+    unit: (days) => (days === 1 ? "day to take-off" : "days to take-off"),
+    today: "The flight leaves today",
     todayNumber: "Today",
     tripDay: "days of the trip",
     back: (date) => `Back on ${date}`,
@@ -149,15 +146,14 @@ export const leadsCopy: Widen<typeof he> = {
     registered: (registered) => `${registered} registered`,
     passports: (percent) => `Passports ${percent}%`,
     then: "Then",
-    runUp: (days) => (days > 30 ? "More than a month to go" : days <= 0 ? "Leaving" : `${days} days to go`),
-    runUpFar: "More than a month",
-    todayMark: "Today",
+    event: "Next event",
+    path: (days) => (days > 30 ? "More than a month to take-off" : days === 1 ? "One day to take-off" : `${days} days to take-off`),
     from: "Israel",
     takeOff: "Take-off",
-    none: "No flight or event has a date yet",
-    noneHint: "Give a group a date and it shows here, with a countdown.",
+    none: "No flight has a date yet",
+    noneHint: "Give a flight a date in Groups and it shows here, with a countdown.",
     toGroups: "Groups",
-    failed: "The next trip didn't load",
+    failed: "The next flight didn't load",
   },
 
   statusChange: {

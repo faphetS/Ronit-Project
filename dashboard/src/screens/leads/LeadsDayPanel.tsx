@@ -207,7 +207,8 @@ function DayStrip({ start, today, selected, countOf, onPick }: DaysProps & { sta
   const dates = Array.from({ length: STRIP_DAYS }, (_, index) => shiftDay(start, index));
   const peak = Math.max(1, ...dates.map(countOf));
   return (
-    <div className="grid grid-cols-14 gap-1">
+    // The days fill the panel's height: beside a taller card the bars keep their size and the room goes above them.
+    <div className="grid flex-1 grid-cols-14 gap-1">
       {dates.map((date) => {
         const count = countOf(date);
         const on = date === selected;
@@ -220,7 +221,7 @@ function DayStrip({ start, today, selected, countOf, onPick }: DaysProps & { sta
             aria-pressed={on}
             aria-label={copy.days.dayLabel(dayMonth, count)}
             onClick={() => onPick(date)}
-            className={cx("flex h-[172px] flex-col items-center justify-end gap-1.5 rounded-2xl py-2 transition-colors", on ? "bg-cream" : "hover:bg-sand-light")}
+            className={cx("flex min-h-[172px] flex-col items-center justify-end gap-1.5 rounded-2xl py-2 transition-colors", on ? "bg-cream" : "hover:bg-sand-light")}
           >
             <span className={cx("text-small font-medium tabular-nums", on ? "text-ink" : "text-mute")}>{formatNumber(count)}</span>
             <span aria-hidden="true" className={cx("w-[58%] max-w-7 rounded-lg", on ? "bg-ink" : count ? "bg-gold" : "bg-line")} style={{ height }} />
