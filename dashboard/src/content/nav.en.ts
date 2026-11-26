@@ -26,6 +26,16 @@ export const nav: Widen<typeof he> = {
   users: "Users and permissions",
   settings: "Settings",
   search: "Quick search",
+  quickSearch: {
+    placeholder: "Search a lead, customer or group",
+    leads: "Leads",
+    customers: "Customers",
+    groups: "Groups",
+    more: (shown, total) => `${shown} of ${total}`,
+    searching: "Searching…",
+    none: (term) => `Nothing found for “${term}”`,
+    failed: "The search didn’t work. Please try again.",
+  },
   notifications: (count) => `Notifications, ${count} new`,
   bell: {
     title: "Notifications",

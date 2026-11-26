@@ -171,6 +171,49 @@ export function useLeads(filters: LeadFilters = {}) {
   return useQuery({ queryKey: queryKeys.leads(filters), queryFn: () => leads.list(filters) });
 }
 
+/** Characters the top bar's search waits for before it asks. */
+export const QUICK_SEARCH_MIN = 2;
+/** How many customers the top bar's search shows. */
+const QUICK_SEARCH_CUSTOMERS = 5;
+
+/**
+ * The top bar's search: leads and customers whose name or phone number matches (the API's own search), and groups by
+ * name. It asks from QUICK_SEARCH_MIN characters, only in the areas the person's role opens, and keeps the last
+ * results in view while the next ones load.
+ */
+export function useQuickSearch(term: string) {
+  const services = useServices();
+  const search = term.trim();
+  const ready = search.length >= QUICK_SEARCH_MIN;
+  const seesLeads = useCan("leads", "view");
+  const seesCustomers = useCan("customers", "view");
+  const customerQuery = { search, page: 1, pageSize: QUICK_SEARCH_CUSTOMERS };
+  const leads = useQuery({
+    queryKey: queryKeys.leads({ search }),
+    queryFn: () => services.leads.list({ search }),
+    enabled: ready && seesLeads,
+    placeholderData: keepPreviousData,
+  });
+  const customers = useQuery({
+    queryKey: queryKeys.customers(customerQuery),
+    queryFn: () => services.customers.list(customerQuery),
+    enabled: ready && seesCustomers,
+    placeholderData: keepPreviousData,
+  });
+  // The groups list is short and usually loaded already; it's matched here, by name.
+  const groups = useQuery({ queryKey: queryKeys.groups, queryFn: () => services.groups.list(), enabled: ready && seesCustomers });
+  const lowered = search.toLowerCase();
+  const matchingGroups = (groups.data ?? []).filter((group) => [group.name, group.shortName ?? ""].some((name) => name.toLowerCase().includes(lowered)));
+  return {
+    ready,
+    leads: seesLeads ? leads.data : [],
+    customers: seesCustomers ? customers.data : undefined,
+    groups: ready ? matchingGroups : [],
+    loading: leads.isFetching || customers.isFetching || groups.isFetching,
+    failed: leads.isError || customers.isError,
+  };
+}
+
 export function useLeadCounts() {
   const { leads } = useServices();
   return useQuery({ queryKey: queryKeys.leadCounts, queryFn: () => leads.counts() });
