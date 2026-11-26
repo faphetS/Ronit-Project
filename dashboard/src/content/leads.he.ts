@@ -121,6 +121,41 @@ export const leadsCopy = {
     },
   },
 
+  /** Picking several cards on the board, to move them all to one column or tag someone on all of them. */
+  select: {
+    start: "בחירה",
+    /** Read out on a card's check while picking. */
+    pick: (name: string) => `בחירת ${name}`,
+    /** The check at the start of a column's heading: the cards shown in it. */
+    pickColumn: (column: string) => `בחירת כל הכרטיסים בעמודה ${column}`,
+    /** The bar at the bottom while picking. */
+    bar: "פעולות על הלידים שנבחרו",
+    count: (count: number) => (count === 0 ? "בחרו לידים בלוח" : count === 1 ? "ליד אחד נבחר" : `${count} לידים נבחרו`),
+    move: "העברה לעמודה",
+    tag: "תיוג איש צוות",
+    done: "סיום",
+    moved: (count: number, column: string) => (count === 1 ? `ליד אחד הועבר לעמודה ${column}` : `${count} לידים הועברו לעמודה ${column}`),
+    movedSome: (done: number, total: number) => `${done} מתוך ${total} לידים הועברו. את השאר כדאי לנסות שוב`,
+    alreadyThere: (column: string) => `הלידים שנבחרו כבר בעמודה ${column}`,
+    /** The sheet that writes one note, with its tags, on every lead picked. */
+    tagTitle: (count: number) => (count === 1 ? "תיוג על ליד אחד" : `תיוג על ${count} לידים`),
+    tagBody: "ההערה תישמר בכל אחד מהלידים שנבחרו, ומי שתויג יקבל התראה.",
+    tagLabel: "ההערה",
+    tagPlaceholder: "@ לתיוג איש צוות, ומה צריך לעשות",
+    tagSave: (count: number) => (count === 1 ? "שמירה בליד" : `שמירה ב-${count} לידים`),
+    tagCancel: "ביטול",
+    tagged: (count: number) => (count === 1 ? "ההערה נשמרה בליד" : `ההערה נשמרה ב-${count} לידים`),
+    taggedSome: (done: number, total: number) => `ההערה נשמרה ב-${done} מתוך ${total} לידים. את השאר כדאי לנסות שוב`,
+  },
+
+  /** Beside the page's title: the next flight with a date, how soon it leaves and how full it is. Opens the group. */
+  nextFlight: {
+    label: "הטיסה הקרובה",
+    when: (days: number) => (days === 0 ? "היום" : days === 1 ? "מחר" : `בעוד ${days} ימים`),
+    seats: (registered: string, capacity: string) => `${registered} מתוך ${capacity} מקומות`,
+    registered: (registered: string) => `${registered} נרשמו`,
+  },
+
   /** When a status change didn't go through: a drop on the board, or the status menu. */
   statusChange: {
     gone: "הסטטוס לא השתנה: הליד הזה כבר לא בלוח",
@@ -161,6 +196,9 @@ export const leadsCopy = {
     noteTag: "תיוג",
     /** The list of people that opens under the box after "@". */
     noteTagList: "אנשי צוות לתיוג",
+    /** The switch in the note box: what kind of note this is. A question or an answer shows its label on the note. */
+    noteKind: "סוג ההערה",
+    noteKinds: { note: "הערה", question: "שאלה", answer: "תשובה" },
     noteSave: "שמירה",
     noteSaved: "ההערה נשמרה",
     noteFailed: "ההערה לא נשמרה. נסו שוב.",

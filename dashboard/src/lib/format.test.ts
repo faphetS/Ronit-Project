@@ -1,6 +1,23 @@
 import { describe, expect, it } from "vitest";
 import { dayAt } from "./clock";
-import { formatDate, formatDayMonth, formatNumber, formatRelative, formatTime, formatWeekday, maskPassport } from "./format";
+import { formatDate, formatDayMonth, formatNumber, formatPhone, formatRelative, formatTime, formatWeekday, maskPassport } from "./format";
+
+describe("formatPhone", () => {
+  it("groups Israeli mobiles and landlines the way they're read out", () => {
+    expect(formatPhone("0521784972")).toBe("052-178-4972");
+    expect(formatPhone("052-1784972")).toBe("052-178-4972");
+    expect(formatPhone("+972521784972")).toBe("052-178-4972");
+    expect(formatPhone("972 52 178 4972")).toBe("052-178-4972");
+    expect(formatPhone("0771234567")).toBe("077-123-4567");
+    expect(formatPhone("021234567")).toBe("02-123-4567");
+  });
+
+  it("leaves anything else as it came", () => {
+    expect(formatPhone("+1 212 555 0100")).toBe("+1 212 555 0100");
+    expect(formatPhone("12345")).toBe("12345");
+    expect(formatPhone("")).toBe("");
+  });
+});
 
 const reference = dayAt("2026-10-28", "15:30");
 

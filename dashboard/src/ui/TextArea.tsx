@@ -37,6 +37,8 @@ interface TextAreaProps {
   tokens?: TextToken[];
   /** Controls at the end of the chips row, like a save button. */
   actions?: ReactNode;
+  /** A control at the start of that row, for a field without chips: a note's kind. */
+  leading?: ReactNode;
   /** Id of text that describes the field, like a character count. */
   describedBy?: string;
   maxLength?: number;
@@ -67,6 +69,7 @@ export function TextArea({
   onPaper = false,
   tokens,
   actions,
+  leading,
   describedBy,
   maxLength,
   required,
@@ -102,7 +105,7 @@ export function TextArea({
     field.focus();
   };
 
-  const hasRow = Boolean(tokens?.length) || Boolean(actions);
+  const hasRow = Boolean(tokens?.length) || Boolean(actions) || Boolean(leading);
   const field = (
     <textarea
       ref={fieldRef}
@@ -174,7 +177,7 @@ export function TextArea({
               ))}
             </div>
           ) : (
-            <span />
+            (leading ?? <span />)
           )}
           {actions}
         </div>

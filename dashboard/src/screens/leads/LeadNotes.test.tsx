@@ -18,6 +18,7 @@ const note = (overrides: Partial<LeadEvent>): LeadEvent => ({
   source: "crm",
   editedAt: null,
   mentions: [],
+  category: "note",
   ...overrides,
 });
 
@@ -92,8 +93,23 @@ describe("LeadHistory notes", () => {
     const box = await screen.findByRole("combobox", { name: "הערה חדשה" });
     await userEvent.type(box, "חדש");
     await userEvent.click(screen.getByRole("button", { name: "שמירה" }));
-    await waitFor(() => expect(addNote).toHaveBeenCalledWith("lead-1", "חדש", []));
+    await waitFor(() => expect(addNote).toHaveBeenCalledWith("lead-1", "חדש", [], "note"));
     await waitFor(() => expect(box).toHaveValue(""));
+  });
+
+  it("saves the kind picked, goes back to a plain note, and labels questions and answers", async () => {
+    const { addNote } = await setup("admin", {
+      notes: [note({ text: "מתי הטיסה?", category: "question" }), note({ id: "n-2", text: "ביום שני בערב", category: "answer" }), note({ id: "n-3", text: "התקשרתי" })],
+    });
+    const box = await screen.findByRole("combobox", { name: "הערה חדשה" });
+    await userEvent.type(box, "יש לה עוד שאלה");
+    await userEvent.click(screen.getByRole("button", { name: "שאלה" }));
+    await userEvent.click(screen.getByRole("button", { name: "שמירה" }));
+    await waitFor(() => expect(addNote).toHaveBeenCalledWith("lead-1", "יש לה עוד שאלה", [], "question"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "הערה" })).toHaveAttribute("aria-pressed", "true"));
+    expect(screen.getByText("מתי הטיסה?").closest("p")).toHaveTextContent(/^שאלה/);
+    expect(screen.getByText("ביום שני בערב").closest("p")).toHaveTextContent(/^תשובה/);
+    expect(screen.getByText("התקשרתי").closest("p")).toHaveTextContent(/^התקשרתי$/);
   });
 
   it("offers edit and delete only on your own CRM notes (non-admin)", async () => {
@@ -180,7 +196,7 @@ describe("tagging the team in a note", () => {
     }
     await userEvent.type(box, "אפשר לחזור אליה?");
     await userEvent.click(screen.getByRole("button", { name: "שמירה" }));
-    await waitFor(() => expect(addNote).toHaveBeenCalledWith("lead-1", "@מיכל לוי @נועה כהן @מיכל לוי אפשר לחזור אליה?", ["u-michal", "u-noa"]));
+    await waitFor(() => expect(addNote).toHaveBeenCalledWith("lead-1", "@מיכל לוי @נועה כהן @מיכל לוי אפשר לחזור אליה?", ["u-michal", "u-noa"], "note"));
   });
 
   it("drops a tag whose name was taken out before saving", async () => {
@@ -191,7 +207,7 @@ describe("tagging the team in a note", () => {
     await userEvent.clear(box);
     await userEvent.type(box, "בלי תיוג");
     await userEvent.click(screen.getByRole("button", { name: "שמירה" }));
-    await waitFor(() => expect(addNote).toHaveBeenCalledWith("lead-1", "בלי תיוג", []));
+    await waitFor(() => expect(addNote).toHaveBeenCalledWith("lead-1", "בלי תיוג", [], "note"));
   });
 
   it("starts a tag at the caret from the tag button", async () => {
@@ -214,7 +230,7 @@ describe("tagging the team in a note", () => {
     expect(editor).toHaveValue("@נועה כהן תחזרו אליה");
     await userEvent.type(editor, " מחר");
     await userEvent.click(within(editor.closest("li")!).getByRole("button", { name: "שמירה" }));
-    await waitFor(() => expect(editNote).toHaveBeenCalledWith("lead-1", "n-1", "@נועה כהן תחזרו אליה מחר", ["u-noa"]));
+    await waitFor(() => expect(editNote).toHaveBeenCalledWith("lead-1", "n-1", "@נועה כהן תחזרו אליה מחר", ["u-noa"], "note"));
   });
 
   it("highlights the people a note tags, and leaves other @ text plain", async () => {

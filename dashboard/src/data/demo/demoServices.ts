@@ -117,6 +117,7 @@ function buildLeads(): Lead[] {
         createdAt: at,
         updatedAt: at,
         lastNote: LEAD_NOTE[status],
+        lastNoteCategory: "note",
         archived: false,
         calls: status === "no-answer" ? 1 + (index % 3) : status === "new" ? 0 : 1,
         lastCallOn: status === "new" ? null : day,
@@ -158,7 +159,7 @@ function createLeads(leads: Lead[], me: StaffUser): DataServices["leads"] {
   };
   const write = (lead: Lead, note: LeadEvent) => {
     crmNotes.set(lead.id, [note, ...notesOf(lead.id)]);
-    leads[leads.indexOf(lead)] = { ...lead, lastNote: note.text, updatedAt: note.at };
+    leads[leads.indexOf(lead)] = { ...lead, lastNote: note.text, lastNoteCategory: note.category, updatedAt: note.at };
   };
   // A teammate tagged the demo user on a lead in conversation 40 minutes ago, so the bell has one to show.
   const tagged = leads.findLast((lead) => lead.status === "talking");
@@ -173,6 +174,7 @@ function createLeads(leads: Lead[], me: StaffUser): DataServices["leads"] {
       source: "crm",
       editedAt: null,
       mentions: [me.id],
+      category: "question",
     });
   }
   // And the demo user passed a new lead to Michal two hours ago, so the board shows a teammate's face on a card too.
@@ -188,6 +190,7 @@ function createLeads(leads: Lead[], me: StaffUser): DataServices["leads"] {
       source: "crm",
       editedAt: null,
       mentions: [STAFF.michal],
+      category: "note",
     });
   }
   // Who a lead's notes tag, each once, the most recently tagged first (notes are kept newest first).
@@ -206,9 +209,9 @@ function createLeads(leads: Lead[], me: StaffUser): DataServices["leads"] {
   const get = async (id: string): Promise<Lead> => {
     const lead = leads.find((entry) => entry.id === id);
     if (!lead) throw new NotFoundError("Lead", id);
-    const first = { id: `${id}-first`, at: lead.createdAt, text: "פנתה דרך הטופס, ביקשה פרטים על הטיסה", byUserId: null, author: OFFICE_NOTES, mondayBoard: lead.mondayBoard, source: "monday" as const, editedAt: null, mentions: [] };
+    const first = { id: `${id}-first`, at: lead.createdAt, text: "פנתה דרך הטופס, ביקשה פרטים על הטיסה", byUserId: null, author: OFFICE_NOTES, mondayBoard: lead.mondayBoard, source: "monday" as const, editedAt: null, mentions: [], category: "note" as const };
     const monday = mondayNote.get(id) ?? { text: lead.lastNote, at: lead.updatedAt };
-    const latest = { id: `${id}-note`, at: monday.at, text: monday.text, byUserId: null, author: OFFICE_NOTES, mondayBoard: lead.mondayBoard, source: "monday" as const, editedAt: null, mentions: [] };
+    const latest = { id: `${id}-note`, at: monday.at, text: monday.text, byUserId: null, author: OFFICE_NOTES, mondayBoard: lead.mondayBoard, source: "monday" as const, editedAt: null, mentions: [], category: "note" as const };
     const fromMonday = lead.status === "new" ? [latest] : [latest, first];
     return { ...lead, tagged: taggedOf(id), history: [...notesOf(id).map(copyNote), ...fromMonday] };
   };
@@ -248,17 +251,32 @@ function createLeads(leads: Lead[], me: StaffUser): DataServices["leads"] {
       leads[index] = { ...leads[index], status, mondayPending: false };
       return get(id);
     },
-    addNote: async (id, text, mentions) => {
+    addNote: async (id, text, mentions, category = "note") => {
       const lead = findLead(id);
-      const note: LeadEvent = { id: nextId("ln"), at: iso(now()), text, byUserId: me.id, author: me.name, mondayBoard: null, source: "crm", editedAt: null, mentions: tagsOf(mentions) };
+      const note: LeadEvent = {
+        id: nextId("ln"),
+        at: iso(now()),
+        text,
+        byUserId: me.id,
+        author: me.name,
+        mondayBoard: null,
+        source: "crm",
+        editedAt: null,
+        mentions: tagsOf(mentions),
+        category,
+      };
       write(lead, note);
       return copyNote(note);
     },
-    editNote: async (id, noteId, text, mentions) => {
+    editNote: async (id, noteId, text, mentions, category) => {
       const note = findNote(id, noteId);
       note.text = text;
       note.editedAt = iso(now());
       if (mentions) note.mentions = tagsOf(mentions);
+      if (category) note.category = category;
+      // the card shows the newest note: keep it in step when that's the one edited
+      const lead = findLead(id);
+      if (notesOf(id)[0] === note) leads[leads.indexOf(lead)] = { ...lead, lastNote: note.text, lastNoteCategory: note.category };
       return copyNote(note);
     },
     deleteNote: async (id, noteId) => {

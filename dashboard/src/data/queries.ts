@@ -1,5 +1,6 @@
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient, type QueryClient, type QueryKey } from "@tanstack/react-query";
 import { now } from "../lib/clock";
+import { settleEach } from "../lib/settle";
 import { accessFor, atLeast, estimateSendMinutes } from "./rules";
 import type {
   AccessInput,
@@ -25,6 +26,7 @@ import type {
   LeadStatus,
   MentionFeed,
   MondayCopy,
+  NoteCategory,
   PermissionArea,
   PermissionMatrix,
   SecuritySettings,
@@ -241,17 +243,40 @@ export function useAddLeadNote() {
   const { leads } = useServices();
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, text, mentions }: { id: string; text: string; mentions?: string[] }) => leads.addNote(id, text, mentions),
+    mutationFn: ({ id, text, mentions, category }: { id: string; text: string; mentions?: string[]; category?: NoteCategory }) =>
+      leads.addNote(id, text, mentions, category),
     onSettled: (_data, _error, { id }) => refreshLead(client, id),
   });
 }
 
-/** Changes a note's text; with `mentions`, its tags too. */
+/** Calls out at once when the same change goes to several leads: quick, and far inside the server's per-minute limit. */
+export const BULK_CALLS = 4;
+
+/**
+ * Adds the same note to several leads, a few calls at a time; one that fails doesn't stop the rest. Resolves with the
+ * ids it couldn't add the note to. The leads and the bell refresh once, when all are done.
+ */
+export function useAddNoteToLeads() {
+  const { leads } = useServices();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ ids, text, mentions, category }: { ids: string[]; text: string; mentions?: string[]; category?: NoteCategory }) =>
+      (await settleEach(ids, BULK_CALLS, (id) => leads.addNote(id, text, mentions, category))).map((failure) => failure.item),
+    onSettled: async (_failed, _error, { ids }) => {
+      await Promise.all(ids.map((id) => client.invalidateQueries({ queryKey: queryKeys.lead(id) })));
+      await client.invalidateQueries({ queryKey: ["leads", "list"] });
+      await client.invalidateQueries({ queryKey: queryKeys.mentions });
+    },
+  });
+}
+
+/** Changes a note's text; with `mentions`, its tags too, and with `category` its kind. */
 export function useEditLeadNote() {
   const { leads } = useServices();
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, noteId, text, mentions }: { id: string; noteId: string; text: string; mentions?: string[] }) => leads.editNote(id, noteId, text, mentions),
+    mutationFn: ({ id, noteId, text, mentions, category }: { id: string; noteId: string; text: string; mentions?: string[]; category?: NoteCategory }) =>
+      leads.editNote(id, noteId, text, mentions, category),
     onSettled: (_data, _error, { id }) => refreshLead(client, id),
   });
 }

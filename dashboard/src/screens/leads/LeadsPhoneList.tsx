@@ -5,7 +5,7 @@ import { useCopy, useLocale } from "../../content/locale";
 import { useLeadCounts } from "../../data/queries";
 import type { Lead } from "../../data/types";
 import { now } from "../../lib/clock";
-import { formatNumber, formatRelative } from "../../lib/format";
+import { formatNumber, formatPhone, formatRelative } from "../../lib/format";
 import { useFirstKeys, type RowMotion } from "../../motion/cascade";
 import { springs } from "../../motion/springs";
 import { cardVariants, rowVariants } from "../../motion/variants";
@@ -21,7 +21,9 @@ import { ErrorState, Skeleton } from "../../ui/states";
 import { StatusTag } from "../../ui/StatusTag";
 import { Surface } from "../../ui/Surface";
 import { cx } from "../../lib/cx";
+import { NoteKindBadge } from "./LeadNotes";
 import { LeadsEmpty, StatusChips, TaggedMeChip } from "./LeadsFilterBar";
+import { NextFlight } from "./NextFlight";
 import { useSearchDraft, useSettledLeads } from "./leads-data";
 import { groupByService, initialOf, STATUS_TONE } from "./leads-model";
 import { ALL, countActiveFilters, toLeadFilters, useLeadsUrl } from "./leads-url";
@@ -63,6 +65,7 @@ export function LeadsPhoneList() {
     <ScreenFrame>
       <PhoneTopBar />
       <Headline title={copy.title} soft={copy.summaryPhone(open)} size="display-2" className="mx-0.5" />
+      <NextFlight className="self-start" />
       <Field label={copy.search} icon="search" name="q" type="search" value={draft} onChange={setDraft} />
       <StatusChips value={url.state.status} onChange={(status) => update({ status })} scroll />
       <div className="flex">
@@ -121,12 +124,17 @@ function TripSection({ title, leads, leadHref }: TripSectionProps) {
                 }
                 description={
                   <>
-                    <Ltr>{lead.phone}</Ltr>
+                    <Ltr>{formatPhone(lead.phone)}</Ltr>
                     {copy.separator}
                     {copy.sources[lead.source]}
                   </>
                 }
-                note={copy.noteLine(lead.lastNote, formatRelative(new Date(lead.updatedAt), reference, locale))}
+                note={
+                  <>
+                    <NoteKindBadge kind={lead.lastNoteCategory} compact className="me-1.5 align-[1px]" />
+                    {copy.noteLine(lead.lastNote, formatRelative(new Date(lead.updatedAt), reference, locale))}
+                  </>
+                }
               />
             </motion.li>
           ))}

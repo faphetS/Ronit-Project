@@ -128,7 +128,7 @@ describe("query hooks", () => {
     let notes: LeadEvent[] = [];
     services.leads.get = async () => testLead({ history: notes });
     services.leads.addNote = async (_id, text) => {
-      const note: LeadEvent = { id: "n1", at: "2026-11-24T08:00:00.000Z", text, byUserId: "u-ronit", author: null, mondayBoard: null, source: "crm", editedAt: null, mentions: [] };
+      const note: LeadEvent = { id: "n1", at: "2026-11-24T08:00:00.000Z", text, byUserId: "u-ronit", author: null, mondayBoard: null, source: "crm", editedAt: null, mentions: [], category: "note" };
       notes = [note, ...notes];
       return note;
     };

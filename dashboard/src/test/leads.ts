@@ -17,6 +17,7 @@ export function testLead(overrides: Partial<Lead> = {}): Lead {
     createdAt: "2026-11-20T08:00:00.000Z",
     updatedAt: "2026-11-20T08:00:00.000Z",
     lastNote: "",
+    lastNoteCategory: "note",
     archived: false,
     calls: 0,
     lastCallOn: null,

@@ -21,7 +21,7 @@ import { useCopy, useLocale } from "../../content/locale";
 import type { Lead, SettableLeadStatus } from "../../data/types";
 import { dayAt } from "../../lib/clock";
 import { cx } from "../../lib/cx";
-import { formatDayMonth, formatNumber } from "../../lib/format";
+import { formatDayMonth, formatNumber, formatPhone } from "../../lib/format";
 import { useFirstKeys, type RowMotion } from "../../motion/cascade";
 import { CARD_PRESS_SCALE, springs } from "../../motion/springs";
 import { cardVariants, rowVariants } from "../../motion/variants";
@@ -31,11 +31,19 @@ import { Ltr } from "../../ui/Ltr";
 import { ErrorState, Skeleton } from "../../ui/states";
 import { StatusTag, type StatusTone } from "../../ui/StatusTag";
 import { Surface } from "../../ui/Surface";
+import { NoteKindBadge } from "./LeadNotes";
 import type { useSettledLeads } from "./leads-data";
 import { arrivedOn, BOARD_COLUMNS, boardLeads, moveFor, telHref, whatsappHref, type DropTarget } from "./leads-model";
 import { TaggedPeople } from "./TaggedPeople";
 
 type SettledLeads = ReturnType<typeof useSettledLeads>;
+
+/** Picking cards on the board: which are picked, and a change to that. */
+export interface BoardPicking {
+  picked: ReadonlySet<string>;
+  /** Picks the leads (`on`) or puts them back. */
+  onPick: (ids: readonly string[], on: boolean) => void;
+}
 
 /** A column shows this many cards, then a button for the rest. */
 const CARD_LIMIT = 20;
@@ -75,6 +83,8 @@ interface LeadsKanbanProps {
   canMove?: boolean;
   /** A card was dropped on another column: the lead, and the status that column gives it. */
   onMove?: (lead: Lead, status: SettableLeadStatus) => void;
+  /** While picking cards: a press on a card picks it rather than opening the lead, and nothing drags. */
+  picking?: BoardPicking;
 }
 
 /**
@@ -110,8 +120,10 @@ function useBoardInView() {
  * board fits the view. Cards cascade in as the page opens; a lead whose status changed fades out of its old column and
  * rises into the new one.
  */
-export function LeadsKanban({ open, closed, selectedId, leadHref, canMove = false, onMove }: LeadsKanbanProps) {
+export function LeadsKanban({ open, closed, selectedId, leadHref, canMove: mayMove = false, onMove, picking }: LeadsKanbanProps) {
   const { leadsCopy: copy } = useCopy();
+  // Picking and dragging share the press, so cards don't drag while picking.
+  const canMove = mayMove && !picking;
   const [showClosed, setShowClosed] = useState(false);
   const [dragged, setDragged] = useState<Lead | null>(null);
   const droppedAt = useRef(0);
@@ -168,6 +180,7 @@ export function LeadsKanban({ open, closed, selectedId, leadHref, canMove = fals
       scrolls={inView}
       canMove={canMove}
       justDropped={justDropped}
+      picking={picking}
       footer={footer}
     />
   );
@@ -218,16 +231,27 @@ interface BoardColumnProps {
   scrolls: boolean;
   canMove: boolean;
   justDropped: () => boolean;
+  picking?: BoardPicking;
   footer?: ReactNode;
 }
 
-function BoardColumn({ target, name, headClass, leads, selectedId, leadHref, scrolls, canMove, justDropped, footer }: BoardColumnProps) {
+function BoardColumn({ target, name, headClass, leads, selectedId, leadHref, scrolls, canMove, justDropped, picking, footer }: BoardColumnProps) {
   const { leadsCopy: copy } = useCopy();
   const headingId = useId();
   const [expanded, setExpanded] = useState(false);
   const { setNodeRef, isOver } = useDroppable({ id: target, disabled: !canMove });
   const shown = expanded ? leads : leads.slice(0, CARD_LIMIT);
   const isFirst = useFirstKeys(leads.map((lead) => lead.id));
+  // The heading's check picks the cards the column shows, so nothing is picked out of sight.
+  const shownIds = shown.map((lead) => lead.id);
+  const pickedHere = picking ? shownIds.filter((id) => picking.picked.has(id)).length : 0;
+  const pickColumn: ColumnPick | undefined =
+    picking && shownIds.length > 0
+      ? {
+          state: pickedHere === 0 ? "none" : pickedHere === shownIds.length ? "all" : "some",
+          toggle: () => picking.onPick(shownIds, pickedHere < shownIds.length),
+        }
+      : undefined;
   return (
     // At its tallest, with the page scrolled to its end, the column fits between the top bar and the page's bottom edge.
     <motion.section
@@ -239,7 +263,7 @@ function BoardColumn({ target, name, headClass, leads, selectedId, leadHref, scr
         isOver ? DROP_HIGHLIGHT : "",
       )}
     >
-      <ColumnHeading id={headingId} name={name} count={leads.length} headClass={headClass} />
+      <ColumnHeading id={headingId} name={name} count={leads.length} headClass={headClass} pick={pickColumn} />
       {/* The list reaches the column's edges, so cards pass under the heading and their shadows aren't cut off. */}
       <motion.ul
         layoutScroll
@@ -258,6 +282,7 @@ function BoardColumn({ target, name, headClass, leads, selectedId, leadHref, scr
               row={{ index, cascade: isFirst(lead.id) }}
               canMove={canMove}
               justDropped={justDropped}
+              picking={picking ? { picked: picking.picked.has(lead.id), onPick: (on) => picking.onPick([lead.id], on) } : undefined}
             />
           ))}
         </AnimatePresence>
@@ -269,16 +294,70 @@ function BoardColumn({ target, name, headClass, leads, selectedId, leadHref, scr
   );
 }
 
-function ColumnHeading({ id, name, count, headClass }: { id: string; name: string; count: number; headClass: string }) {
+/** A column heading's check while picking: whether its cards are all, some or none picked, and the press. */
+interface ColumnPick {
+  state: "all" | "some" | "none";
+  toggle: () => void;
+}
+
+function ColumnHeading({ id, name, count, headClass, pick }: { id: string; name: string; count: number; headClass: string; pick?: ColumnPick }) {
   const { leadsCopy: copy } = useCopy();
   return (
-    <h3 id={id} className={cx("flex h-[42px] shrink-0 items-center gap-2 rounded-2xl px-3.5 text-[15px] font-medium", headClass)}>
-      <span className="min-w-0 truncate">{name}</span>
-      <span className="ms-auto inline-flex h-6 min-w-7 items-center justify-center rounded-full bg-paper/30 px-2 text-caption tabular-nums">
-        <span aria-hidden="true">{formatNumber(count)}</span>
-        <span className="sr-only">{copy.leadCount(count)}</span>
-      </span>
-    </h3>
+    <div className={cx("flex h-[42px] shrink-0 items-center gap-2 rounded-2xl px-3.5", headClass, pick && "ps-2.5")}>
+      {pick ? (
+        <PickCheck
+          checked={pick.state === "all" ? true : pick.state === "some" ? "mixed" : false}
+          label={copy.select.pickColumn(name)}
+          onToggle={pick.toggle}
+          onColor
+        />
+      ) : null}
+      <h3 id={id} className="flex min-w-0 flex-1 items-center gap-2 text-[15px] font-medium">
+        <span className="min-w-0 truncate">{name}</span>
+        <span className="ms-auto inline-flex h-6 min-w-7 items-center justify-center rounded-full bg-paper/30 px-2 text-caption tabular-nums">
+          <span aria-hidden="true">{formatNumber(count)}</span>
+          <span className="sr-only">{copy.leadCount(count)}</span>
+        </span>
+      </h3>
+    </div>
+  );
+}
+
+interface PickCheckProps {
+  checked: boolean | "mixed";
+  label: string;
+  onToggle: () => void;
+  /** On a column's colored heading: drawn in the heading's own text color. */
+  onColor?: boolean;
+  /** Its press area covers the card it sits on, as the name's link does when not picking. */
+  coversCard?: boolean;
+}
+
+/** A round check: a card's while picking, or a column heading's for all its cards. */
+function PickCheck({ checked, label, onToggle, onColor = false, coversCard = false }: PickCheckProps) {
+  const on = checked !== false;
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={checked}
+      aria-label={label}
+      draggable={false}
+      onClick={onToggle}
+      className={cx(
+        "grid size-[22px] shrink-0 cursor-pointer place-items-center rounded-full transition-colors",
+        coversCard && "after:absolute after:inset-0 after:rounded-inner",
+        onColor
+          ? on
+            ? "bg-paper text-ink"
+            : "ring-[1.5px] ring-current ring-inset hover:bg-paper/20"
+          : on
+            ? "bg-ink text-cream"
+            : "bg-paper ring-[1.5px] ring-ink/25 ring-inset hover:ring-ink/45",
+      )}
+    >
+      {on ? <Icon name={checked === "mixed" ? "minus" : "check"} size={14} /> : null}
+    </button>
   );
 }
 
@@ -327,15 +406,18 @@ interface LeadCardProps {
   row: RowMotion;
   canMove: boolean;
   justDropped: () => boolean;
+  /** While picking: whether this card is picked, and a press on it. */
+  picking?: { picked: boolean; onPick: (on: boolean) => void };
 }
 
-function LeadCard({ lead, selected, href, row, canMove, justDropped }: LeadCardProps) {
+function LeadCard({ lead, selected, href, row, canMove, justDropped, picking }: LeadCardProps) {
   const { leadsCopy: copy } = useCopy();
   const { locale } = useLocale();
   const { setNodeRef, listeners, isDragging } = useDraggable({ id: lead.id, disabled: !canMove });
   const tag = cardTag(lead, copy);
   // Someone was tagged in the lead's notes: the card gets a gold border and their faces.
   const tagged = lead.tagged.length > 0;
+  const picked = picking?.picked ?? false;
   const openUnlessDropped = (event: MouseEvent<HTMLAnchorElement>) => {
     if (justDropped()) event.preventDefault();
   };
@@ -354,22 +436,30 @@ function LeadCard({ lead, selected, href, row, canMove, justDropped }: LeadCardP
       whileTap={{ scale: CARD_PRESS_SCALE }}
       className={cx(
         "lift-shadow relative rounded-inner p-3.5 shadow-card transition-[background-color,opacity]",
-        selected ? "bg-cream" : "bg-paper",
-        tagged ? "ring-2 ring-gold ring-inset" : selected ? "ring-1 ring-ink/15 ring-inset" : "",
+        selected && !picking ? "bg-cream" : "bg-paper",
+        picked ? "ring-2 ring-ink ring-inset" : tagged ? "ring-2 ring-gold ring-inset" : selected ? "ring-1 ring-ink/15 ring-inset" : "",
         isDragging ? "opacity-40" : "",
       )}
     >
       <div className="flex items-baseline justify-between gap-2">
-        {/* The name's link covers the card, so a click anywhere opens the lead; the contact buttons sit above it. */}
-        <Link
-          to={href}
-          draggable={false}
-          onClick={openUnlessDropped}
-          aria-current={selected ? "page" : undefined}
-          className="min-w-0 font-medium break-words text-ink after:absolute after:inset-0 after:rounded-inner"
-        >
-          {lead.name}
-        </Link>
+        {picking ? (
+          // While picking, the check covers the card instead of the link: a press anywhere picks it.
+          <span className="flex min-w-0 items-center gap-2 self-center">
+            <PickCheck checked={picked} label={copy.select.pick(lead.name)} onToggle={() => picking.onPick(!picked)} coversCard />
+            <span className="min-w-0 font-medium break-words text-ink">{lead.name}</span>
+          </span>
+        ) : (
+          // The name's link covers the card, so a click anywhere opens the lead; the contact buttons sit above it.
+          <Link
+            to={href}
+            draggable={false}
+            onClick={openUnlessDropped}
+            aria-current={selected ? "page" : undefined}
+            className="min-w-0 font-medium break-words text-ink after:absolute after:inset-0 after:rounded-inner"
+          >
+            {lead.name}
+          </Link>
+        )}
         <span className="shrink-0 text-caption text-mute">{formatDayMonth(dayAt(arrivedOn(lead)), locale)}</span>
       </div>
       <div className="mt-2 flex flex-wrap gap-1.5">
@@ -377,6 +467,13 @@ function LeadCard({ lead, selected, href, row, canMove, justDropped }: LeadCardP
         <Chip>{copy.sources[lead.source]}</Chip>
         {lead.archived ? <Chip>{copy.archived}</Chip> : null}
       </div>
+      {/* The newest note, two lines at most: a question or an answer says so first. */}
+      {lead.lastNote ? (
+        <p className="mt-2 line-clamp-2 text-caption break-words text-copy">
+          <NoteKindBadge kind={lead.lastNoteCategory} compact className="me-1.5 align-[1px]" />
+          {lead.lastNote}
+        </p>
+      ) : null}
       {tag || tagged ? (
         <div className="mt-2 flex items-center gap-2">
           {tag ? <StatusTag tone={tag.tone}>{tag.text}</StatusTag> : null}
@@ -385,7 +482,7 @@ function LeadCard({ lead, selected, href, row, canMove, justDropped }: LeadCardP
       ) : null}
       <div className="relative z-10 mt-3 flex items-center justify-between gap-2 border-t border-line pt-2.5">
         <span className="text-small text-copy">
-          <Ltr>{lead.phone}</Ltr>
+          <Ltr>{formatPhone(lead.phone)}</Ltr>
         </span>
         <span className="flex gap-1.5">
           <ContactLink href={whatsappHref(lead.phone)} icon="chat" label={copy.board.whatsapp(lead.name)} newTab />

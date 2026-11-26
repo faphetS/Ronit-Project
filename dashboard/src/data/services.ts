@@ -9,17 +9,18 @@ import type {
   Customer,
   CustomerMessage,
   GroupParticipant,
-  GroupType,
   GroupSummary,
+  GroupType,
   HolidayCampaign,
   Lead,
-  LeadEvent,
   LeadDay,
+  LeadEvent,
   LeadService,
   LeadSource,
   LeadStatus,
   MentionFeed,
   MondayCopy,
+  NoteCategory,
   OverviewStats,
   PassportAccessEntry,
   PassportIntake,
@@ -156,10 +157,10 @@ export interface LeadsService {
   get(id: string): Promise<Lead>;
   /** Gives the lead a new status. Resolves with the lead as saved; mondayPending until Monday has the label. */
   setStatus(id: string, status: SettableLeadStatus): Promise<Lead>;
-  /** Adds a CRM note to the lead; resolves with the note as saved. `mentions`: the staff it tags, by user id. */
-  addNote(id: string, text: string, mentions?: string[]): Promise<LeadEvent>;
-  /** Changes a note's text. With `mentions`, they replace the note's tags; without, its tags stay as they were. */
-  editNote(id: string, noteId: string, text: string, mentions?: string[]): Promise<LeadEvent>;
+  /** Adds a CRM note to the lead; resolves with the note as saved. `mentions`: the staff it tags, by user id; `category`: its kind (a plain note by default). */
+  addNote(id: string, text: string, mentions?: string[], category?: NoteCategory): Promise<LeadEvent>;
+  /** Changes a note's text. With `mentions`, they replace the note's tags, and with `category` its kind; without, they stay as they were. */
+  editNote(id: string, noteId: string, text: string, mentions?: string[], category?: NoteCategory): Promise<LeadEvent>;
   deleteNote(id: string, noteId: string): Promise<void>;
   /** The notes that tagged the signed-in user: the newest 30, and how many of all of them are unread. */
   mentions(): Promise<MentionFeed>;
