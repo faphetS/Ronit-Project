@@ -118,6 +118,19 @@
   box-shadow: var(--shadow-ink);
 }
 
+/* A ticket: a half circle bitten out of each side, level with the tear line above the footer (--notch-y from the
+   bottom). Each half of the mask carries its own side's notch. The mask clips box shadows; give the parent a drop
+   shadow instead. */
+@utility ticket {
+  --notch-y: 52px;
+  -webkit-mask:
+    radial-gradient(circle 11px at 0 calc(100% - var(--notch-y)), transparent 97%, #000 100%) left / 51% 100% no-repeat,
+    radial-gradient(circle 11px at 100% calc(100% - var(--notch-y)), transparent 97%, #000 100%) right / 51% 100% no-repeat;
+  mask:
+    radial-gradient(circle 11px at 0 calc(100% - var(--notch-y)), transparent 97%, #000 100%) left / 51% 100% no-repeat,
+    radial-gradient(circle 11px at 100% calc(100% - var(--notch-y)), transparent 97%, #000 100%) right / 51% 100% no-repeat;
+}
+
 /* A card that lifts under the mouse. Its deeper shadow is a layer of its own that fades in, so no shadow is animated.
    It needs no overflow clipping on the card itself (the black card clips, and keeps its own shadow). */
 @utility lift-shadow {

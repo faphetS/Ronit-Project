@@ -2,7 +2,7 @@ import { AnimatePresence } from "motion/react";
 import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useCopy, useLocale } from "../../content/locale";
-import { useCan, useLeadCounts, useOverview } from "../../data/queries";
+import { useCan, useLeadCounts, useMaySee, useOverview } from "../../data/queries";
 import { dayAt, isoDay, now } from "../../lib/clock";
 import { cx } from "../../lib/cx";
 import { formatDayMonth, formatNumber } from "../../lib/format";
@@ -14,7 +14,7 @@ import { LeadSidePanel } from "./LeadSidePanel";
 import { LeadsDayPanel } from "./LeadsDayPanel";
 import { LeadsKanban, type BoardPicking } from "./LeadsKanban";
 import { LeadsSelectionBar } from "./LeadsSelectionBar";
-import { NextFlight } from "./NextFlight";
+import { NextTripCard } from "./NextTrip";
 import { useSettledLeads } from "./leads-data";
 import { useChangeLeadStatus } from "./useChangeLeadStatus";
 import { useCloseOnOutsidePress } from "./useCloseOnOutsidePress";
@@ -65,8 +65,8 @@ function onBoard(open: Lead[] | undefined, closed: Lead[] | undefined): Lead[] |
 }
 
 /**
- * The desktop leads page: the count of open leads and the next flight; how many leads came in today, or on any day
- * picked in the panel; then those leads on a board by status, filtered by source and service, or to the ones whose
+ * The desktop leads page: the count of open leads; the next flight or event, counting down, beside how many leads came
+ * in today, or on any day picked in the panel; then those leads on a board by status, filtered by source and service, or to the ones whose
  * notes tag you ("תויגתי", which looks at every day). A lead opens in a panel that floats over the board and stays in
  * view while the page scrolls; a press outside it closes it. People who may change statuses can pick several cards
  * ("בחירה") and move them all to one column or tag someone on all of them, from a bar at the bottom.
@@ -80,6 +80,8 @@ export function LeadsDesktopPage({ leadId }: { leadId?: string }) {
   const overview = useOverview();
   const canMove = useCan("leads", "full");
   const changeStatus = useChangeLeadStatus();
+  // The next-trip card shows to people who may see the groups, which sit under customers in the role table.
+  const seesNextTrip = useMaySee("customers");
 
   const filters = toLeadFilters(url.state, { status: false, search: false, day: true });
   const open = useSettledLeads(filters);
@@ -134,12 +136,13 @@ export function LeadsDesktopPage({ leadId }: { leadId?: string }) {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3 px-1 pt-1.5">
-        <Headline title={copy.title} soft={copy.summary(openCount, newThisWeek)} size="display" />
-        <NextFlight className="mb-1" />
-      </div>
+      <Headline title={copy.title} soft={copy.summary(openCount, newThisWeek)} inline size="display" className="px-1 pt-1.5" />
 
-      <LeadsDayPanel day={url.state.day} onDay={(next) => update({ day: next })} shown={shown} filtered={filtered} />
+      {/* The next trip beside the day chart from laptop width; above it, laid out flat, on narrower screens. */}
+      <div className={cx("grid gap-[18px]", seesNextTrip && "xl:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] 2xl:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]")}>
+        <NextTripCard />
+        <LeadsDayPanel day={url.state.day} onDay={(next) => update({ day: next })} shown={shown} filtered={filtered} />
+      </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 px-1">
         <h2 className="text-title font-medium text-ink">{boardTitle}</h2>

@@ -125,7 +125,7 @@ export function LeadsDayPanel({ day, onDay, shown, filtered }: LeadsDayPanelProp
 
   return (
     <motion.section variants={cardVariants} aria-label={copy.days.label} className="surface-card flex flex-wrap items-stretch gap-x-6 gap-y-4 rounded-card px-6 py-5">
-      <div aria-live="polite" className="flex min-w-[200px] flex-[0_1_240px] flex-col justify-center gap-1 border-line lg:border-e lg:pe-6">
+      <div aria-live="polite" className="flex min-w-[180px] flex-[0_1_220px] flex-col justify-center gap-1 border-line lg:border-e lg:pe-6">
         <p className="text-small text-mute">{title}</p>
         {number === null ? (
           <Skeleton className="my-2 h-16 w-24" />
@@ -138,7 +138,7 @@ export function LeadsDayPanel({ day, onDay, shown, filtered }: LeadsDayPanelProp
         {line === null ? <Skeleton className="h-4 w-36" /> : <p className="text-small text-mute">{line}</p>}
       </div>
 
-      <div className="flex min-w-0 flex-[999_1_520px] flex-col gap-3">
+      <div className="flex min-w-0 flex-[999_1_460px] flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-[16px] font-medium text-ink">
             {calendar ? formatMonthYear(dayAt(`${month}-15`), locale) : copy.days.range(dayMonth(start), dayMonth(end))}
@@ -207,7 +207,8 @@ function DayStrip({ start, today, selected, countOf, onPick }: DaysProps & { sta
   const dates = Array.from({ length: STRIP_DAYS }, (_, index) => shiftDay(start, index));
   const peak = Math.max(1, ...dates.map(countOf));
   return (
-    <div className="grid grid-cols-14 gap-1">
+    // The days fill the panel's height: beside a taller card the bars keep their size and the room goes above them.
+    <div className="grid flex-1 grid-cols-14 gap-1">
       {dates.map((date) => {
         const count = countOf(date);
         const on = date === selected;
@@ -220,7 +221,7 @@ function DayStrip({ start, today, selected, countOf, onPick }: DaysProps & { sta
             aria-pressed={on}
             aria-label={copy.days.dayLabel(dayMonth, count)}
             onClick={() => onPick(date)}
-            className={cx("flex h-[172px] flex-col items-center justify-end gap-1.5 rounded-2xl py-2 transition-colors", on ? "bg-cream" : "hover:bg-sand-light")}
+            className={cx("flex min-h-[172px] flex-col items-center justify-end gap-1.5 rounded-2xl py-2 transition-colors", on ? "bg-cream" : "hover:bg-sand-light")}
           >
             <span className={cx("text-small font-medium tabular-nums", on ? "text-ink" : "text-mute")}>{formatNumber(count)}</span>
             <span aria-hidden="true" className={cx("w-[58%] max-w-7 rounded-lg", on ? "bg-ink" : count ? "bg-gold" : "bg-line")} style={{ height }} />

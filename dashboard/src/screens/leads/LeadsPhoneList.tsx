@@ -23,7 +23,7 @@ import { Surface } from "../../ui/Surface";
 import { cx } from "../../lib/cx";
 import { NoteKindBadge } from "./LeadNotes";
 import { LeadsEmpty, StatusChips, TaggedMeChip } from "./LeadsFilterBar";
-import { NextFlight } from "./NextFlight";
+import { NextTripPill } from "./NextTrip";
 import { useSearchDraft, useSettledLeads } from "./leads-data";
 import { groupByService, initialOf, STATUS_TONE } from "./leads-model";
 import { ALL, countActiveFilters, toLeadFilters, useLeadsUrl } from "./leads-url";
@@ -65,7 +65,7 @@ export function LeadsPhoneList() {
     <ScreenFrame>
       <PhoneTopBar />
       <Headline title={copy.title} soft={copy.summaryPhone(open)} size="display-2" className="mx-0.5" />
-      <NextFlight className="self-start" />
+      <NextTripPill className="self-start" />
       <Field label={copy.search} icon="search" name="q" type="search" value={draft} onChange={setDraft} />
       <StatusChips value={url.state.status} onChange={(status) => update({ status })} scroll />
       <div className="flex">

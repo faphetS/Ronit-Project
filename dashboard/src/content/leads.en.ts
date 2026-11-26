@@ -132,11 +132,28 @@ export const leadsCopy: Widen<typeof he> = {
     taggedSome: (done, total) => `Note saved on ${done} of ${total} leads. Try the rest again`,
   },
 
-  nextFlight: {
+  nextTrip: {
     label: "Next flight",
+    underWay: "On the trip now",
     when: (days) => (days === 0 ? "today" : days === 1 ? "tomorrow" : `in ${days} days`),
+    unit: (days) => (days === 1 ? "day to take-off" : "days to take-off"),
+    today: "The flight leaves today",
+    todayNumber: "Today",
+    tripDay: "days of the trip",
+    back: (date) => `Back on ${date}`,
+    dates: (from, to) => `${from} – ${to}`,
     seats: (registered, capacity) => `${registered} of ${capacity} seats`,
     registered: (registered) => `${registered} registered`,
+    passports: (percent) => `Passports ${percent}%`,
+    then: "Then",
+    event: "Next event",
+    path: (days) => (days > 30 ? "More than a month to take-off" : days === 1 ? "One day to take-off" : `${days} days to take-off`),
+    from: "Israel",
+    takeOff: "Take-off",
+    none: "No flight has a date yet",
+    noneHint: "Give a flight a date in Groups and it shows here, with a countdown.",
+    toGroups: "Groups",
+    failed: "The next flight didn't load",
   },
 
   statusChange: {
