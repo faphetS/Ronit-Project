@@ -299,6 +299,24 @@ describe("lead notes", () => {
     await post(shira, `/leads/${id}/notes/${note.id}/delete`).expect(404);
   });
 
+  it("keeps a note's kind: plain by default, a question or an answer when asked, and changes it on an edit", async () => {
+    const id = await leadIdOf("101");
+    const plain = (await post(shira, `/leads/${id}/notes`, { text: "plain" }).expect(201)).body.data;
+    expect(plain.category).toBe("note");
+    clock = new Date("2026-11-02T09:05:00Z");
+    const question = (await post(shira, `/leads/${id}/notes`, { text: "מה המחיר לזוג?", category: "question" }).expect(201)).body.data;
+    expect(question.category).toBe("question");
+    // the board's card shows the newest note, with its kind
+    const listed = (await get(shira, "/leads?status=all").expect(200)).body.data.find((l: { id: string }) => l.id === id);
+    expect(listed).toMatchObject({ lastNote: "מה המחיר לזוג?", lastNoteCategory: "question" });
+    // an edit without a kind keeps it; with one, changes it
+    expect((await post(shira, `/leads/${id}/notes/${question.id}`, { text: "מה המחיר לזוג? (2)" }).expect(200)).body.data.category).toBe("question");
+    expect((await post(shira, `/leads/${id}/notes/${question.id}`, { text: "5,200 ₪ לאדם", category: "answer" }).expect(200)).body.data.category).toBe("answer");
+    expect((await history(shira, id))[0]).toMatchObject({ id: question.id, category: "answer" });
+    expect((await history(shira, id)).find((e: { source: string }) => e.source === "monday").category).toBe("note");
+    await post(shira, `/leads/${id}/notes`, { text: "x", category: "idea" }).expect(400);
+  });
+
   it("removes a deleted note from the history", async () => {
     const id = await leadIdOf("101");
     const note = (await post(shira, `/leads/${id}/notes`, { text: "gone soon" }).expect(201)).body.data;

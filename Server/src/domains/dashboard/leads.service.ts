@@ -3,6 +3,7 @@ import type { Queryable } from "../../config/pg.js";
 import { NotFoundError } from "../../lib/errors.js";
 import type { LeadSource, LeadStatus, Service } from "../monday-copy/monday-copy.mapping.js";
 import { localPhone, phoneSearchDigits } from "./dashboard.format.js";
+import type { NoteCategory } from "./lead-notes.service.js";
 import { mentionsByNote } from "./mentions.service.js";
 
 /** Leads, as copied from Monday's CRM boards. Their status can also change in the CRM: see lead-status.service.ts. */
@@ -19,6 +20,8 @@ export interface LeadEventDto {
   editedAt: string | null;
   /** The staff tagged in a CRM note (@-mentions); Monday's notes have none. */
   mentions: string[];
+  /** A CRM note's kind; Monday's notes are plain notes. */
+  category: NoteCategory;
 }
 
 export interface LeadDto {
@@ -37,6 +40,8 @@ export interface LeadDto {
   createdAt: string;
   updatedAt: string;
   lastNote: string;
+  /** The kind of the newest note, when lastNote is one ("note" for Monday's notes and for the fallbacks). */
+  lastNoteCategory: NoteCategory;
   archived: boolean;
   calls: number;
   lastCallOn: string | null;
@@ -100,6 +105,7 @@ interface LeadRow {
   created_at: Date;
   updated_at: Date;
   last_note: string | null;
+  last_note_category: NoteCategory | null;
   monday_label_pending: string | null;
   customer_id: string | null;
   tagged: string[];
@@ -113,16 +119,19 @@ const LEAD_SELECT = `
   SELECT l.id, l.monday_item_id, l.monday_board_id, l.monday_group, b.name AS board_name, l.name, l.phone, l.source,
          l.status, l.service, l.calls, l.last_call_on, l.inquiry_on, l.last_message, l.next_step, l.archived,
          l.created_at, l.updated_at, l.monday_label_pending, l.customer_id,
-         (SELECT t.body FROM (
-            SELECT n.body, n.at FROM monday_notes n WHERE n.monday_item_id = l.monday_item_id
-            UNION ALL SELECT c.text, c.at FROM lead_notes c WHERE c.lead_id = l.id
-          ) t ORDER BY t.at DESC LIMIT 1) AS last_note,
+         ln.body AS last_note, ln.category AS last_note_category,
          (SELECT coalesce(array_agg(t.user_id::text ORDER BY t.last_at DESC, t.user_id), '{}') FROM (
             SELECT m.user_id, max(m.created_at) AS last_at
             FROM lead_notes c JOIN lead_note_mentions m ON m.note_id = c.id
             WHERE c.lead_id = l.id GROUP BY m.user_id
           ) t) AS tagged
-  FROM leads l LEFT JOIN monday_boards b ON b.id = l.monday_board_id`;
+  FROM leads l LEFT JOIN monday_boards b ON b.id = l.monday_board_id
+  LEFT JOIN LATERAL (
+    SELECT t.body, t.category FROM (
+      SELECT n.body, n.at, 'note'::text AS category FROM monday_notes n WHERE n.monday_item_id = l.monday_item_id
+      UNION ALL SELECT c.text, c.at, c.category FROM lead_notes c WHERE c.lead_id = l.id
+    ) t ORDER BY t.at DESC LIMIT 1
+  ) ln ON true`;
 
 /** Where a row opens in Monday. */
 export function mondayUrl(boardId: string, itemId: string): string {
@@ -145,6 +154,7 @@ function toLead(row: LeadRow): LeadDto {
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
     lastNote: row.last_note ?? row.next_step ?? row.last_message ?? "",
+    lastNoteCategory: row.last_note !== null ? (row.last_note_category ?? "note") : "note",
     archived: row.archived,
     calls: row.calls,
     lastCallOn: row.last_call_on,
@@ -231,8 +241,8 @@ export async function getLead(db: Queryable, id: string): Promise<LeadDto> {
     "SELECT id, at, author, body FROM monday_notes WHERE monday_item_id = $1 ORDER BY at DESC LIMIT 200",
     [rows[0].monday_item_id],
   );
-  const crm = await db.query<{ id: string; at: Date; text: string; by_user_id: string | null; edited_at: Date | null }>(
-    "SELECT id, at, text, by_user_id, edited_at FROM lead_notes WHERE lead_id = $1 ORDER BY at DESC LIMIT 200",
+  const crm = await db.query<{ id: string; at: Date; text: string; by_user_id: string | null; edited_at: Date | null; category: NoteCategory }>(
+    "SELECT id, at, text, by_user_id, edited_at, category FROM lead_notes WHERE lead_id = $1 ORDER BY at DESC LIMIT 200",
     [id],
   );
   const tagged = await mentionsByNote(db, crm.rows.map((note) => note.id));
@@ -247,6 +257,7 @@ export async function getLead(db: Queryable, id: string): Promise<LeadDto> {
       mondayBoard: null,
       editedAt: note.edited_at ? note.edited_at.toISOString() : null,
       mentions: tagged.get(note.id) ?? [],
+      category: note.category,
     })),
     ...monday.rows.map((note) => ({
       id: note.id,
@@ -258,6 +269,7 @@ export async function getLead(db: Queryable, id: string): Promise<LeadDto> {
       mondayBoard: lead.mondayBoard || null,
       editedAt: null,
       mentions: [],
+      category: "note" as const,
     })),
   ];
   lead.history = events.sort((x, y) => y.at.localeCompare(x.at));

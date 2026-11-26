@@ -5,6 +5,9 @@ import { mentionsByNote, setNoteMentions } from "./mentions.service.js";
 
 /** A lead's own notes, kept in the CRM only (Monday's notes are read-only). Spec: 2026-11-24-lead-notes-and-crm-groups-design.md */
 
+/** A plain note, a question, or an answer to one (migration 012). */
+export type NoteCategory = "note" | "question" | "answer";
+
 export interface LeadNoteDto {
   id: string;
   at: string;
@@ -13,6 +16,7 @@ export interface LeadNoteDto {
   editedAt: string | null;
   /** The staff tagged in it (@-mentions). */
   mentions: string[];
+  category: NoteCategory;
 }
 
 interface NoteRow {
@@ -21,7 +25,10 @@ interface NoteRow {
   text: string;
   by_user_id: string | null;
   edited_at: Date | null;
+  category: NoteCategory;
 }
+
+const NOTE_COLUMNS = "id, at, text, by_user_id, edited_at, category";
 
 const toNote = (row: NoteRow, mentions: string[]): LeadNoteDto => ({
   id: row.id,
@@ -30,6 +37,7 @@ const toNote = (row: NoteRow, mentions: string[]): LeadNoteDto => ({
   byUserId: row.by_user_id,
   editedAt: row.edited_at ? row.edited_at.toISOString() : null,
   mentions,
+  category: row.category,
 });
 
 type Editor = { id: string; role: Role };
@@ -42,13 +50,14 @@ export async function addLeadNote(
   text: string,
   now: Date,
   mentions: readonly string[] = [],
+  category: NoteCategory = "note",
 ): Promise<LeadNoteDto> {
   return db.transaction(async (tx) => {
     const lead = await tx.query("SELECT 1 FROM leads WHERE id = $1 AND removed_at IS NULL", [leadId]);
     if (!lead.rows[0]) throw new NotFoundError("Lead");
     const { rows } = await tx.query<NoteRow>(
-      "INSERT INTO lead_notes (lead_id, by_user_id, at, text) VALUES ($1, $2, $3, $4) RETURNING id, at, text, by_user_id, edited_at",
-      [leadId, byUserId, now, text.trim()],
+      `INSERT INTO lead_notes (lead_id, by_user_id, at, text, category) VALUES ($1, $2, $3, $4, $5) RETURNING ${NOTE_COLUMNS}`,
+      [leadId, byUserId, now, text.trim(), category],
     );
     return toNote(rows[0], await setNoteMentions(tx, rows[0].id, mentions, byUserId, now));
   });
@@ -66,7 +75,10 @@ async function checkOwn(db: Queryable, editor: Editor, leadId: string, noteId: s
   }
 }
 
-/** A new text. `mentions`, when given, becomes the note's whole tagged set; left out, the tags stay as they are. */
+/**
+ * A new text. `mentions`, when given, becomes the note's whole tagged set; left out, the tags stay as they are. The same
+ * goes for `category`.
+ */
 export async function editLeadNote(
   db: Db,
   editor: Editor,
@@ -75,12 +87,13 @@ export async function editLeadNote(
   text: string,
   now: Date,
   mentions?: readonly string[],
+  category?: NoteCategory,
 ): Promise<LeadNoteDto> {
   return db.transaction(async (tx) => {
     await checkOwn(tx, editor, leadId, noteId);
     const { rows } = await tx.query<NoteRow>(
-      "UPDATE lead_notes SET text = $3, edited_at = $4 WHERE id = $1 AND lead_id = $2 RETURNING id, at, text, by_user_id, edited_at",
-      [noteId, leadId, text.trim(), now],
+      `UPDATE lead_notes SET text = $3, edited_at = $4, category = coalesce($5, category) WHERE id = $1 AND lead_id = $2 RETURNING ${NOTE_COLUMNS}`,
+      [noteId, leadId, text.trim(), now, category ?? null],
     );
     if (!rows[0]) throw new NotFoundError("Note");
     const tagged =
