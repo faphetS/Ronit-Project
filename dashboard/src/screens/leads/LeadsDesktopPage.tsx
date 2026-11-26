@@ -45,7 +45,11 @@ function useBoardPicking(boardKey: string) {
     [],
   );
   const keep = useCallback((ids: string[]) => setPicked(new Set(ids)), []);
-  const start = useCallback(() => setOn(true), []);
+  // Picking starts with nothing picked: a move that finished after "סיום" can't leave its misses picked for next time.
+  const start = useCallback(() => {
+    setPicked(new Set());
+    setOn(true);
+  }, []);
   const stop = useCallback(() => {
     setOn(false);
     setPicked(new Set());
