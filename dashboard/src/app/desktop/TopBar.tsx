@@ -1,14 +1,12 @@
-import { useCopy } from "../../content/locale";
-import { Field } from "../../ui/Field";
 import { LanguageSwitch } from "../../ui/LanguageSwitch";
 import { NotificationsMenu } from "../notifications/NotificationsMenu";
+import { QuickSearch } from "./QuickSearch";
 
 /** Fixed top bar: search, the language switch and the bell, which opens the notifications. The sections are on the rail. */
 export function TopBar({ notifications }: { notifications: number }) {
-  const { nav } = useCopy();
   return (
     <header className="flex items-center justify-between gap-3 pb-4">
-      <Field label={nav.search} icon="search" name="q" type="search" size="sm" className="w-[320px]" />
+      <QuickSearch />
       <div className="flex items-center gap-3">
         <LanguageSwitch />
         <NotificationsMenu count={notifications} />

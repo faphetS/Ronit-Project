@@ -24,6 +24,18 @@ export const nav = {
   users: "משתמשים והרשאות",
   settings: "הגדרות",
   search: "חיפוש מהיר",
+  /** The top bar's search: leads, customers and groups by name or phone. */
+  quickSearch: {
+    placeholder: "חיפוש ליד, לקוח או קבוצה",
+    leads: "לידים",
+    customers: "לקוחות",
+    groups: "קבוצות",
+    /** Beside a section's title when it found more than it shows. */
+    more: (shown: number, total: number) => `${shown} מתוך ${total}`,
+    searching: "מחפשים…",
+    none: (term: string) => `לא נמצא דבר עבור ״${term}״`,
+    failed: "החיפוש לא הצליח. נסו שוב.",
+  },
   notifications: (count: number) => `התראות, ${count} חדשות`,
   /** What the bell opens: the alerts its count includes, and the notes that tagged the signed-in person. */
   bell: {
