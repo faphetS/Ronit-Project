@@ -22,6 +22,19 @@ const DATE_FORMATS: Record<Locale, ReturnType<typeof dateFormats>> = {
 };
 
 export const formatNumber = (value: number): string => numberFormat.format(value);
+
+/**
+ * An Israeli phone number in groups that read aloud: "052-178-4972", "02-123-4567". "+972" and "972" become the
+ * leading 0. Anything else (a foreign number, a typo) shows as it came.
+ */
+export function formatPhone(phone: string): string {
+  const raw = phone.trim();
+  let digits = raw.replace(/[\s\-().]/g, "");
+  if (/^\+?972\d{8,9}$/.test(digits)) digits = `0${digits.replace(/^\+?972/, "")}`;
+  if (/^0[57]\d{8}$/.test(digits)) return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+  if (/^0[2-489]\d{7}$/.test(digits)) return `${digits.slice(0, 2)}-${digits.slice(2, 5)}-${digits.slice(5)}`;
+  return raw;
+}
 export const formatDayMonth = (date: Date, locale: Locale = "he"): string => DATE_FORMATS[locale].dayMonth.format(date);
 export const formatDate = (date: Date, locale: Locale = "he"): string => DATE_FORMATS[locale].date.format(date);
 export const formatTime = (date: Date): string => timeFormat.format(date);

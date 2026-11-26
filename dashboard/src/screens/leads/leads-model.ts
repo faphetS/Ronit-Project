@@ -1,6 +1,6 @@
 import { ApiError } from "../../data/http/client";
 import { NotFoundError } from "../../data/services";
-import type { Lead, LeadService, LeadStatus, SettableLeadStatus } from "../../data/types";
+import type { GroupSummary, Lead, LeadService, LeadStatus, SettableLeadStatus } from "../../data/types";
 import { isoDay } from "../../lib/clock";
 import type { StatusTone } from "../../ui/StatusTag";
 
@@ -145,4 +145,11 @@ export function focusLeadLink(id: string): void {
     const links = Array.from(document.querySelectorAll<HTMLAnchorElement>("main a[href]"));
     links.find((link) => link.pathname === path)?.focus();
   });
+}
+
+/** The flight that leaves next, from today on, or null when none has a date. */
+export function nextFlight(groups: readonly GroupSummary[], today: string): GroupSummary | null {
+  const coming = groups.filter((group) => group.type === "flight" && group.startsOn !== null && group.startsOn >= today);
+  coming.sort((a, b) => (a.startsOn ?? "").localeCompare(b.startsOn ?? ""));
+  return coming[0] ?? null;
 }

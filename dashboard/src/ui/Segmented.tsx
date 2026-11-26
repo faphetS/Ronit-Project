@@ -20,17 +20,22 @@ interface SegmentedProps<T extends string> {
   options: SegmentOption<T>[];
   value: T;
   onChange?: (value: T) => void;
+  /** "sm" is as tall as a small button, for a row of small controls. */
+  size?: "md" | "sm";
   className?: string;
 }
 
+const ITEM_SIZE = { md: "h-[38px] px-4 text-[14px]", sm: "h-[30px] px-3 text-[13px]" } as const;
+
 /** iOS-style segmented control: a white pill glides over a soft track. */
-export function Segmented<T extends string>({ id, label, options, value, onChange, className }: SegmentedProps<T>) {
+export function Segmented<T extends string>({ id, label, options, value, onChange, size = "md", className }: SegmentedProps<T>) {
   const isNavigation = options.every((option) => option.to);
   const trackClass = cx("inline-flex gap-0.5 rounded-full bg-ink/7 p-1", className);
   const items = options.map((option) => {
     const selected = option.value === value;
     const itemClass = cx(
-      "relative inline-flex h-[38px] flex-1 items-center justify-center rounded-full px-4 text-[14px] font-medium whitespace-nowrap",
+      "relative inline-flex flex-1 items-center justify-center rounded-full font-medium whitespace-nowrap",
+      ITEM_SIZE[size],
       selected ? "text-ink" : "text-copy",
     );
     const inner = (

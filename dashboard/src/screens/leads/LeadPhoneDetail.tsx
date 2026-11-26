@@ -8,7 +8,10 @@ import { Surface } from "../../ui/Surface";
 import { LeadBodySkeleton, LeadContactLinks, LeadExtras, LeadFacts, LeadHeader, LeadHeaderSkeleton, LeadGroups, LeadHistory } from "./LeadDetailParts";
 import { useLeadDetail } from "./leads-data";
 
-/** The lead as a pushed phone screen, with the same parts as the desktop panel: header, contact and details on glass, then Monday and the notes. */
+/**
+ * The lead as a pushed phone screen, with the same parts as the desktop panel: header, contact and details on glass,
+ * then the next step or last message when there is one, the notes, and the groups.
+ */
 export function LeadPhoneDetail({ leadId }: { leadId: string }) {
   const { leadsCopy: copy } = useCopy();
   const detail = useLeadDetail(leadId);
@@ -23,14 +26,17 @@ export function LeadPhoneDetail({ leadId }: { leadId: string }) {
           <LeadContactLinks phone={lead.phone} />
           <LeadFacts lead={lead} surface="glass" />
         </Surface>
+        {/* Without a next step or a last message there's nothing to put on this card, and an empty card would show. */}
+        {lead.nextStep || lead.lastMessage ? (
+          <Surface variant="card" compact>
+            <LeadExtras lead={lead} />
+          </Surface>
+        ) : null}
         <Surface variant="card" compact>
-          <LeadExtras lead={lead} />
+          <LeadHistory lead={lead} level={2} surface="card" />
         </Surface>
         <Surface variant="card" compact>
           <LeadGroups lead={lead} level={2} />
-        </Surface>
-        <Surface variant="card" compact>
-          <LeadHistory lead={lead} level={2} surface="card" />
         </Surface>
       </>
     );

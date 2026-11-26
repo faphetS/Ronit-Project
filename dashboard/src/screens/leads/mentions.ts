@@ -2,7 +2,7 @@
  * Tagging the team in a lead's notes: "@" and a few letters list people, a pick writes "@<full name>" into the text,
  * and a saved note highlights the names of the people it tags.
  */
-import type { StaffUser } from "../../data/types";
+import type { StaffUser, UserAccount } from "../../data/types";
 
 /** At most this many people in the list under the note box. */
 export const MAX_SUGGESTIONS = 6;
@@ -60,6 +60,17 @@ export function splitMentions(text: string, people: readonly Person[]): NotePart
   }
   if (end < text.length) parts.push(text.slice(end));
   return parts;
+}
+
+/** Remembers one more person picked in a note box. */
+export const withTag = (userId: string) => (ids: string[]) => (ids.includes(userId) ? ids : [...ids, userId]);
+
+/**
+ * The tags to save with a note's text: the people picked whose "@<full name>" is still in it. Until the team has loaded,
+ * names can't be checked, so the ones remembered stay.
+ */
+export function tagsToSave(text: string, remembered: string[], team: UserAccount[] | undefined): string[] {
+  return team ? mentionedIds(text, remembered, team) : remembered;
 }
 
 /** The ids among `ids` whose "@<full name>" is still in the text, each once, in the text's order: the tags a note saves. */

@@ -34,8 +34,13 @@ const MentionsSchema = z
   .max(20)
   .refine((ids) => new Set(ids.map((id) => id.toLowerCase())).size === ids.length, "Each person can be tagged once");
 
-/** On an edit, `mentions` replaces the note's tags; left out, they stay. */
-export const LeadNoteSchema = z.object({ text: z.string().trim().min(1).max(2000), mentions: MentionsSchema.optional() }).strict();
+/** A plain note, a question, or an answer. */
+export const NoteCategorySchema = z.enum(["note", "question", "answer"]);
+
+/** On an edit, `mentions` replaces the note's tags and `category` its kind; left out, they stay. */
+export const LeadNoteSchema = z
+  .object({ text: z.string().trim().min(1).max(2000), mentions: MentionsSchema.optional(), category: NoteCategorySchema.optional() })
+  .strict();
 
 /** The notes whose mentions you've seen; without a list, all of yours. */
 export const MentionsSeenSchema = z.object({ noteIds: z.array(z.string().uuid()).max(100).optional() }).strict();

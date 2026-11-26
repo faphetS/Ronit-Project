@@ -25,6 +25,9 @@ export interface Session {
 }
 
 /** A note on a lead: in Monday, an "update" the team wrote or a call summary. */
+/** A lead note's kind: a plain note, a question, or an answer to one. */
+export type NoteCategory = "note" | "question" | "answer";
+
 export interface LeadEvent {
   id: string;
   at: string;
@@ -41,6 +44,8 @@ export interface LeadEvent {
   editedAt: string | null;
   /** The staff tagged in the note with "@", by user id. Empty for older notes and Monday's. */
   mentions: string[];
+  /** Its kind; Monday's notes and notes from before kinds are plain notes. */
+  category: NoteCategory;
 }
 
 /** A note that tagged the signed-in user. */
@@ -85,6 +90,8 @@ export interface Lead {
   createdAt: string;
   updatedAt: string;
   lastNote: string;
+  /** The kind of the newest note (a plain note when lastNote isn't a note). */
+  lastNoteCategory: NoteCategory;
   /** Leads from the old CRM board: found by search, never in the pipeline. */
   archived: boolean;
   /** Calls made, from Salestrail through Monday. */

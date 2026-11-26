@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { useCopy } from "../../content/locale";
 import { QUICK_SEARCH_MIN, useQuickSearch } from "../../data/queries";
 import { cx } from "../../lib/cx";
+import { formatPhone } from "../../lib/format";
 import { springs } from "../../motion/springs";
 import { STATUS_TONE } from "../../screens/leads/leads-model";
 import { useCloseOnOutsidePress } from "../../screens/leads/useCloseOnOutsidePress";
@@ -84,7 +85,7 @@ export function QuickSearch() {
         key: `lead-${lead.id}`,
         to: `/leads/${encodeURIComponent(lead.id)}`,
         title: lead.name,
-        detail: <Ltr>{lead.phone}</Ltr>,
+        detail: <Ltr>{formatPhone(lead.phone)}</Ltr>,
         trailing: <StatusTag tone={STATUS_TONE[lead.status]}>{leadsCopy.status[lead.status]}</StatusTag>,
       })),
     },

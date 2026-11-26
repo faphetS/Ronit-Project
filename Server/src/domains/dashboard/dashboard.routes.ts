@@ -213,12 +213,23 @@ export function createDashboardRouter(resolveDeps: AuthDepsResolver, options: Da
   // Notes are kept in the CRM only. Only the author or an admin edits or deletes one. A note can tag staff (mentions).
   const editorOf = (req: Request) => ({ id: staffOf(req).user.id, role: staffOf(req).user.role });
   router.post("/leads/:id/notes", requireAccess("leads", "full"), validate({ body: LeadNoteSchema }), async (req, res) => {
-    const note = await addLeadNote(db(res), idParam(req.params.id, "Lead"), staffOf(req).user.id, req.body.text, now(res), req.body.mentions);
+    const note = await addLeadNote(
+      db(res),
+      idParam(req.params.id, "Lead"),
+      staffOf(req).user.id,
+      req.body.text,
+      now(res),
+      req.body.mentions,
+      req.body.category,
+    );
     sendData(res, note, 201);
   });
   router.post("/leads/:id/notes/:noteId", requireAccess("leads", "full"), validate({ body: LeadNoteSchema }), async (req, res) => {
     const leadId = idParam(req.params.id, "Lead");
-    sendData(res, await editLeadNote(db(res), editorOf(req), leadId, idParam(req.params.noteId, "Note"), req.body.text, now(res), req.body.mentions));
+    sendData(
+      res,
+      await editLeadNote(db(res), editorOf(req), leadId, idParam(req.params.noteId, "Note"), req.body.text, now(res), req.body.mentions, req.body.category),
+    );
   });
   router.post("/leads/:id/notes/:noteId/delete", requireAccess("leads", "full"), async (req, res) => {
     await deleteLeadNote(db(res), editorOf(req), idParam(req.params.id, "Lead"), idParam(req.params.noteId, "Note"));

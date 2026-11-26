@@ -49,9 +49,12 @@ describe("PhoneShell", () => {
     expect(router.state.location.state).toEqual({ direction: "back" });
   });
 
-  it("opens the account screen from the avatar", async () => {
+  it("opens the settings from the avatar: the language is there, and the team row leads to the account screen", async () => {
     renderApp(routes, { services: await signedInServices() });
-    await userEvent.click(await screen.findByRole("link", { name: "רונית ברש, חשבון וניהול" }));
+    await userEvent.click(await screen.findByRole("button", { name: "רונית ברש, חשבון וניהול" }));
+    const settings = await screen.findByRole("dialog", { name: "הגדרות" });
+    expect(within(settings).getByRole("group", { name: "שפה" })).toBeInTheDocument();
+    await userEvent.click(within(settings).getByRole("link", { name: /משתמשים והרשאות/ }));
     expect(await screen.findByRole("heading", { name: "account screen" })).toBeInTheDocument();
   });
 });

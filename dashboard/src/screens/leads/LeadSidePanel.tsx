@@ -16,8 +16,9 @@ interface LeadSidePanelProps {
 }
 
 /**
- * The lead on desktop: name and status, contact, details, groups and notes, in a 400px column over the board.
- * It scrolls on its own when it is taller than the window.
+ * The lead on desktop: name and status, contact, then the notes (after the next step or last message, when there is
+ * one) so a note can be written without scrolling, then the details and groups; the card on the board already shows
+ * most details. In a 400px column over the board, it scrolls on its own when it is taller than the window.
  */
 export function LeadSidePanel({ leadId, onClose, surface = "glass", className }: LeadSidePanelProps) {
   const { leadsCopy: copy } = useCopy();
@@ -29,10 +30,10 @@ export function LeadSidePanel({ leadId, onClose, surface = "glass", className }:
     body = (
       <>
         <LeadContactLinks phone={lead.phone} />
-        <LeadFacts lead={lead} surface={surface} />
         <LeadExtras lead={lead} />
-        <LeadGroups lead={lead} level={3} />
         <LeadHistory lead={lead} level={3} surface={surface} />
+        <LeadFacts lead={lead} surface={surface} />
+        <LeadGroups lead={lead} level={3} />
       </>
     );
   else if (detail.isError && detail.error instanceof NotFoundError)
@@ -56,7 +57,7 @@ export function LeadSidePanel({ leadId, onClose, surface = "glass", className }:
       focusOnOpen
       surface={surface}
       header={lead ? <LeadHeader lead={lead} level={2} compact surface={surface} /> : detail.isPending ? <LeadHeaderSkeleton /> : null}
-      className={cx("max-h-[calc(100dvh-8.5rem)] overflow-y-auto [scrollbar-width:thin]", className)}
+      className={cx("no-scrollbar max-h-[calc(100dvh-8.5rem)] overflow-y-auto", className)}
     >
       {body}
     </SidePanel>

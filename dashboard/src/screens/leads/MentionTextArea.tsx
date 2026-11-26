@@ -1,5 +1,5 @@
 import { motion } from "motion/react";
-import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from "react";
 import { useCopy } from "../../content/locale";
 import { useUsers } from "../../data/queries";
 import type { StaffUser } from "../../data/types";
@@ -21,7 +21,13 @@ interface MentionTextAreaProps {
   rows?: number;
   /** The buttons after "תיוג", like save. */
   actions: ReactNode;
+  /** At the start of the buttons' row: the note's kind. */
+  leading?: ReactNode;
+  /** On a white card, like a sheet, rather than glass. */
+  onPaper?: boolean;
   className?: string;
+  /** Reaches the box itself, e.g. to focus it when a sheet opens. */
+  ref?: Ref<HTMLTextAreaElement>;
 }
 
 /**
@@ -29,10 +35,11 @@ interface MentionTextAreaProps {
  * in their name that starts with them (demo accounts never show). The arrow keys move, Enter or Tab picks, Escape
  * closes, and a click picks too; a pick puts "@<full name> " in place of what was typed. "תיוג" starts a tag at the caret.
  */
-export function MentionTextArea({ label, name, value, onChange, onTag, placeholder, rows = 3, actions, className }: MentionTextAreaProps) {
+export function MentionTextArea({ label, name, value, onChange, onTag, placeholder, rows = 3, actions, leading, onPaper = false, className, ref }: MentionTextAreaProps) {
   const { leadsCopy: copy, usersCopy } = useCopy();
   const staff: StaffUser[] = (useUsers().data?.users ?? []).filter((user) => !user.demo);
   const fieldRef = useRef<HTMLTextAreaElement>(null);
+  useImperativeHandle(ref, () => fieldRef.current as HTMLTextAreaElement, []);
   const listId = useId();
   // The tag being typed at the caret, and the start of one Escape closed: it stays closed until the text changes.
   const [typed, setTyped] = useState<MentionQuery | null>(null);
@@ -171,6 +178,8 @@ export function MentionTextArea({ label, name, value, onChange, onTag, placehold
       combobox={{ expanded: open, controls: listId, activeDescendant: open ? optionId(activeIndex) : undefined }}
       popup={list}
       className={className}
+      leading={leading}
+      onPaper={onPaper}
       actions={
         <span className="flex flex-wrap gap-2">
           <Button size="sm" variant="outline" icon="at" onClick={startTag}>

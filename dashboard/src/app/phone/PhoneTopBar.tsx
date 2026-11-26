@@ -1,30 +1,24 @@
 import { useLocation, useNavigate } from "react-router";
 import logoUrl from "../../assets/logo.png";
 import { useCopy } from "../../content/locale";
-import { useSession } from "../../data/queries";
 import { useScreenPath } from "../../motion/screen-path";
-import { PRESS_SCALE, springs } from "../../motion/springs";
-import { Avatar } from "../../ui/Avatar";
 import { IconButton } from "../../ui/IconButton";
-import { LanguageSwitch } from "../../ui/LanguageSwitch";
-import { MotionLink } from "../../ui/MotionLink";
 import { NotificationsSheet } from "../notifications/NotificationsSheet";
+import { PhoneAccountSheet } from "./PhoneAccountSheet";
 import { isPushedRoute, parentOf } from "../sections";
 import { useNavBadges } from "../useNavBadges";
 
 /**
- * Top of a phone screen: avatar, logo, language and the bell (it opens the notifications in a sheet) on top-level
- * screens; a back arrow and a title on pushed ones.
+ * Top of a phone screen: the avatar (it opens the settings, the language among them), the logo and the bell (it opens
+ * the notifications) on top-level screens, each in a sheet; a back arrow and a title on pushed ones.
  */
 export function PhoneTopBar({ title }: { title?: string }) {
   const location = useLocation();
   // The screen's own path: while a screen slides out, its header must not turn into the next screen's.
   const screenPath = useScreenPath();
   const navigate = useNavigate();
-  const session = useSession();
   const badges = useNavBadges();
   const { common, nav } = useCopy();
-  const user = session.data?.user;
 
   if (isPushedRoute(screenPath)) {
     const goBack = () => {
@@ -41,15 +35,12 @@ export function PhoneTopBar({ title }: { title?: string }) {
     );
   }
 
-  // Three columns keep the logo centered with two controls on one side.
+  // Three columns keep the logo centered between the avatar and the bell.
   return (
     <header className="grid min-h-[52px] grid-cols-[1fr_auto_1fr] items-center gap-2.5">
-      <MotionLink to="/users" aria-label={nav.account(user?.name ?? common.owner)} whileTap={{ scale: PRESS_SCALE }} transition={springs.ui} className="justify-self-start rounded-full">
-        <Avatar initial={user?.initial ?? common.owner.charAt(0)} gold size="md" />
-      </MotionLink>
+      <PhoneAccountSheet />
       <img src={logoUrl} alt={common.brandFull} className="w-14" />
       <div className="flex items-center gap-2 justify-self-end">
-        <LanguageSwitch compact />
         <NotificationsSheet count={badges.notifications} />
       </div>
     </header>

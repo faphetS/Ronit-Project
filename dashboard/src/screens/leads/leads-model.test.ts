@@ -1,8 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "../../data/http/client";
 import { NotFoundError } from "../../data/services";
+import type { GroupSummary } from "../../data/types";
 import { testLead } from "../../test/leads";
-import { boardLeads, columnOf, moveFor, STATUS_CHOICES, statusChangeProblem, statusForDrop } from "./leads-model";
+import { boardLeads, columnOf, moveFor, nextFlight, STATUS_CHOICES, statusChangeProblem, statusForDrop } from "./leads-model";
+
+describe("nextFlight", () => {
+  const trip = (id: string, type: GroupSummary["type"], startsOn: string | null) => ({ id, type, startsOn }) as GroupSummary;
+
+  it("is the flight that leaves soonest from today on: not an event, not one that left, not one without a date", () => {
+    const groups = [trip("left", "flight", "2026-11-01"), trip("event", "event", "2026-11-27"), trip("later", "flight", "2027-01-10"), trip("soon", "flight", "2026-12-06"), trip("undated", "flight", null)];
+    expect(nextFlight(groups, "2026-11-26")?.id).toBe("soon");
+    expect(nextFlight([trip("today", "flight", "2026-11-26")], "2026-11-26")?.id).toBe("today");
+    expect(nextFlight([trip("left", "flight", "2026-11-01")], "2026-11-26")).toBeNull();
+  });
+});
 
 describe("the board's columns", () => {
   it("puts each status in its column, with details sent beside in talks", () => {

@@ -2,27 +2,62 @@ import { Fragment, useState } from "react";
 import { Link } from "react-router";
 import { useCopy, useLocale } from "../../content/locale";
 import { useAddLeadNote, useDeleteLeadNote, useEditLeadNote, useSession, useUsers } from "../../data/queries";
-import type { Lead, LeadEvent, UserAccount } from "../../data/types";
+import type { Lead, LeadEvent, NoteCategory } from "../../data/types";
+import { cx } from "../../lib/cx";
 import { formatDayMonth } from "../../lib/format";
 import { Button } from "../../ui/Button";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
+import { Segmented } from "../../ui/Segmented";
 import { useToast } from "../../ui/toast-context";
 import { useStaffLookup } from "../customers/useStaffLookup";
-import { mentionedIds, splitMentions } from "./mentions";
+import { splitMentions, tagsToSave, withTag } from "./mentions";
 import { MentionTextArea } from "./MentionTextArea";
 
 /** A note's tags; a server from before tags sends none. */
 const tagsOf = (event: LeadEvent): string[] => event.mentions ?? [];
 
-/** Remembers one more person picked in the box. */
-const withTag = (userId: string) => (ids: string[]) => (ids.includes(userId) ? ids : [...ids, userId]);
+/** A note's kind; a server from before kinds sends none, so it's a plain note. */
+const kindOf = (event: LeadEvent): NoteCategory => event.category ?? "note";
 
-/**
- * The tags to save with the text: the people picked whose "@<full name>" is still in it. Until the team has loaded,
- * names can't be checked, so the ones remembered stay.
- */
-function tagsToSave(text: string, remembered: string[], team: UserAccount[] | undefined): string[] {
-  return team ? mentionedIds(text, remembered, team) : remembered;
+const KINDS: readonly NoteCategory[] = ["note", "question", "answer"];
+
+/** Questions in the copper of "in talks", still open; answers in the green of "registered", settled. */
+const KIND_TONE = {
+  question: "bg-status-talking/15 text-status-talking-deep",
+  answer: "bg-status-registered/15 text-status-registered-deep",
+} as const;
+
+/** The label of a question or an answer, before its text. Plain notes have none. Compact fits a line of small text. */
+export function NoteKindBadge({ kind, compact = false, className }: { kind: NoteCategory; compact?: boolean; className?: string }) {
+  const { leadsCopy: copy } = useCopy();
+  if (kind !== "question" && kind !== "answer") return null;
+  return (
+    <span
+      className={cx(
+        "inline-flex items-center rounded-full font-medium whitespace-nowrap",
+        compact ? "h-[18px] px-1.5 text-[11px]" : "h-[22px] px-2 text-caption",
+        KIND_TONE[kind],
+        className,
+      )}
+    >
+      {copy.detail.noteKinds[kind]}
+    </span>
+  );
+}
+
+/** Note, question or answer: the small switch at the start of the note box's buttons. */
+export function NoteKindPicker({ id, value, onChange }: { id: string; value: NoteCategory; onChange: (kind: NoteCategory) => void }) {
+  const { leadsCopy: copy } = useCopy();
+  return (
+    <Segmented
+      id={id}
+      size="sm"
+      label={copy.detail.noteKind}
+      value={value}
+      onChange={onChange}
+      options={KINDS.map((kind) => ({ value: kind, label: copy.detail.noteKinds[kind] }))}
+    />
+  );
 }
 
 /** The box for a new note, for people with full Leads access. "@" tags someone from the team. */
@@ -33,15 +68,17 @@ export function NoteComposer({ leadId }: { leadId: string }) {
   const team = useUsers().data?.users;
   const [text, setText] = useState("");
   const [tagged, setTagged] = useState<string[]>([]);
+  const [kind, setKind] = useState<NoteCategory>("note");
   const save = () => {
     const trimmed = text.trim();
     if (!trimmed || add.isPending) return;
     add.mutate(
-      { id: leadId, text: trimmed, mentions: tagsToSave(trimmed, tagged, team) },
+      { id: leadId, text: trimmed, mentions: tagsToSave(trimmed, tagged, team), category: kind },
       {
         onSuccess: () => {
           setText("");
           setTagged([]);
+          setKind("note");
           toast.show({ message: copy.detail.noteSaved });
         },
         onError: () => toast.show({ message: copy.detail.noteFailed, tone: "warning" }),
@@ -57,6 +94,7 @@ export function NoteComposer({ leadId }: { leadId: string }) {
       onTag={(userId) => setTagged(withTag(userId))}
       placeholder={copy.detail.notePlaceholder}
       className="mb-4"
+      leading={<NoteKindPicker id="note-kind-new" value={kind} onChange={setKind} />}
       actions={
         <Button size="sm" onClick={save} disabled={!text.trim() || add.isPending}>
           {copy.detail.noteSave}
@@ -66,8 +104,11 @@ export function NoteComposer({ leadId }: { leadId: string }) {
   );
 }
 
-/** A note's text, with the "@<full name>" of each person it tags as a gold chip. Other "@" text stays as it is. */
-export function NoteText({ text, mentions }: { text: string; mentions: readonly string[] }) {
+/**
+ * A note's text, with the "@<full name>" of each person it tags as a gold chip. Other "@" text stays as it is. A question
+ * or an answer starts with its label.
+ */
+export function NoteText({ text, mentions, kind = "note" }: { text: string; mentions: readonly string[]; kind?: NoteCategory }) {
   const team = useUsers().data?.users ?? [];
   const parts = splitMentions(
     text,
@@ -75,6 +116,7 @@ export function NoteText({ text, mentions }: { text: string; mentions: readonly 
   );
   return (
     <p className="font-medium break-words whitespace-pre-line text-ink">
+      <NoteKindBadge kind={kind} className="me-1.5" />
       {parts.map((part, index) =>
         typeof part === "string" ? (
           <Fragment key={index}>{part}</Fragment>
@@ -101,6 +143,7 @@ function NoteRow({ leadId, event, canManage }: { leadId: string; event: LeadEven
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(event.text);
   const [tagged, setTagged] = useState<string[]>(() => tagsOf(event));
+  const [kind, setKind] = useState<NoteCategory>(() => kindOf(event));
   const [confirming, setConfirming] = useState(false);
 
   const date = formatDayMonth(new Date(event.at), locale);
@@ -112,6 +155,7 @@ function NoteRow({ leadId, event, canManage }: { leadId: string; event: LeadEven
   const startEdit = () => {
     setDraft(event.text);
     setTagged(tagsOf(event));
+    setKind(kindOf(event));
     setEditing(true);
   };
   // The tags always go with an edit, so taking a name out of the text takes its tag off.
@@ -119,7 +163,7 @@ function NoteRow({ leadId, event, canManage }: { leadId: string; event: LeadEven
     const trimmed = draft.trim();
     if (!trimmed || edit.isPending) return;
     edit.mutate(
-      { id: leadId, noteId: event.id, text: trimmed, mentions: tagsToSave(trimmed, tagged, team) },
+      { id: leadId, noteId: event.id, text: trimmed, mentions: tagsToSave(trimmed, tagged, team), category: kind },
       { onSuccess: () => setEditing(false), onError: () => toast.show({ message: copy.detail.noteFailed, tone: "warning" }) },
     );
   };
@@ -127,6 +171,7 @@ function NoteRow({ leadId, event, canManage }: { leadId: string; event: LeadEven
     setEditing(false);
     setDraft(event.text);
     setTagged(tagsOf(event));
+    setKind(kindOf(event));
   };
   const confirmDelete = () => {
     remove.mutate(
@@ -149,6 +194,7 @@ function NoteRow({ leadId, event, canManage }: { leadId: string; event: LeadEven
           value={draft}
           onChange={setDraft}
           onTag={(userId) => setTagged(withTag(userId))}
+          leading={<NoteKindPicker id={`note-kind-${event.id}`} value={kind} onChange={setKind} />}
           actions={
             <>
               <Button size="sm" variant="outline" onClick={cancelEdit}>
@@ -162,7 +208,7 @@ function NoteRow({ leadId, event, canManage }: { leadId: string; event: LeadEven
         />
       ) : (
         <>
-          <NoteText text={event.text} mentions={tagsOf(event)} />
+          <NoteText text={event.text} mentions={tagsOf(event)} kind={kindOf(event)} />
           <p className="text-caption text-mute">
             {meta}
             {event.editedAt ? ` · ${copy.detail.noteEdited}` : null}

@@ -1,8 +1,7 @@
 import { AnimatePresence, motion, type Variants } from "motion/react";
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { languageNames, LOCALES } from "../../content/copy";
-import { useCopy, useDirection, useLocale } from "../../content/locale";
+import { useCopy, useDirection } from "../../content/locale";
 import { ApiError } from "../../data/http/client";
 import { useCan, useSecuritySettings, useSession, useSignOut, useUpdateProfile, useUpdateSecuritySwitch, useUsers } from "../../data/queries";
 import { cx } from "../../lib/cx";
@@ -11,18 +10,14 @@ import { Avatar } from "../../ui/Avatar";
 import { Field } from "../../ui/Field";
 import { GooButton } from "../../ui/GooButton";
 import { Icon } from "../../ui/Icon";
-import type { IconName } from "../../ui/icons";
 import { Ltr } from "../../ui/Ltr";
 import { Switch } from "../../ui/Switch";
 import { useToast } from "../../ui/toast-context";
 import { OwnPasswordForm } from "../../screens/users/OwnPasswordForm";
+import { PRESSABLE, ROW, STILL_ROW } from "../account/settings-rows";
+import { Chevron, LanguageToggle, RowBody, SettingsGroup } from "../account/SettingsRows";
 
 type View = "settings" | "profile" | "password";
-
-const PRESSABLE = "transition-colors hover:bg-sand-light active:bg-line focus-visible:bg-sand-light focus-visible:outline-none";
-const HAIRLINE = "border-t border-line";
-const ROW = cx("flex w-full items-center gap-3 ps-3", PRESSABLE);
-const STILL_ROW = "flex w-full items-center gap-3 ps-3";
 
 /** Views slide a little toward where they go, and fade. `shift` is +1 into the panel, -1 back out, flipped in RTL. */
 const SLIDE: Variants = {
@@ -30,78 +25,6 @@ const SLIDE: Variants = {
   at: { opacity: 1, x: 0, transition: springs.ui },
   to: (shift: number) => ({ opacity: 0, x: -18 * shift, transition: fadeOut }),
 };
-
-/** A row's icon on a small sand tile, or a warm red one for signing out. */
-function Tile({ icon, warning = false }: { icon: IconName; warning?: boolean }) {
-  return (
-    <span
-      aria-hidden="true"
-      className={cx(
-        "grid size-8 shrink-0 place-items-center rounded-[10px]",
-        warning ? "bg-status-warning/10 text-status-warning" : "bg-sand-light text-ink ring-1 ring-black/[0.04] ring-inset",
-      )}
-    >
-      <Icon name={icon} size={17} />
-    </span>
-  );
-}
-
-function Chevron() {
-  return <Icon name="forward" size={14} className="shrink-0 text-mute/50" />;
-}
-
-/** One group of rows on a white card. */
-function Group({ children }: { children: ReactNode }) {
-  return <div className="overflow-clip rounded-[20px] bg-white/90 ring-1 ring-black/[0.04]">{children}</div>;
-}
-
-interface RowBodyProps {
-  icon: IconName;
-  label: string;
-  value?: ReactNode;
-  trailing?: ReactNode;
-  first?: boolean;
-  warning?: boolean;
-}
-
-/** A row's insides: the tile, then the label and what trails it, over a hairline that starts at the label. */
-function RowBody({ icon, label, value, trailing, first = false, warning = false }: RowBodyProps) {
-  return (
-    <>
-      <Tile icon={icon} warning={warning} />
-      <span className={cx("flex min-h-12 min-w-0 flex-1 items-center gap-2 pe-3.5", !first && HAIRLINE)}>
-        <span className={cx("min-w-0 flex-1 truncate text-start text-[14.5px]", warning ? "text-status-warning" : "text-ink")}>{label}</span>
-        {value === undefined ? null : <span className="shrink-0 text-[14px] text-mute">{value}</span>}
-        {trailing}
-      </span>
-    </>
-  );
-}
-
-/** The two languages as a small segmented control. */
-function LanguageToggle({ label }: { label: string }) {
-  const { locale, setLocale } = useLocale();
-  return (
-    <div role="group" aria-label={label} className="flex shrink-0 rounded-full bg-sand-light p-0.5 ring-1 ring-black/[0.04] ring-inset">
-      {LOCALES.map((value) => (
-        <button
-          key={value}
-          type="button"
-          lang={value}
-          aria-pressed={locale === value}
-          aria-label={languageNames[value].full}
-          onClick={() => setLocale(value)}
-          className={cx(
-            "h-8 min-w-11 rounded-full px-2.5 text-[13px] font-medium transition-colors",
-            locale === value ? "bg-ink text-cream" : "text-mute hover:text-ink",
-          )}
-        >
-          {languageNames[value].short}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 /**
  * Your own name and WhatsApp number (test greetings go to it), saved with the joined button. The email is the
@@ -283,12 +206,12 @@ export function AccountMenu() {
         {user ? <span className="shrink-0 rounded-full bg-gold/20 px-2.5 py-1 text-[12px] leading-none font-medium text-ink">{usersCopy.roles[user.role]}</span> : null}
         <Chevron />
       </button>
-      <Group>
+      <SettingsGroup>
         <Link to="/users" onClick={close} className={ROW}>
           <RowBody icon="users" label={copy.team} value={users.data?.users.length} trailing={<Chevron />} first />
         </Link>
-      </Group>
-      <Group>
+      </SettingsGroup>
+      <SettingsGroup>
         <div className={STILL_ROW}>
           <RowBody icon="globe" label={copy.language} trailing={<LanguageToggle label={copy.language} />} first />
         </div>
@@ -318,12 +241,12 @@ export function AccountMenu() {
             />
           </div>
         )}
-      </Group>
-      <Group>
+      </SettingsGroup>
+      <SettingsGroup>
         <button type="button" onClick={() => signOut.mutate(undefined, { onSuccess: () => navigate("/login", { replace: true }) })} className={ROW}>
           <RowBody icon="signOut" label={copy.signOut} warning first />
         </button>
-      </Group>
+      </SettingsGroup>
     </div>
   );
 
