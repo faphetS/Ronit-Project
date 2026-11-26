@@ -148,12 +148,36 @@ export const leadsCopy = {
     taggedSome: (done: number, total: number) => `ההערה נשמרה ב-${done} מתוך ${total} לידים. את השאר כדאי לנסות שוב`,
   },
 
-  /** Beside the page's title: the next flight with a date, how soon it leaves and how full it is. Opens the group. */
-  nextFlight: {
-    label: "הטיסה הקרובה",
+  /**
+   * The next trip: on desktop a card above the leads that counts the days to it, with a bar for each of the 30 days
+   * before it; on phones a pill. A flight that left and isn't back yet shows instead, by its day. Opens the group.
+   */
+  nextTrip: {
+    label: { flight: "הטיסה הקרובה", event: "האירוע הקרוב" },
+    underWay: "בנסיעה עכשיו",
     when: (days: number) => (days === 0 ? "היום" : days === 1 ? "מחר" : `בעוד ${days} ימים`),
+    /** Beside the big number of days. */
+    unit: {
+      flight: (days: number) => (days === 1 ? "יום לטיסה" : "ימים לטיסה"),
+      event: (days: number) => (days === 1 ? "יום לאירוע" : "ימים לאירוע"),
+    },
+    today: { flight: "הטיסה יוצאת היום", event: "האירוע היום" },
+    todayNumber: "היום",
+    /** A flight under way: "יום 2 מתוך 5". */
+    tripDay: "ימי הנסיעה",
+    back: (date: string) => `חוזרים ב־${date}`,
+    dates: (from: string, to: string) => `${from} – ${to}`,
     seats: (registered: string, capacity: string) => `${registered} מתוך ${capacity} מקומות`,
     registered: (registered: string) => `${registered} נרשמו`,
+    passports: (percent: string) => `דרכונים ${percent}%`,
+    then: "אחר כך",
+    runUp: (days: number) => (days > 30 ? "יותר מחודש עד היציאה" : days <= 0 ? "יוצאים" : `עוד ${days} ימים עד היציאה`),
+    runUpFar: "יותר מחודש",
+    todayMark: "היום",
+    none: "אין עדיין טיסה או אירוע עם תאריך",
+    noneHint: "תאריך שמוסיפים לקבוצה מופיע כאן, עם ספירה לאחור.",
+    toGroups: "לקבוצות",
+    failed: "הנסיעה הקרובה לא נטענה",
   },
 
   /** When a status change didn't go through: a drop on the board, or the status menu. */

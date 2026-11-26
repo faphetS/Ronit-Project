@@ -147,9 +147,25 @@ export function focusLeadLink(id: string): void {
   });
 }
 
-/** The flight that leaves next, from today on, or null when none has a date. */
-export function nextFlight(groups: readonly GroupSummary[], today: string): GroupSummary | null {
-  const coming = groups.filter((group) => group.type === "flight" && group.startsOn !== null && group.startsOn >= today);
-  coming.sort((a, b) => (a.startsOn ?? "").localeCompare(b.startsOn ?? ""));
-  return coming[0] ?? null;
+/** A flight or event still ahead: one that starts today or later, or a flight that left and isn't back yet. */
+export interface TripAhead {
+  group: GroupSummary;
+  /** The flight left and isn't back yet. */
+  underWay: boolean;
+}
+
+/**
+ * The flights and events still ahead, soonest first; a flight under way comes before them all. Projects and groups
+ * without a date are left out, and so is an event that already began (a month of challah), which has no day to count
+ * down to.
+ */
+export function tripsAhead(groups: readonly GroupSummary[], today: string): TripAhead[] {
+  const ahead: TripAhead[] = [];
+  for (const group of groups) {
+    const { startsOn, endsOn, type } = group;
+    if (type === "project" || startsOn === null) continue;
+    if (startsOn >= today) ahead.push({ group, underWay: false });
+    else if (type === "flight" && endsOn !== null && endsOn >= today) ahead.push({ group, underWay: true });
+  }
+  return ahead.sort((a, b) => Number(b.underWay) - Number(a.underWay) || (a.group.startsOn ?? "").localeCompare(b.group.startsOn ?? ""));
 }
